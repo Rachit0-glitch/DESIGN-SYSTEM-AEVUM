@@ -1,0 +1,57 @@
+services:
+  database:
+    image: postgres:16.6-alpine
+    profiles: ["future-local"]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-aevum}
+      POSTGRES_USER: ${POSTGRES_USER:-aevum}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-local-only}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - database-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  cache:
+    image: redis:7.4.1-alpine
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - cache-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  object-storage:
+    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
+    profiles: ["future-local"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-aevum}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-me-local-only}
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    command: ["server", "/data", "--console-address", ":9001"]
+    volumes:
+      - object-storage-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  cache-data:
+  database-data:
+  object-storage-data:
+
+networks:
+  default:
+    name: ${NETWORK_NAME:-aevum-network}

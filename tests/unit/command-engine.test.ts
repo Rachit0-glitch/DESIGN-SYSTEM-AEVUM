@@ -1,0 +1,191 @@
+import {
+  CURRENT_COMMAND_VERSION,
+  CommandEngineError,
+  createCommandId,
+  createTransactionId,
+  deserializeCommand,
+  executeCommand,
+  listCommands,
+  serializeCommand,
+  validateCommand,
+  type Command,
+} from "@aevum/command-engine";
+import {
+  createAsset,
+  createDocument,
+  createFrame,
+  fixtures,
+  serialize,
+  validateDocument,
+  type CanonicalDesignDocument,
+} from "@aevum/document-model";
+import { describe, expect, it } from "vitest";
+
+const TIME = "2026-08-01T01:00:00.000Z";
+const actor = { id: "user_phase2", type: "USER" as const, displayName: "Phase 2 tester" };
+
+function base(document: CanonicalDesignDocument, transactionId = createTransactionId()) {
+  return {
+    id: createCommandId(),
+    commandVersion: CURRENT_COMMAND_VERSION,
+    documentId: document.metadata.id,
+    expectedDocumentVersion: document.documentVersion,
+    timestamp: TIME,
+    actor,
+    correlationId: "corr_command_test",
+    transactionId,
+  } as const;
+}
+
+function expectCommandError(action: () => unknown, code: CommandEngineError["code"]): void {
+  try {
+    action();
+    throw new Error("Expected command to fail.");
+  } catch (error) {
+    expect(error).toBeInstanceOf(CommandEngineError);
+    expect((error as CommandEngineError).code).toBe(code);
+  }
+}
+
+describe("Command Engine", () => {
+  it("self-registers the complete Phase 2 command surface", () => {
+    expect(listCommands()).toEqual([
+      "asset.register",
+      "asset.remove",
+      "document.create",
+      "document.rename",
+      "node.create",
+      "node.delete",
+      "node.duplicate",
+      "node.move",
+      "node.reparent",
+      "node.update",
+      "page.create",
+      "page.delete",
+      "page.rename",
+    ]);
+  });
+
+  it("creates a document through the same validated transaction path", () => {
+    const document = createDocument({ name: "Created by command", now: TIME, actorId: actor.id });
+    const command: Command = {
+      ...base(document),
+      expectedDocumentVersion: 0,
+      type: "document.create",
+      payload: { document },
+    };
+    const result = executeCommand(null, command);
+
+    expect(result.oldDocument).toBeNull();
+    expect(result.newDocument.documentVersion).toBe(1);
+    expect(result.events[0]?.type).toBe("DocumentCreated");
+    expect(result.auditRecord.result).toBe("SUCCEEDED");
+  });
+
+  it("creates a node immutably while preserving unrelated registry identity", () => {
+    const document = fixtures.landingPage();
+    const pageId = document.pages[0];
+    if (!pageId) throw new Error("Landing fixture requires a page.");
+    const frame = createFrame(pageId, "Added frame");
+    const command: Command = { ...base(document), type: "node.create", payload: { node: frame } };
+    const original = serialize(document);
+
+    const result = executeCommand(document, command);
+
+    expect(serialize(document)).toBe(original);
+    expect(result.oldDocument).toBe(document);
+    expect(result.newDocument).not.toBe(document);
+    expect(result.newDocument.assets).toBe(document.assets);
+    expect(result.newDocument.typography).toBe(document.typography);
+    expect(result.newDocument.nodes[frame.id]).toEqual(frame);
+    expect(result.newDocument.documentVersion).toBe(document.documentVersion + 1);
+    expect(validateDocument(result.newDocument).success).toBe(true);
+  });
+
+  it("serializes, deserializes, and freezes validated commands", () => {
+    const document = fixtures.empty();
+    const command: Command = { ...base(document), type: "document.rename", payload: { name: "Serialized" } };
+    const restored = deserializeCommand(serializeCommand(command, true));
+
+    expect(restored).toEqual(command);
+    expect(Object.isFrozen(restored)).toBe(true);
+    expect(Object.isFrozen(restored.payload)).toBe(true);
+    expect(validateCommand(command)).toEqual(command);
+  });
+
+  it("rejects malformed payloads and unknown commands before execution", () => {
+    const document = fixtures.empty();
+    expectCommandError(
+      () => executeCommand(document, { ...base(document), type: "document.rename", payload: { name: "" } }),
+      "COMMAND_VALIDATION_ERROR",
+    );
+    expectCommandError(
+      () => executeCommand(document, { ...base(document), type: "renderer.mutate", payload: {} }),
+      "UNKNOWN_COMMAND",
+    );
+  });
+
+  it("rejects optimistic concurrency mismatches without version changes", () => {
+    const document = fixtures.empty();
+    const command = {
+      ...base(document),
+      expectedDocumentVersion: 99,
+      type: "document.rename",
+      payload: { name: "Conflict" },
+    };
+    expectCommandError(() => executeCommand(document, command), "VERSION_MISMATCH");
+    expect(document.documentVersion).toBe(1);
+  });
+
+  it("registers and removes an unreferenced asset through commands", () => {
+    const document = fixtures.empty();
+    const asset = createAsset({
+      type: "IMAGE",
+      name: "Command asset",
+      hash: `sha256:${"c".repeat(64)}`,
+      uri: "assets/command.png",
+      mimeType: "image/png",
+    });
+    const registered = executeCommand(document, {
+      ...base(document),
+      type: "asset.register",
+      payload: { asset },
+    }).newDocument;
+    const removed = executeCommand(registered, {
+      ...base(registered),
+      type: "asset.remove",
+      payload: { assetId: asset.id },
+    }).newDocument;
+
+    expect(registered.assets[asset.id]).toEqual(asset);
+    expect(removed.assets[asset.id]).toBeUndefined();
+  });
+
+  it("deletes a node subtree and detaches it from its parent", () => {
+    const document = fixtures.landingPage();
+    const text = Object.values(document.nodes).find((node) => node.type === "TEXT");
+    if (!text?.parentId) throw new Error("Landing fixture requires nested text.");
+    const parentId = text.parentId;
+    const result = executeCommand(document, {
+      ...base(document),
+      type: "node.delete",
+      payload: { nodeId: text.id },
+    });
+
+    expect(result.newDocument.nodes[text.id]).toBeUndefined();
+    expect(result.newDocument.nodes[parentId]?.childIds).not.toContain(text.id);
+    expect(result.changeSet.removed).toContain(text.id);
+    expect(document.nodes[text.id]).toBe(text);
+  });
+
+  it("produces identical documents for identical command sequences", () => {
+    const document = fixtures.landingPage();
+    const command: Command = { ...base(document), type: "document.rename", payload: { name: "Deterministic" } };
+    const first = executeCommand(document, command);
+    const second = executeCommand(document, command);
+
+    expect(serialize(first.newDocument)).toBe(serialize(second.newDocument));
+    expect(first.changeSet).toEqual(second.changeSet);
+    expect(first.events).toEqual(second.events);
+  });
+});

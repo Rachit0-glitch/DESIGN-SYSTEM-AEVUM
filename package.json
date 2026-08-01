@@ -1,0 +1,45 @@
+{
+  "name": "aevum-reconstruction-engine",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.9.0",
+  "engines": {
+    "node": ">=24.0.0 <25",
+    "pnpm": ">=11.9.0 <12"
+  },
+  "scripts": {
+    "build": "turbo build",
+    "typecheck": "turbo typecheck",
+    "lint": "biome lint .",
+    "format": "biome format . --write",
+    "format:check": "biome format .",
+    "test": "turbo build && vitest run",
+    "test:unit": "turbo build && vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:e2e": "playwright test",
+    "validate": "pnpm validate:docs && pnpm validate:deps && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "validate:deps": "node --experimental-strip-types scripts/validate-dependencies.ts",
+    "validate:docker": "docker compose config",
+    "validate:docs": "node --experimental-strip-types scripts/validate-docs.ts"
+  },
+  "dependencies": {
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@aevum/assets": "workspace:*",
+    "@aevum/command-engine": "workspace:*",
+    "@aevum/document-model": "workspace:*",
+    "@aevum/exporters": "workspace:*",
+    "@aevum/project-store": "workspace:*",
+    "@aevum/scene-runtime": "workspace:*",
+    "@aevum/shared": "workspace:*",
+    "@aevum/typography": "workspace:*",
+    "@biomejs/biome": "2.5.6",
+    "@playwright/test": "1.62.1",
+    "@types/node": "26.1.2",
+    "turbo": "2.10.8",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  }
+}

@@ -1,0 +1,54 @@
+import {
+  CURRENT_MIGRATION_VERSION,
+  CURRENT_SCHEMA_VERSION,
+  MigrationRegistry,
+  currentSchema,
+  fixtures,
+  migrate,
+} from "../../packages/document-model/src/index.js";
+import { describe, expect, it } from "vitest";
+
+describe("document migrations", () => {
+  it("reports the current schema version", () => {
+    expect(currentSchema()).toBe(CURRENT_SCHEMA_VERSION);
+  });
+
+  it("executes a registered path and validates the migrated document", () => {
+    const current = fixtures.empty();
+    const legacy = { ...current, schemaVersion: "0.9.0", migrationVersion: -1 };
+    const registry = new MigrationRegistry();
+    registry.registerMigration("0.9.0", CURRENT_SCHEMA_VERSION, (document, context) => ({
+      ...document,
+      schemaVersion: context.toVersion,
+      migrationVersion: CURRENT_MIGRATION_VERSION,
+    }));
+
+    expect(registry.migrate(legacy).schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+  });
+
+  it("migrates Phase 1 documents to the Phase 3 asset-type contract without data loss", () => {
+    const current = fixtures.assetDemo();
+    const legacy = { ...current, schemaVersion: "1.0.0", migrationVersion: 0 };
+
+    const migrated = migrate(legacy);
+
+    expect(migrated.schemaVersion).toBe("1.1.0");
+    expect(migrated.migrationVersion).toBe(1);
+    expect(migrated.assets).toEqual(current.assets);
+  });
+
+  it("rejects duplicate registrations and incomplete migration paths", () => {
+    const registry = new MigrationRegistry();
+    const migration = (document: Readonly<Record<string, unknown>>) => ({ ...document, schemaVersion: "1.0.0" });
+    registry.registerMigration("0.9.0", "1.0.0", migration);
+
+    expect(() => registry.registerMigration("0.9.0", "1.0.1", migration)).toThrow("already registered");
+    expect(() => new MigrationRegistry().migrate({ schemaVersion: "0.8.0" })).toThrow("No migration path");
+  });
+
+  it("rejects migrations that fail to advance their declared version", () => {
+    const registry = new MigrationRegistry();
+    registry.registerMigration("0.9.0", "1.0.0", (document) => ({ ...document }));
+    expect(() => registry.migrate({ schemaVersion: "0.9.0" })).toThrow("did not set schemaVersion");
+  });
+});
