@@ -27,6 +27,9 @@ importers:
       '@aevum/project-store':
         specifier: workspace:*
         version: link:packages/project-store
+      '@aevum/renderer-2d':
+        specifier: workspace:*
+        version: link:packages/renderer-2d
       '@aevum/scene-runtime':
         specifier: workspace:*
         version: link:packages/scene-runtime
@@ -282,9 +285,15 @@ importers:
 
   packages/renderer-2d:
     dependencies:
+      '@aevum/scene-runtime':
+        specifier: workspace:*
+        version: link:../scene-runtime
       '@aevum/shared':
         specifier: workspace:*
         version: link:../shared
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
 
   packages/renderer-3d:
     dependencies:

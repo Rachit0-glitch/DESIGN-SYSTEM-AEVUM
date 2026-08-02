@@ -501,17 +501,16 @@ Responsibilities include:
 
 This package shall own:
 
-- DOM rendering
-- CSS rendering
-- SVG rendering
-- Canvas rendering
-- WebGL composition
-- Raster composition
+- Renderer-independent Render Graph construction
+- Deterministic visibility and paint-order resolution
+- Clip, mask, blend, style, text, image, vector, and effect operations
+- Backend assignment hints for future DOM, SVG, Canvas, WebGL, and raster adapters
 - Layer isolation
-- Region rendering
-- Effect rendering
-- Hybrid render selection
-- Deterministic 2D capture
+- Renderer diagnostics
+- Projection-aware bounded caching
+
+Target-specific rendering and capture are future adapters. The package shall not use DOM, browser, React, CSS,
+Canvas, SVG-output, Three.js, or exporter APIs in the renderer foundation.
 
 ---
 
@@ -1059,7 +1058,30 @@ It shall generate validated reconstruction proposals or commands.
 
 ## 16. Hybrid 2D Rendering Architecture
 
-The Hybrid 2D Renderer shall support multiple render backends.
+The Hybrid 2D Renderer consumes `SceneProjectionResult` and produces a renderer-independent Render Graph before any
+target backend exists. The graph is disposable, immutable, deterministic, and fingerprinted.
+
+The required foundation pipeline is:
+
+```text
+Scene Projection
+-> Visibility Resolution
+-> Paint Order Resolution
+-> Clip Resolution
+-> Style Resolution
+-> Text Resolution
+-> Image Resolution
+-> Vector Resolution
+-> Effect Resolution
+-> Render Graph
+-> Renderer Output
+```
+
+Render Graph operations are `PAINT`, `CLIP`, `MASK`, `BLEND`, `TEXT`, `IMAGE`, `VECTOR`, and `EFFECT`. Graph edges
+represent containment, clipping, masking, blending, and effect application. The cache identity includes projection
+fingerprint, renderer version, viewport, and quality.
+
+The Hybrid 2D Renderer shall eventually support multiple render backends through adapters.
 
 A render planner shall decide how each node is represented.
 
@@ -1083,7 +1105,9 @@ The render planner shall consider:
 - Browser compatibility
 - Validation determinism
 
-The renderer shall support mixed compositions.
+The renderer shall support mixed compositions. Backend hints are inspectable planning metadata, not backend output.
+Scene Runtime owns hierarchy, transforms, responsive overrides, component expansion, constraints, and references;
+the renderer does not solve layout or shape text.
 
 ---
 

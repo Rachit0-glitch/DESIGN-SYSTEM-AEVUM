@@ -1007,7 +1007,18 @@ The rendering system shall support:
 
 ## 42. Hybrid 2D Renderer
 
-The Hybrid 2D Renderer shall support:
+The Hybrid 2D Renderer foundation shall emit deterministic Render Graph operations for:
+
+- Paint
+- Clip
+- Mask
+- Blend
+- Text metadata
+- Image metadata
+- Vector metadata
+- Effects
+
+It shall remain independent from DOM, CSS, browser, and GPU APIs. Future target adapters shall support:
 
 - DOM
 - CSS
@@ -1016,7 +1027,7 @@ The Hybrid 2D Renderer shall support:
 - WebGL
 - Raster compositing
 
-A Render Planner shall select the best backend per node.
+A backend planner shall expose an inspectable hint per node without invoking the backend.
 
 The planner shall consider:
 
@@ -1050,7 +1061,8 @@ The selected backend shall be inspectable.
 
 ## 44. Runtime Scene Projection
 
-The renderer shall create a runtime projection from the Canonical Design Document.
+Scene Runtime shall create the runtime projection from the Canonical Design Document. The renderer shall only
+consume that immutable projection.
 
 The projection may include:
 
@@ -1062,7 +1074,7 @@ The projection may include:
 - Resolved assets
 - Resolved responsive overrides
 - Resolved timelines
-- Renderer-specific objects
+- Resolved reference metadata
 
 The projection shall be disposable and regenerable.
 

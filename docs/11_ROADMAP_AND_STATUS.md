@@ -640,35 +640,32 @@ Status update:
 
 ### Goal
 
-Render editable 2D compositions using DOM, CSS, SVG, Canvas, WebGL, and raster compositing.
+Transform immutable Scene Runtime projections into deterministic, renderer-independent Render Graphs.
 
 ### Status
 
 ```text
-PLANNED
+VALIDATED
 ```
 
 ### Scope
 
-- DOM renderer
-- CSS layout
-- SVG renderer
-- Canvas renderer
-- WebGL layer
-- Raster layer
-- Render Planner
-- Mixed-backend compositions
+- Visibility resolution
+- Deterministic hierarchy, z-order, and mask dependency ordering
+- Renderer-independent Render Graph
+- Paint, clip, mask, blend, text, image, vector, and effect operations
+- Inspectable backend hints without target rendering
 - Masks
 - Clipping
 - Blending
 - Multiple fills
 - Multiple strokes
 - Effects
-- Typography rendering
-- Region rendering
-- Layer-only rendering
-- Object ID mapping
-- Deterministic capture
+- Typography metadata preservation without shaping
+- Canonical asset metadata resolution without loading
+- Renderer diagnostics
+- Projection-aware bounded cache
+- Immutable renderer output
 
 ### Primary Package
 
@@ -678,14 +675,56 @@ packages/renderer-2d
 
 ### Acceptance Gate
 
-- Core 2D fixtures render correctly
-- Mixed backends align
-- Typography output is stable
+- Deterministic Render Graph exists
+- Immutable renderer output exists
 - Layer order is deterministic
-- Masks and clipping work
-- Region and layer renders work
-- Object-to-pixel mapping is available
-- Deterministic rerenders match
+- Masks, clipping, gradients, text, images, vectors, and effects are represented
+- Diagnostics cover unsupported nodes, missing assets, invalid order, unresolved style, and clipping conflicts
+- Cache identity includes projection fingerprint, renderer version, viewport, and quality
+- Fixtures and command-independent renderer tests pass
+- Dependency validation, typecheck, tests, and build pass
+
+Target HTML, CSS, SVG output, Canvas output, browser objects, React integration, pixel capture, region rendering, and
+object-to-pixel mapping are intentionally outside this phase.
+
+### Validation Record
+
+- Date: 2026-08-02
+- Previous status: `PLANNED`
+- New status: `VALIDATED`
+- Evidence:
+  - `packages/renderer-2d` now exposes deterministic Render Graph construction, paint ordering, effect resolution,
+    renderer output, diagnostics, and a bounded LRU cache.
+  - Render Graph operations cover paint, clip, mask, blend, text, image, vector, and effect semantics with
+    inspectable backend hints and no browser or exporter dependencies.
+  - Scene Runtime now exposes resolved canonical shape tokens and `USES_TOKEN` dependency edges through its public
+    projection contract.
+  - The renderer preserves resolved hierarchy, transforms, dimensions, constraints, auto-layout metadata,
+    typography runs, canonical asset identity, component origin, and responsive projection data without mutation.
+- Test results:
+  - Focused Hybrid 2D Renderer suite: 12 tests passed.
+  - Full repository suite: 15 files and 90 tests passed.
+  - Full workspace typecheck: 48 tasks passed.
+  - Full workspace build: 44 packages passed.
+  - Documentation, dependency-boundary, formatting, and lint validation passed.
+- Remaining warnings:
+  - Canonical schema `1.1.0` does not yet provide first-class fields for every gradient, stroke, blend, effect,
+    corner, repeat, alignment, and boolean-vector property. A strict `aevum.renderer2d` metadata bridge is supported
+    until a command-driven schema migration formalizes those fields.
+  - Typography shaping, line breaking, remote asset loading, pixels, target output, and GPU execution are deferred by
+    design.
+- Blockers:
+  - None for the Phase 5 renderer foundation.
+- Decisions:
+  - Renderer output is a target-neutral operation graph; backend hints never instantiate target objects.
+  - Paint order uses stable hierarchy and explicit z-order first, then parent and mask dependencies through a stable
+    topological pass.
+  - Cache identity is the SHA-256 of projection fingerprint, renderer version, viewport, and quality.
+- Next action:
+  - Begin Phase 6 in `packages/reconstruction` by defining runtime-validated reference-analysis and reconstruction
+    proposal contracts with provenance, confidence, diagnostics, and deterministic conversion into Command Engine
+    transactions; prove one registered screenshot reference can produce an inspectable proposal and valid initial
+    Canonical Design Document without direct state mutation or implementing AI providers yet.
 
 ---
 
@@ -2387,10 +2426,14 @@ Major scope changes shall also update:
 The next repository action should be:
 
 ```text
-Begin Phase 5.
+Begin Phase 6.
 ```
 
-The exact Phase 5 starting task is to define a deterministic `RenderPlan` contract in `packages/renderer-2d` that consumes `SceneProjectionResult`, assigns supported 2D runtime nodes to `DOM`, `SVG`, `CANVAS`, `WEBGL`, or `RASTER` backends with inspectable reasons and unsupported-feature diagnostics, and proves stable planning on the existing nested, responsive, and mixed fixtures before creating browser renderer objects.
+The exact Phase 6 starting task is to define runtime-validated reference-analysis and reconstruction proposal
+contracts in `packages/reconstruction`. Each proposal must preserve source-region provenance, confidence, quality
+mode, diagnostics, proposed nodes/assets/tokens/components, and deterministic Command Engine transactions. Prove one
+registered screenshot reference can produce an inspectable proposal and valid initial Canonical Design Document
+without direct state mutation, rendering, OCR, segmentation engines, or external AI providers yet.
 
 ---
 

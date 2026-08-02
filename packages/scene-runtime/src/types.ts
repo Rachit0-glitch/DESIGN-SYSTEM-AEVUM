@@ -41,6 +41,7 @@ export type RuntimeDiagnosticCode =
   | "CYCLE_DETECTED"
   | "UNREACHABLE_NODE"
   | "MISSING_ASSET"
+  | "MISSING_TOKEN"
   | "MISSING_COMPONENT"
   | "COMPONENT_RECURSION"
   | "MISSING_TIMELINE"
@@ -88,6 +89,7 @@ export interface RuntimeReference<T> {
 export interface RuntimeResolvedReferences {
   readonly assets: readonly RuntimeReference<AssetRecord>[];
   readonly fonts: readonly RuntimeReference<AssetRecord>[];
+  readonly tokens: readonly RuntimeReference<CanonicalDesignDocument["tokens"][string]>[];
   readonly components: readonly RuntimeReference<CanonicalDesignDocument["components"][string]>[];
   readonly timelines: readonly RuntimeReference<CanonicalDesignDocument["timelines"][string]>[];
   readonly materials: readonly RuntimeReference<CanonicalDesignDocument["materials"][string]>[];
@@ -130,6 +132,7 @@ export type RuntimeDependencyType =
   | "NODE_CHILD"
   | "USES_ASSET"
   | "USES_FONT"
+  | "USES_TOKEN"
   | "USES_COMPONENT"
   | "USES_TIMELINE"
   | "USES_MATERIAL"

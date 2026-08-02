@@ -39,6 +39,7 @@ export function resolveNodeReferences(
 ): RuntimeResolvedReferences {
   const assetIds: string[] = [];
   const fontIds: string[] = [];
+  const tokenIds: string[] = [];
   const componentIds: string[] = [];
   const materialIds: string[] = [];
   const cameraIds: string[] = [];
@@ -63,6 +64,10 @@ export function resolveNodeReferences(
       break;
     case "TEXT":
       for (const run of node.runs) if (run.style.fontAssetId) fontIds.push(run.style.fontAssetId);
+      break;
+    case "SHAPE":
+      if (node.fillTokenId) tokenIds.push(node.fillTokenId);
+      if (node.strokeTokenId) tokenIds.push(node.strokeTokenId);
       break;
     case "COMPONENT":
     case "COMPONENT_INSTANCE":
@@ -94,6 +99,12 @@ export function resolveNodeReferences(
     const value = document.assets[id];
     edges.push({ fromId: runtimeNodeId, toId: id, type: "USES_FONT" });
     if (!value) missing(diagnostics, "MISSING_ASSET", node.id, node.type, id, `nodes.${node.id}.runs`);
+    return reference(id, value);
+  });
+  const tokens = unique(tokenIds).map((id) => {
+    const value = document.tokens[id];
+    edges.push({ fromId: runtimeNodeId, toId: id, type: "USES_TOKEN" });
+    if (!value) missing(diagnostics, "MISSING_TOKEN", node.id, node.type, id, `nodes.${node.id}`);
     return reference(id, value);
   });
   const components = unique(componentIds).map((id) => {
@@ -135,7 +146,7 @@ export function resolveNodeReferences(
     return reference(id, value);
   });
 
-  return { assets, fonts, components, timelines, materials, cameras, lights };
+  return { assets, fonts, tokens, components, timelines, materials, cameras, lights };
 }
 
 export function resolveDocumentReferences(
