@@ -36,6 +36,37 @@ The Reconstruction Pipeline shall always produce structured proposals and comman
 
 It shall not bypass the Command Engine or mutate project state directly.
 
+### 1.1 Phase 6 Deterministic MVP Implementation
+
+The implemented Phase 6 vertical path is:
+
+```text
+Registered screenshot asset
+-> versioned reconstruction task
+-> deterministic manifest analysis
+-> immutable reconstruction proposal
+-> proposal validation
+-> dependency-ordered Command Engine transaction
+-> valid Canonical Design Document
+-> Scene Runtime projection
+-> renderer-independent 2D Render Graph
+-> versioned reconstruction report
+```
+
+`packages/reconstruction` owns runtime-validated task, analysis, region, candidate, proposal, confidence, provenance,
+diagnostic, command-plan, and report contracts. `apps/reconstruction-worker` owns in-memory orchestration and disposable
+Scene Runtime and Render Graph verification. The core package does not depend on those runtime consumers.
+
+The deterministic MVP consumes optional annotation manifests stored under `aevum.reconstruction.manifest` in registered
+asset metadata. A missing manifest produces an explicit raster fallback and capability diagnostics. This is fixture and
+adapter infrastructure, not OCR, production segmentation, asset extraction, or an external AI provider. Provider
+integrations must implement the public adapter contracts and their untrusted output must pass the same Zod validation.
+
+Every application is dry-run first and then committed as one immutable Command Engine transaction. New-document
+reconstruction starts with `document.create`; existing-document reconstruction requires an explicit document ID and
+expected document version. Registered references and every generated node retain source-region provenance and
+confidence. Stage timing is reported but excluded from deterministic fingerprints.
+
 ---
 
 ## 2. Pipeline Objective

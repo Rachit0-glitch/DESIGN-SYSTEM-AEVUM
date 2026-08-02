@@ -4,6 +4,7 @@ import {
   CanonicalDesignDocumentSchema,
   DesignNodeSchema,
   EntityIdSchema,
+  ReferenceRecordSchema,
 } from "@aevum/document-model";
 import { z } from "zod";
 
@@ -110,6 +111,11 @@ export const RemoveAssetCommandSchema = z.strictObject({
   type: z.literal("asset.remove"),
   payload: z.strictObject({ assetId: EntityIdSchema }),
 });
+export const RegisterReferenceCommandSchema = z.strictObject({
+  ...BaseCommandShape,
+  type: z.literal("reference.register"),
+  payload: z.strictObject({ reference: ReferenceRecordSchema }),
+});
 
 export type CreateDocumentCommand = z.infer<typeof CreateDocumentCommandSchema>;
 export type RenameDocumentCommand = z.infer<typeof RenameDocumentCommandSchema>;
@@ -124,6 +130,7 @@ export type DuplicateNodeCommand = z.infer<typeof DuplicateNodeCommandSchema>;
 export type UpdateNodeCommand = z.infer<typeof UpdateNodeCommandSchema>;
 export type RegisterAssetCommand = z.infer<typeof RegisterAssetCommandSchema>;
 export type RemoveAssetCommand = z.infer<typeof RemoveAssetCommandSchema>;
+export type RegisterReferenceCommand = z.infer<typeof RegisterReferenceCommandSchema>;
 export type Command =
   | CreateDocumentCommand
   | RenameDocumentCommand
@@ -137,7 +144,8 @@ export type Command =
   | DuplicateNodeCommand
   | UpdateNodeCommand
   | RegisterAssetCommand
-  | RemoveAssetCommand;
+  | RemoveAssetCommand
+  | RegisterReferenceCommand;
 
 export const CommandSchema: z.ZodType<Command> = z.discriminatedUnion("type", [
   CreateDocumentCommandSchema,
@@ -153,6 +161,7 @@ export const CommandSchema: z.ZodType<Command> = z.discriminatedUnion("type", [
   UpdateNodeCommandSchema,
   RegisterAssetCommandSchema,
   RemoveAssetCommandSchema,
+  RegisterReferenceCommandSchema,
 ]);
 
 export type CommandType = Command["type"];

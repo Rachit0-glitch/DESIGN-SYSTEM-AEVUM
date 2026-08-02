@@ -63,6 +63,7 @@ describe("Command Engine", () => {
       "page.create",
       "page.delete",
       "page.rename",
+      "reference.register",
     ]);
   });
 

@@ -1,0 +1,196 @@
+import { assetFixtures, registerAsset } from "@aevum/assets";
+import { createAssetRegistryResolver } from "./adapters.js";
+import { createReconstructionTask } from "./task.js";
+import { RECONSTRUCTION_MANIFEST_KEY, ReconstructionManifestSchema, type ReconstructionManifest } from "./schemas.js";
+
+const TIME = "2026-08-02T06:00:00.000Z";
+export const PHASE_6_PROJECT_ID = "project_00000000-0000-4000-8000-000000000006";
+
+export const landingPageManifest: ReconstructionManifest = ReconstructionManifestSchema.parse({
+  manifestVersion: "1.0.0",
+  referenceType: "LANDING_PAGE",
+  regions: [
+    {
+      key: "page",
+      category: "PAGE",
+      bounds: { x: 0, y: 0, width: 1440, height: 1000 },
+      confidence: 1,
+      semanticHints: ["landing-page"],
+      layout: { type: "VERTICAL_STACK", gap: 0, confidence: 0.95 },
+    },
+    {
+      key: "navigation",
+      category: "FRAME",
+      parentKey: "page",
+      bounds: { x: 0, y: 0, width: 1440, height: 80 },
+      confidence: 0.96,
+      zOrder: 1,
+      semanticHints: ["navigation"],
+      layout: { type: "HORIZONTAL_ROW", gap: 24, padding: 24, confidence: 0.9 },
+    },
+    {
+      key: "brand",
+      category: "TEXT",
+      parentKey: "navigation",
+      bounds: { x: 32, y: 24, width: 180, height: 32 },
+      confidence: 0.98,
+      zOrder: 2,
+      semanticHints: ["brand"],
+      text: { content: "AEVUM", fontFamily: "Inter", fontSize: 24, fontWeight: 700 },
+    },
+    {
+      key: "hero",
+      category: "SECTION",
+      parentKey: "page",
+      bounds: { x: 0, y: 80, width: 1440, height: 520 },
+      confidence: 0.97,
+      zOrder: 1,
+      semanticHints: ["hero"],
+      layout: { type: "HORIZONTAL_ROW", gap: 48, padding: 64, confidence: 0.91 },
+    },
+    {
+      key: "hero-heading",
+      category: "TEXT",
+      parentKey: "hero",
+      bounds: { x: 80, y: 180, width: 560, height: 150 },
+      confidence: 0.95,
+      zOrder: 2,
+      semanticHints: ["hero-heading"],
+      text: {
+        content: "Reconstruct every visual system.",
+        fontFamily: "Inter",
+        fontSize: 64,
+        fontWeight: 700,
+        alignment: "LEFT",
+        direction: "LTR",
+        color: { r: 0.08, g: 0.08, b: 0.1, a: 1 },
+      },
+    },
+    {
+      key: "hero-image",
+      category: "IMAGE",
+      parentKey: "hero",
+      bounds: { x: 760, y: 128, width: 560, height: 400 },
+      confidence: 0.91,
+      zOrder: 2,
+      semanticHints: ["hero-image"],
+      image: { fit: "COVER", extracted: false },
+    },
+    {
+      key: "cards",
+      category: "SECTION",
+      parentKey: "page",
+      bounds: { x: 64, y: 640, width: 1312, height: 300 },
+      confidence: 0.9,
+      zOrder: 1,
+      semanticHints: ["feature-cards"],
+      layout: { type: "GRID", columns: 2, gap: 24, padding: 0, confidence: 0.86 },
+    },
+    {
+      key: "card-one",
+      category: "FRAME",
+      parentKey: "cards",
+      bounds: { x: 64, y: 640, width: 644, height: 300 },
+      confidence: 0.89,
+      zOrder: 2,
+      semanticHints: ["feature-card"],
+      repetitionKey: "feature-card",
+      layout: { type: "VERTICAL_STACK", gap: 12, padding: 24, confidence: 0.84 },
+    },
+    {
+      key: "card-two",
+      category: "FRAME",
+      parentKey: "cards",
+      bounds: { x: 732, y: 640, width: 644, height: 300 },
+      confidence: 0.89,
+      zOrder: 2,
+      semanticHints: ["feature-card"],
+      repetitionKey: "feature-card",
+      layout: { type: "VERTICAL_STACK", gap: 12, padding: 24, confidence: 0.84 },
+    },
+    {
+      key: "card-one-bg",
+      category: "SHAPE",
+      parentKey: "card-one",
+      bounds: { x: 64, y: 640, width: 644, height: 300 },
+      confidence: 0.92,
+      zOrder: 0,
+      semanticHints: ["card-surface"],
+      shape: { shapeType: "RECTANGLE", geometry: {}, fill: { r: 0.96, g: 0.97, b: 0.98, a: 1 }, cornerRadius: 8 },
+    },
+    {
+      key: "card-two-bg",
+      category: "SHAPE",
+      parentKey: "card-two",
+      bounds: { x: 732, y: 640, width: 644, height: 300 },
+      confidence: 0.92,
+      zOrder: 0,
+      semanticHints: ["card-surface"],
+      shape: { shapeType: "RECTANGLE", geometry: {}, fill: { r: 0.96, g: 0.97, b: 0.98, a: 1 }, cornerRadius: 8 },
+    },
+    {
+      key: "card-one-title",
+      category: "TEXT",
+      parentKey: "card-one",
+      bounds: { x: 96, y: 700, width: 280, height: 40 },
+      confidence: 0.9,
+      zOrder: 3,
+      semanticHints: ["card-title"],
+      text: { content: "Editable structure", fontFamily: "Inter", fontSize: 28, fontWeight: 600 },
+    },
+    {
+      key: "card-two-title",
+      category: "TEXT",
+      parentKey: "card-two",
+      bounds: { x: 764, y: 700, width: 280, height: 40 },
+      confidence: 0.9,
+      zOrder: 3,
+      semanticHints: ["card-title"],
+      text: { content: "Traceable output", fontFamily: "Inter", fontSize: 28, fontWeight: 600 },
+    },
+  ],
+});
+
+export function createPhase6Fixture(manifest: ReconstructionManifest = landingPageManifest) {
+  const registration = registerAsset(
+    {},
+    {
+      ...assetFixtures.image,
+      originalFilename: "phase-6-landing-page.png",
+      sourceUri: "memory://phase-6-landing-page.png",
+      status: "READY",
+      dimensions: { width: 1440, height: 1000 },
+      extensions: { [RECONSTRUCTION_MANIFEST_KEY]: manifest },
+    },
+  );
+  if (registration.kind !== "REGISTERED") throw new Error("Phase 6 fixture asset registration failed.");
+  const registry = Object.freeze({ [registration.asset.id]: registration.asset });
+  const task = createReconstructionTask({
+    projectId: PHASE_6_PROJECT_ID,
+    sourceAssetId: registration.asset.id,
+    requestedPageName: "Phase 6 Landing",
+    qualityMode: "DRAFT",
+    targetViewport: { width: 1440, height: 1000, deviceScaleFactor: 1, category: "DESKTOP", orientation: "LANDSCAPE" },
+    preserveEditability: true,
+    allowRasterFallbacks: true,
+    requestedCapabilities: [
+      "REGION_DETECTION",
+      "TEXT_DETECTION",
+      "ASSET_LINKING",
+      "SHAPE_INFERENCE",
+      "LAYOUT_INFERENCE",
+      "COMPONENT_INFERENCE",
+      "TOKEN_INFERENCE",
+    ],
+    deterministicSeed: 6,
+    createdAt: TIME,
+    createdBy: { id: "phase-6-fixture", type: "WORKER" },
+  });
+  return Object.freeze({
+    asset: registration.asset,
+    registry,
+    resolver: createAssetRegistryResolver(registry),
+    task,
+    manifest,
+  });
+}

@@ -78,6 +78,14 @@ export const aevumEnvironmentVariablesSchema = z
     SCENE_RUNTIME_CACHE_SIZE: positiveIntegerFromString.default(500),
     SCENE_RUNTIME_DIAGNOSTICS: booleanFromString.default(true),
     SCENE_RUNTIME_INSPECTION_MODE: booleanFromString.default(false),
+    RECONSTRUCTION_DEFAULT_QUALITY_MODE: z.enum(["DRAFT", "HIGH_QUALITY", "MAXIMUM_FIDELITY"]).default("DRAFT"),
+    RECONSTRUCTION_MAX_REGIONS: positiveIntegerFromString.default(5_000),
+    RECONSTRUCTION_MAX_PROPOSAL_NODES: positiveIntegerFromString.default(10_000),
+    RECONSTRUCTION_STRICT_MODE: booleanFromString.default(true),
+    RECONSTRUCTION_DIAGNOSTICS: booleanFromString.default(true),
+    RECONSTRUCTION_ENABLE_COMPONENT_INFERENCE: booleanFromString.default(true),
+    RECONSTRUCTION_ENABLE_TOKEN_INFERENCE: booleanFromString.default(true),
+    RECONSTRUCTION_ALLOW_RASTER_FALLBACK: booleanFromString.default(true),
     MCP_SERVER_HOST: z.string().min(1).default("127.0.0.1"),
     MCP_REQUIRE_AUTH: booleanFromString.default(false),
 
@@ -173,6 +181,16 @@ export interface AevumEnvironment {
     readonly diagnostics: boolean;
     readonly inspectionMode: boolean;
   };
+  readonly reconstruction: {
+    readonly defaultQualityMode: "DRAFT" | "HIGH_QUALITY" | "MAXIMUM_FIDELITY";
+    readonly maxRegions: number;
+    readonly maxProposalNodes: number;
+    readonly strictMode: boolean;
+    readonly diagnostics: boolean;
+    readonly enableComponentInference: boolean;
+    readonly enableTokenInference: boolean;
+    readonly allowRasterFallback: boolean;
+  };
   readonly docker: {
     readonly composeProjectName: string;
     readonly postgresPort: number;
@@ -247,6 +265,16 @@ function toEnvironment(variables: AevumEnvironmentVariables): AevumEnvironment {
       cacheSize: variables.SCENE_RUNTIME_CACHE_SIZE,
       diagnostics: variables.SCENE_RUNTIME_DIAGNOSTICS,
       inspectionMode: variables.SCENE_RUNTIME_INSPECTION_MODE,
+    },
+    reconstruction: {
+      defaultQualityMode: variables.RECONSTRUCTION_DEFAULT_QUALITY_MODE,
+      maxRegions: variables.RECONSTRUCTION_MAX_REGIONS,
+      maxProposalNodes: variables.RECONSTRUCTION_MAX_PROPOSAL_NODES,
+      strictMode: variables.RECONSTRUCTION_STRICT_MODE,
+      diagnostics: variables.RECONSTRUCTION_DIAGNOSTICS,
+      enableComponentInference: variables.RECONSTRUCTION_ENABLE_COMPONENT_INFERENCE,
+      enableTokenInference: variables.RECONSTRUCTION_ENABLE_TOKEN_INFERENCE,
+      allowRasterFallback: variables.RECONSTRUCTION_ALLOW_RASTER_FALLBACK,
     },
     docker: {
       composeProjectName: variables.COMPOSE_PROJECT_NAME,

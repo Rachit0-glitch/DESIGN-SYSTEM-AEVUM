@@ -558,7 +558,7 @@ Build the runtime projection layer that resolves the Canonical Design Document i
 ### Status
 
 ```text
-IN_PROGRESS
+VALIDATED
 ```
 
 ### Scope
@@ -737,7 +737,7 @@ Convert screenshots and visual references into structured editable 2D documents.
 ### Status
 
 ```text
-PLANNED
+IN_PROGRESS
 ```
 
 ### Scope
@@ -778,6 +778,57 @@ apps/reconstruction-worker
 - Proposals are inspectable
 - Application occurs through commands
 - Confidence values are recorded
+
+### Validation Record
+
+- Date: 2026-08-02
+- Previous status: `IN_PROGRESS`
+- New status: `VALIDATED`
+- Evidence:
+  - `packages/reconstruction` now exposes versioned Zod contracts for tasks, source-pixel regions, analyses,
+    candidates, confidence, provenance, diagnostics, immutable proposals, command plans, application results, and
+    reconstruction reports.
+  - A provider-neutral deterministic manifest adapter analyzes registered screenshot assets without claiming OCR,
+    production segmentation, or asset extraction. Missing capabilities and raster fallbacks are explicit diagnostics.
+  - Reconstruction registers source references and creates new or explicitly versioned existing documents through one
+    dependency-ordered, dry-run-verified, atomic Command Engine transaction.
+  - `apps/reconstruction-worker` executes all 12 required stages in memory, supports cancellation and structured stage
+    reporting, and verifies the resulting document through Scene Runtime and the Hybrid 2D Render Graph.
+  - The complete fixture produces 13 source regions, editable page/frame/text/image/shape nodes, repeated component and
+    token suggestions, source provenance, a valid versioned Canonical Design Document, a complete Scene Runtime
+    projection, a 21-operation Render Graph, and an immutable reconstruction report.
+- Test results:
+  - Focused Phase 6 suites: 24 tests passed.
+  - Expanded public API, environment, and dependency suite: 32 tests passed.
+  - Full repository suite: 17 files and 114 tests passed.
+  - Full workspace typecheck: 52 tasks passed.
+  - Full workspace build: 44 packages passed.
+  - `pnpm validate`: PASS, including documentation, dependency boundaries, formatting, lint, typecheck, tests, and build.
+  - `pnpm validate:docker`: PASS; Compose configuration resolves the Redis service, volume, and `aevum-network`.
+- Remaining warnings:
+  - Docker Compose reported sandbox access warnings for `C:\Users\rachi\.docker\config.json`; configuration validation
+    still completed successfully and no Docker runtime service was required.
+  - The deterministic MVP consumes validated annotation manifests. OCR, production segmentation, vector tracing,
+    generated asset extraction, full typography matching, and external AI providers remain deferred.
+  - Component and token candidates are inspectable suggestions with `applied: false` until canonical command paths are
+    introduced. Shape paint candidates remain explicitly temporary metadata pending a Canonical Paint Model migration.
+  - No Railway reconstruction-worker service is activated because Phase 6 intentionally has no queue intake,
+    long-running process, health behavior, or useful deployment start command.
+- Blockers:
+  - None for the deterministic Phase 6 reconstruction MVP.
+- Decisions:
+  - Region coordinates use a top-left source-pixel origin and retain normalized bounds for future scaling.
+  - Core reconstruction does not depend on Scene Runtime, the renderer, Supabase, or provider SDKs; orchestration owns
+    disposable projection and Render Graph verification.
+  - Deterministic fingerprints exclude timestamps, stage durations, temporary paths, and secrets.
+  - New references are canonical state and therefore use the `reference.register` Command Engine path.
+  - Existing-document reconstruction requires both an explicit target document ID and expected document version.
+- Next action:
+  - Begin Phase 7 in `packages/validation` by defining versioned `ValidationTask`, threshold-profile,
+    region-measurement, attributed-issue, and `VisualValidationReport` schemas. First prove deterministic bounding-box,
+    layout, spacing, typography-metadata, and color comparisons can consume the Phase 6 source regions plus Phase 5
+    Render Graph without mutating canonical state; then add a replaceable raster-comparison adapter for pixels,
+    perceptual metrics, and heatmaps.
 
 ---
 
@@ -2426,14 +2477,14 @@ Major scope changes shall also update:
 The next repository action should be:
 
 ```text
-Begin Phase 6.
+Begin Phase 7.
 ```
 
-The exact Phase 6 starting task is to define runtime-validated reference-analysis and reconstruction proposal
-contracts in `packages/reconstruction`. Each proposal must preserve source-region provenance, confidence, quality
-mode, diagnostics, proposed nodes/assets/tokens/components, and deterministic Command Engine transactions. Prove one
-registered screenshot reference can produce an inspectable proposal and valid initial Canonical Design Document
-without direct state mutation, rendering, OCR, segmentation engines, or external AI providers yet.
+The exact Phase 7 starting task is to define versioned validation-task, threshold-profile, region-measurement,
+attributed-issue, and visual-validation-report contracts in `packages/validation`. Prove deterministic bounding-box,
+layout, spacing, typography-metadata, and color comparisons can consume Phase 6 source regions and the Phase 5 Render
+Graph without mutating canonical state. Keep raster capture, pixel/perceptual comparison, and heatmap generation behind
+a replaceable adapter so HTML, Canvas, SVG, and future render targets can share the same validation contracts.
 
 ---
 

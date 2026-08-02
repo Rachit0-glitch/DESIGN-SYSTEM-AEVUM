@@ -27,6 +27,12 @@ importers:
       '@aevum/project-store':
         specifier: workspace:*
         version: link:packages/project-store
+      '@aevum/reconstruction':
+        specifier: workspace:*
+        version: link:packages/reconstruction
+      '@aevum/reconstruction-worker':
+        specifier: workspace:*
+        version: link:apps/reconstruction-worker
       '@aevum/renderer-2d':
         specifier: workspace:*
         version: link:packages/renderer-2d
@@ -96,9 +102,24 @@ importers:
 
   apps/reconstruction-worker:
     dependencies:
+      '@aevum/document-model':
+        specifier: workspace:*
+        version: link:../../packages/document-model
+      '@aevum/reconstruction':
+        specifier: workspace:*
+        version: link:../../packages/reconstruction
+      '@aevum/renderer-2d':
+        specifier: workspace:*
+        version: link:../../packages/renderer-2d
+      '@aevum/scene-runtime':
+        specifier: workspace:*
+        version: link:../../packages/scene-runtime
       '@aevum/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
 
   apps/render-worker:
     dependencies:
@@ -279,9 +300,24 @@ importers:
 
   packages/reconstruction:
     dependencies:
+      '@aevum/assets':
+        specifier: workspace:*
+        version: link:../assets
+      '@aevum/command-engine':
+        specifier: workspace:*
+        version: link:../command-engine
+      '@aevum/document-model':
+        specifier: workspace:*
+        version: link:../document-model
       '@aevum/shared':
         specifier: workspace:*
         version: link:../shared
+      '@aevum/typography':
+        specifier: workspace:*
+        version: link:../typography
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
 
   packages/renderer-2d:
     dependencies:

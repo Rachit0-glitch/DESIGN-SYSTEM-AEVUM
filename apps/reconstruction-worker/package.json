@@ -1,6 +1,6 @@
 {
   "name": "@aevum/reconstruction-worker",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -16,6 +16,11 @@
     "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@aevum/shared": "workspace:*"
+    "@aevum/document-model": "workspace:*",
+    "@aevum/reconstruction": "workspace:*",
+    "@aevum/renderer-2d": "workspace:*",
+    "@aevum/scene-runtime": "workspace:*",
+    "@aevum/shared": "workspace:*",
+    "zod": "4.4.3"
   }
 }

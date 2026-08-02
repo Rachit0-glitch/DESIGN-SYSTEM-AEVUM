@@ -35,6 +35,14 @@ const validEnvironment = {
   SCENE_RUNTIME_CACHE_SIZE: "25",
   SCENE_RUNTIME_DIAGNOSTICS: "true",
   SCENE_RUNTIME_INSPECTION_MODE: "true",
+  RECONSTRUCTION_DEFAULT_QUALITY_MODE: "HIGH_QUALITY",
+  RECONSTRUCTION_MAX_REGIONS: "2500",
+  RECONSTRUCTION_MAX_PROPOSAL_NODES: "5000",
+  RECONSTRUCTION_STRICT_MODE: "false",
+  RECONSTRUCTION_DIAGNOSTICS: "true",
+  RECONSTRUCTION_ENABLE_COMPONENT_INFERENCE: "true",
+  RECONSTRUCTION_ENABLE_TOKEN_INFERENCE: "false",
+  RECONSTRUCTION_ALLOW_RASTER_FALLBACK: "true",
   MCP_SERVER_HOST: "127.0.0.1",
   MCP_REQUIRE_AUTH: "false",
   COMPOSE_PROJECT_NAME: "aevum",
@@ -73,6 +81,16 @@ describe("environment validation", () => {
       cacheSize: 25,
       diagnostics: true,
       inspectionMode: true,
+    });
+    expect(environment.reconstruction).toEqual({
+      defaultQualityMode: "HIGH_QUALITY",
+      maxRegions: 2500,
+      maxProposalNodes: 5000,
+      strictMode: false,
+      diagnostics: true,
+      enableComponentInference: true,
+      enableTokenInference: false,
+      allowRasterFallback: true,
     });
     expect(environment.docker.networkName).toBe("aevum-network");
   });

@@ -32,6 +32,8 @@
     "@aevum/document-model": "workspace:*",
     "@aevum/exporters": "workspace:*",
     "@aevum/project-store": "workspace:*",
+    "@aevum/reconstruction": "workspace:*",
+    "@aevum/reconstruction-worker": "workspace:*",
     "@aevum/renderer-2d": "workspace:*",
     "@aevum/scene-runtime": "workspace:*",
     "@aevum/shared": "workspace:*",
