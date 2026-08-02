@@ -1,5 +1,6 @@
 node_modules/
 dist/
+build/
 .turbo/
 .npm-cache/
 .pnpm-store/
@@ -7,10 +8,14 @@ coverage/
 playwright-report/
 test-results/
 .env
-.env.local
+.env.*
+!.env.example
+.aevum/
 .aevum-workspace/
 .aevum-sandbox/
 *.log
 Thumbs.db
 .DS_Store
+.vercel/
 
+.env*

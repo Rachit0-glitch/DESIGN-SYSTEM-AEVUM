@@ -1,4 +1,6 @@
-﻿import type { PackageContract } from "@aevum/shared";
+import type { PackageContract } from "@aevum/shared";
+
+export { type AevumApiServerOptions, createAevumApiServer } from "./server-factory.js";
 
 export const packageContract: PackageContract = {
   name: "@aevum/api",

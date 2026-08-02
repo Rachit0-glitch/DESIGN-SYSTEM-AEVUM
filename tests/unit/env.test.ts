@@ -4,7 +4,9 @@ import { describe, expect, it } from "vitest";
 const validEnvironment = {
   NODE_ENV: "test",
   LOG_LEVEL: "debug",
+  AEVUM_RUNTIME_MODE: "full",
   AEVUM_FEATURE_FLAGS: "phase3,local-dev",
+  PORT: "8080",
   SUPABASE_URL: "https://example.supabase.co",
   SUPABASE_ANON_KEY: "anon-test-key",
   SUPABASE_SERVICE_ROLE_KEY: "service-role-test-key",
@@ -53,6 +55,7 @@ describe("environment validation", () => {
     const environment = parseAevumEnvironment(validEnvironment);
 
     expect(environment.featureFlags).toEqual(["phase3", "local-dev"]);
+    expect(environment.runtimeMode).toBe("full");
     expect(environment.supabase).toMatchObject({
       url: "https://example.supabase.co",
       projectId: "example",
@@ -61,6 +64,7 @@ describe("environment validation", () => {
     expect(environment.database.poolMax).toBe(10);
     expect(environment.paths.blenderExecutable).toBeUndefined();
     expect(environment.services.mcpPort).toBe(3010);
+    expect(environment.services.platformPort).toBe(8080);
     expect(environment.sceneRuntime).toEqual({
       strictMode: false,
       maxDepth: 250,
@@ -93,6 +97,18 @@ describe("environment validation", () => {
       expect(result.error.issues.map((issue) => issue.path[0])).toContain("SUPABASE_SERVICE_ROLE_KEY");
       expect(result.error.issues.map((issue) => issue.path[0])).toContain("DATABASE_URL_DIRECT");
     }
+  });
+
+  it("permits a production foundation runtime without unfinished data-service dependencies", () => {
+    const environment = parseAevumEnvironment({
+      NODE_ENV: "production",
+      AEVUM_RUNTIME_MODE: "foundation",
+      PORT: "8080",
+    });
+
+    expect(environment.runtimeMode).toBe("foundation");
+    expect(environment.services.platformPort).toBe(8080);
+    expect(environment.database.url).toBeUndefined();
   });
 
   it("rejects malformed service URLs and inverted pool ranges", () => {

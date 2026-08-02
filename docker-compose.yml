@@ -1,3 +1,5 @@
+name: ${COMPOSE_PROJECT_NAME:-aevum}
+
 services:
   database:
     image: postgres:16.6-alpine
@@ -7,7 +9,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-aevum}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-local-only}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - database-data:/var/lib/postgresql/data
     healthcheck:
@@ -19,7 +21,7 @@ services:
   cache:
     image: redis:7.4.1-alpine
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - cache-data:/data
@@ -36,8 +38,8 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-aevum}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-me-local-only}
     ports:
-      - "${MINIO_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+      - "127.0.0.1:${MINIO_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
     command: ["server", "/data", "--console-address", ":9001"]
     volumes:
       - object-storage-data:/data

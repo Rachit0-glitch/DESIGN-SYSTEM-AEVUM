@@ -238,34 +238,41 @@ Base package shells
 
 Status update:
 
-- Date: 2026-08-01
+- Date: 2026-08-02
 - Owner: Codex
-- Previous status: PLANNED
-- New status: IN_PROGRESS
-- Evidence: Repository constitution, monorepo tooling, workspace skeleton, package ownership READMEs, shared environment/logging/error primitives, documentation validator, dependency-boundary validator, CI workflow, Docker Compose file, fixtures, tests, and ADR template were created.
+- Previous status: IN_PROGRESS
+- New status: VALIDATED
+- Evidence: The repository foundation remains intact and Docker Desktop 29.6.2 with Compose v5.3.1 was validated on the `desktop-linux` WSL 2 backend. The pinned Redis 7.4.1 service starts through Compose, reaches healthy state, returns `PONG`, and preserves an append-only test value across restart and container recreation. Compose uses project name `aevum`, a named persistent volume, the `aevum-network`, and loopback-only host exposure. Root `.dockerignore` and secret-safe `.gitignore` coverage are present.
 - Validation results:
-  - `pnpm install --store-dir .pnpm-store`: PASS
-  - `pnpm validate:docs`: PASS
-  - `pnpm validate:deps`: PASS
-  - `pnpm format:check`: PASS
-  - `pnpm lint`: PASS
-  - `pnpm typecheck`: PASS when Turbo was allowed to spawn workspace child processes
-  - `pnpm test`: PASS, 4 test files and 6 tests
-  - `pnpm build`: PASS when Turbo was allowed to spawn workspace child processes
-  - `pnpm validate`: PASS when Turbo was allowed to spawn workspace child processes
-  - `pnpm validate:docker`: BLOCKED because Docker is not installed or available on PATH in the current environment
+  - `docker --version`: PASS, Docker 29.6.2
+  - `docker compose version`: PASS, Compose v5.3.1
+  - `docker info`: PASS, Linux containers on WSL 2, x86_64, 18 CPUs, 7.544 GiB RAM
+  - `docker run --rm hello-world`: PASS
+  - `wsl --status` and `wsl -l -v`: PASS, Ubuntu and Docker Desktop use WSL 2
+  - `docker compose config`: PASS with project name `aevum`
+  - `pnpm validate:docker`: PASS
+  - Redis health: PASS with Docker health status `healthy` and `PONG`
+  - Redis persistence: PASS; `aevum:docker-check=working` survived restart and container recreation
+  - `pnpm validate`: PASS
+  - `pnpm validate:docs`: PASS for 12 canonical files
+  - `pnpm validate:deps`: PASS for 44 workspace packages
+  - `pnpm format:check`: PASS for 218 files
+  - `pnpm lint`: PASS for 219 files
+  - `pnpm typecheck`: PASS, 47 Turbo tasks
+  - `pnpm test`: PASS, 14 test files and 78 tests
+  - `pnpm build`: PASS, 44 Turbo tasks
 - Remaining warnings:
-  - Turbo process spawning required elevated execution in the current Codex sandbox; direct package scripts work without elevated execution.
-  - End-to-end harness location exists, but no end-to-end tests are defined in Phase 0 to avoid fake tests.
+  - Turbo emits a non-fatal dirty-hash warning because the validation intentionally ran before the deployment changes were committed.
+  - Docker has 7.544 GiB RAM, which is sufficient for the current Redis-only profile but should be reviewed before concurrent browser, Blender, large-texture, or local AI workloads.
+  - Database and object-storage services remain behind the `future-local` profile because Supabase owns current database and storage responsibilities.
 - Blockers:
-  - Docker or Docker Compose must be installed and available on PATH before Compose configuration can be validated and local services can be started.
+  - None for Phase 0.
 - Decisions:
-  - Package scripts invoke TypeScript through `node ../../node_modules/typescript/bin/tsc` to avoid Windows shell shim restrictions.
-  - TypeScript 7-compatible configuration avoids `baseUrl`.
-  - pnpm build scripts are explicitly allowed only for `esbuild`.
-  - Phase 0 remains IN_PROGRESS and must not be marked VALIDATED until Docker Compose validation succeeds.
+  - Only Redis runs in the default Compose profile; local PostgreSQL and MinIO remain deferred placeholders.
+  - Local service ports bind to `127.0.0.1` and no privileged mode, Docker socket, host-root mount, or embedded production secret is used.
+  - Docker validation does not start long-running services as part of the default repository validation command.
 - Next action:
-  - Install or expose Docker, run `docker compose config`, then rerun the full validation suite.
+  - Begin Phase 5 with the deterministic `RenderPlan` contract described in the current next action.
 
 ---
 
@@ -614,9 +621,7 @@ Status update:
   - Responsive projection resolves device-category, viewport-ID, explicit breakpoint-ID, and orientation overrides. Container-query, reduced-motion, and quality-specific node overrides require future canonical schema fields.
   - Transform projection provides renderer-neutral numeric matrices and Euler metadata; it does not calculate layout, intrinsic dimensions, constraints, text shaping, or animation state.
   - The cache is bounded and in-process only; Redis, distributed invalidation, and partial document loading are deferred behind the runtime contracts.
-  - Supabase CLI applied the hosted migration successfully but could not cache its optional local pg-delta catalog because Docker Desktop remains unavailable.
   - Turbo reports a non-fatal Git safe-directory ownership warning when elevated validation runs across the sandbox-created `.git` directory.
-  - The Phase 0 Docker Compose validation blocker remains independent and unresolved.
 - Blockers:
   - None for the Phase 4 Canonical Scene Runtime.
 - Decisions:
@@ -2382,16 +2387,8 @@ Major scope changes shall also update:
 The next repository action should be:
 
 ```text
-Complete the remaining Phase 0 Docker validation when available, then begin Phase 5.
+Begin Phase 5.
 ```
-
-Specifically:
-
-- Install or expose Docker in the development environment
-- Run `docker compose config`
-- Run `pnpm validate:docker`
-- Rerun `pnpm validate`
-- Update Phase 0 to `VALIDATED` only if all Phase 0 checks pass
 
 The exact Phase 5 starting task is to define a deterministic `RenderPlan` contract in `packages/renderer-2d` that consumes `SceneProjectionResult`, assigns supported 2D runtime nodes to `DOM`, `SVG`, `CANVAS`, `WEBGL`, or `RASTER` backends with inspectable reasons and unsupported-feature diagnostics, and proves stable planning on the existing nested, responsive, and mixed fixtures before creating browser renderer objects.
 

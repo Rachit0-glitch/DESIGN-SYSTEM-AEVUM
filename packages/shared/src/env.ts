@@ -42,7 +42,9 @@ export const aevumEnvironmentVariablesSchema = z
   .object({
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
+    AEVUM_RUNTIME_MODE: z.enum(["foundation", "full"]).default("full"),
     AEVUM_FEATURE_FLAGS: z.string().default(""),
+    PORT: positiveIntegerFromString.optional(),
 
     SUPABASE_URL: optionalUrl,
     SUPABASE_ANON_KEY: optionalString,
@@ -102,7 +104,7 @@ export const aevumEnvironmentVariablesSchema = z
       });
     }
 
-    if (variables.NODE_ENV === "production") {
+    if (variables.NODE_ENV === "production" && variables.AEVUM_RUNTIME_MODE === "full") {
       for (const key of requiredInProduction) {
         if (variables[key] === undefined) {
           context.addIssue({ code: "custom", path: [key], message: `${key} is required in production.` });
@@ -116,6 +118,7 @@ export type AevumEnvironmentVariables = z.infer<typeof aevumEnvironmentVariables
 export interface AevumEnvironment {
   readonly nodeEnv: "development" | "test" | "production";
   readonly logLevel: "debug" | "info" | "warn" | "error";
+  readonly runtimeMode: "foundation" | "full";
   readonly featureFlags: readonly string[];
   readonly supabase: {
     readonly url?: string;
@@ -151,6 +154,7 @@ export interface AevumEnvironment {
   readonly cache: { readonly url?: string; readonly queueUrl?: string; readonly redisPort: number };
   readonly services: {
     readonly apiPort: number;
+    readonly platformPort?: number;
     readonly mcpPort: number;
     readonly renderWorkerPort: number;
     readonly exportWorkerPort: number;
@@ -185,6 +189,7 @@ function toEnvironment(variables: AevumEnvironmentVariables): AevumEnvironment {
   return {
     nodeEnv: variables.NODE_ENV,
     logLevel: variables.LOG_LEVEL,
+    runtimeMode: variables.AEVUM_RUNTIME_MODE,
     featureFlags,
     supabase: {
       ...(variables.SUPABASE_URL ? { url: variables.SUPABASE_URL } : {}),
@@ -224,6 +229,7 @@ function toEnvironment(variables: AevumEnvironmentVariables): AevumEnvironment {
     },
     services: {
       apiPort: variables.API_PORT,
+      ...(variables.PORT ? { platformPort: variables.PORT } : {}),
       mcpPort: variables.MCP_PORT,
       renderWorkerPort: variables.RENDER_WORKER_PORT,
       exportWorkerPort: variables.EXPORT_WORKER_PORT,
