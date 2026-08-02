@@ -2008,6 +2008,35 @@ animation worker performs validation and fixed-time evaluation only.
 Nested timelines, time remapping, cross-track blending, sampled custom curves, continuous playback, physics, browser
 adapters, and exporter-specific animation runtimes remain deferred to their roadmap phases.
 
+### Phase 11 Motion Reconstruction Implementation
+
+Phase 11 adds `packages/motion-reconstruction` as a deterministic analysis and proposal layer above Animation Core.
+An immutable `MotionTask` identifies source video or image-sequence assets, target nodes or cameras, requested
+properties, confidence and keyframe tolerances, physical delta limits, and an explicit create, update, or delete
+command intent. The task never owns document state.
+
+Frame acquisition is replaceable through `MotionFrameProvider`. The current deterministic provider accepts canonical
+frame observations and does not decode media. FFmpeg, OpenCV, MediaPipe, and Blender remain future adapters. Analysis
+separates object-property tracks from camera classification, including pan, orbit, dolly, zoom, crane, and static
+motion. Every detected track and camera classification retains confidence, source-frame indexes, evidence, and
+structured diagnostics.
+
+Keyframe detection preserves starts, ends, stops, direction changes, speed changes, and visibility changes. A
+timeline proposal compiles that evidence into Phase 10 tracks and keyframes with canonical property paths and
+library-independent easing. The proposal carries exactly one deterministic `timeline.create`, `timeline.update`, or
+`timeline.delete` command. Motion Reconstruction never executes that command or mutates the Canonical Design
+Document.
+
+Validation reports missing frames, invalid timing, missing targets, broken tracks, unsupported paths, physically
+implausible interpolation, invalid canonical timelines, and command-plan mismatches. Motion reports include fixed-time
+Animation Core evaluations at the start, midpoint, and end, proving runtime compatibility without playback. The
+inactive `apps/motion-reconstruction-worker` only validates and composes an in-memory job; it has no service listener
+or Railway activation.
+
+Media decoding, pixel-derived tracking, scene-cut inference, occlusion recovery, rendered-video comparison, optical
+flow, character landmarks, contact detection, retargeting, foot locking, motion generation, video rendering, browser
+playback, and Blender animation remain outside Phase 11.
+
 Animation and rendering form the execution layer of the AEVUM AI Reconstruction Engine.
 
 They shall convert the Canonical Design Document into accurate, editable, interactive, deterministic, and exportable 2D and 3D experiences while preserving structured motion, responsive behaviour, accessibility, validation compatibility, and performance-aware delivery.

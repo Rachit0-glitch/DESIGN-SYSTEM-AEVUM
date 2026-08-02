@@ -36,6 +36,12 @@ importers:
       '@aevum/exporters':
         specifier: workspace:*
         version: link:packages/exporters
+      '@aevum/motion-reconstruction':
+        specifier: workspace:*
+        version: link:packages/motion-reconstruction
+      '@aevum/motion-reconstruction-worker':
+        specifier: workspace:*
+        version: link:apps/motion-reconstruction-worker
       '@aevum/project-store':
         specifier: workspace:*
         version: link:packages/project-store
@@ -153,6 +159,21 @@ importers:
       '@aevum/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+
+  apps/motion-reconstruction-worker:
+    dependencies:
+      '@aevum/document-model':
+        specifier: workspace:*
+        version: link:../../packages/document-model
+      '@aevum/motion-reconstruction':
+        specifier: workspace:*
+        version: link:../../packages/motion-reconstruction
+      '@aevum/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
 
   apps/preview-runtime:
     dependencies:
@@ -396,6 +417,24 @@ importers:
       '@aevum/shared':
         specifier: workspace:*
         version: link:../shared
+
+  packages/motion-reconstruction:
+    dependencies:
+      '@aevum/animation-core':
+        specifier: workspace:*
+        version: link:../animation-core
+      '@aevum/command-engine':
+        specifier: workspace:*
+        version: link:../command-engine
+      '@aevum/document-model':
+        specifier: workspace:*
+        version: link:../document-model
+      '@aevum/shared':
+        specifier: workspace:*
+        version: link:../shared
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
 
   packages/project-store:
     dependencies:

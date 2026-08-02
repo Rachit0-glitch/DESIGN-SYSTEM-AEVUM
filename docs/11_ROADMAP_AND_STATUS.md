@@ -1231,35 +1231,97 @@ Reconstruct animation and movement from video references.
 ### Status
 
 ```text
-PLANNED
+VALIDATED
 ```
 
 ### Scope
 
-- Frame extraction
-- Scene-cut detection
-- Object tracking
+- Immutable versioned motion tasks
+- MP4, MOV, WebM, GIF, and image-sequence source contracts
+- Replaceable frame-provider adapters
+- Deterministic frame observations
+- Position, rotation, scale, opacity, and visibility analysis
 - Camera-motion analysis
-- Path extraction
+- Object-path extraction
 - Timing analysis
 - Easing estimation
-- Character landmarks
-- Joint trajectories
-- Contact detection
-- Timeline proposal
+- Editable keyframe detection
+- Canonical timeline proposals
+- Command Engine plans
 - Motion validation
-- Loop correction
-- Foot-lock correction
+- Confidence, evidence, diagnostics, and immutable reports
+- Animation Core runtime evaluation
 
 ### Acceptance Gate
 
+- Motion Tasks are immutable and versioned
+- Frame adapters are replaceable
 - Reference motion becomes editable tracks
 - Camera and object motion are separated
 - Key poses are preserved
 - Timing is measurable
-- Contacts are detected
-- Motion can be retargeted
-- Rendered sequence can be compared with the reference
+- Timeline proposals are Phase 10 compatible
+- Motion validation reports precise failures
+- Generated timelines evaluate through Animation Core
+- Command plans never bypass the Command Engine
+- Tests and builds pass
+
+### Current Phase 11 Evidence
+
+Status update:
+
+- Date: 2026-08-02
+- Owner: Codex
+- Previous status: PLANNED
+- New status: VALIDATED
+- Evidence: `packages/motion-reconstruction` now owns immutable versioned motion tasks, MP4/MOV/WebM/GIF/image-
+  sequence source contracts, a replaceable `MotionFrameProvider`, deterministic frame observations, object and camera
+  track analysis, confidence and evidence lineage, editable keyframe detection, canonical Phase 10 timeline proposals,
+  structured validation, serialization, fixed-time runtime samples, and immutable reports. The Command Engine now
+  exposes canonical `timeline.update` and `timeline.delete` operations alongside `timeline.create`, including reference
+  checks and audit events. `apps/motion-reconstruction-worker` validates and composes in-memory jobs only; it has no
+  listener, queue, start command, persistence adapter, or Railway activation.
+- Validation results:
+  - `pnpm validate:docker`: PASS; Docker Compose resolves the Redis service, network, and volume
+  - `pnpm validate:docs`: PASS for 12 canonical files
+  - `pnpm validate:deps`: PASS for 52 workspace packages
+  - `pnpm format:check`: PASS for 340 files
+  - `pnpm lint`: PASS for 341 files with no warnings
+  - `pnpm typecheck`: PASS, 64 Turbo tasks including dependency builds
+  - `pnpm test`: PASS, 27 test files and 164 tests; 8 tests cover Phase 11 unit and integration behavior
+  - `pnpm build`: PASS, 52 Turbo package builds
+  - `pnpm validate`: PASS
+- Remaining warnings:
+  - The current deterministic frame provider consumes validated observation metadata; it does not decode video or
+    infer pixels. FFmpeg, OpenCV, MediaPipe, and Blender remain replaceable future adapters.
+  - Camera classification is deterministic for pan, orbit, dolly, zoom, crane, and static evidence, but does not yet
+    decompose simultaneous compound camera moves.
+  - Scene-cut inference, optical flow, occlusion recovery, object discovery, audio synchronization, raster heatmaps,
+    and rendered-video comparison are deferred.
+  - Character landmarks, joint trajectories, contact detection, retargeting, loop correction, and foot locking belong
+    to later character rigging and animation phases; Phase 11 does not claim those capabilities.
+  - Command plans are reviewable and executable by the Command Engine but are never auto-applied by Motion
+    Reconstruction.
+- Blockers:
+  - None for the deterministic Motion Reconstruction foundation.
+- Decisions:
+  - Motion evidence is supplied through a narrow adapter contract so media backends can change without changing the
+    analysis, validation, proposal, or report APIs.
+  - Every detected track retains confidence, source-frame indexes, evidence, and diagnostics. Generic motion-different
+    messages are prohibited.
+  - Keyframe detection preserves starts, ends, stops, direction changes, speed changes, and visibility changes while
+    omitting redundant intermediate samples.
+  - Timeline proposals use Phase 10 schemas and canonical property paths. Animation Core evaluates start, midpoint,
+    and end report samples without introducing playback.
+  - Create, update, and delete intents compile into exactly one deterministic Command Engine transaction command.
+    Motion Reconstruction never owns document mutation.
+  - The worker remains inactive and in-memory until queue, persistence, retry, health, cancellation, and deployment
+    infrastructure exists.
+- Next action:
+  - Begin Phase 12 by defining versioned MCP request, response, error, resource, tool, job-progress, and cancellation
+    envelopes in `packages/mcp-protocol`; add authentication, permission, and workspace-isolation contracts; then prove
+    one read tool and one write tool in `apps/mcp-server`, with every write translated into a version-checked Command
+    Engine transaction and an audit record. Do not expose worker activation or direct canonical mutation.
 
 ---
 

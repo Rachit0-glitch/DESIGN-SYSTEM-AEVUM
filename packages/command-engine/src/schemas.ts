@@ -122,6 +122,16 @@ export const CreateTimelineCommandSchema = z.strictObject({
   type: z.literal("timeline.create"),
   payload: z.strictObject({ timeline: TimelineSchema }),
 });
+export const UpdateTimelineCommandSchema = z.strictObject({
+  ...BaseCommandShape,
+  type: z.literal("timeline.update"),
+  payload: z.strictObject({ timeline: TimelineSchema }),
+});
+export const DeleteTimelineCommandSchema = z.strictObject({
+  ...BaseCommandShape,
+  type: z.literal("timeline.delete"),
+  payload: z.strictObject({ timelineId: EntityIdSchema }),
+});
 
 export type CreateDocumentCommand = z.infer<typeof CreateDocumentCommandSchema>;
 export type RenameDocumentCommand = z.infer<typeof RenameDocumentCommandSchema>;
@@ -138,6 +148,8 @@ export type RegisterAssetCommand = z.infer<typeof RegisterAssetCommandSchema>;
 export type RemoveAssetCommand = z.infer<typeof RemoveAssetCommandSchema>;
 export type RegisterReferenceCommand = z.infer<typeof RegisterReferenceCommandSchema>;
 export type CreateTimelineCommand = z.infer<typeof CreateTimelineCommandSchema>;
+export type UpdateTimelineCommand = z.infer<typeof UpdateTimelineCommandSchema>;
+export type DeleteTimelineCommand = z.infer<typeof DeleteTimelineCommandSchema>;
 export type Command =
   | CreateDocumentCommand
   | RenameDocumentCommand
@@ -153,7 +165,9 @@ export type Command =
   | RegisterAssetCommand
   | RemoveAssetCommand
   | RegisterReferenceCommand
-  | CreateTimelineCommand;
+  | CreateTimelineCommand
+  | UpdateTimelineCommand
+  | DeleteTimelineCommand;
 
 export const CommandSchema: z.ZodType<Command> = z.discriminatedUnion("type", [
   CreateDocumentCommandSchema,
@@ -171,6 +185,8 @@ export const CommandSchema: z.ZodType<Command> = z.discriminatedUnion("type", [
   RemoveAssetCommandSchema,
   RegisterReferenceCommandSchema,
   CreateTimelineCommandSchema,
+  UpdateTimelineCommandSchema,
+  DeleteTimelineCommandSchema,
 ]);
 
 export type CommandType = Command["type"];
