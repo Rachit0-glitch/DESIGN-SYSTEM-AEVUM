@@ -737,7 +737,7 @@ Convert screenshots and visual references into structured editable 2D documents.
 ### Status
 
 ```text
-IN_PROGRESS
+VALIDATED
 ```
 
 ### Scope
@@ -841,7 +841,7 @@ Measure 2D reconstruction fidelity and produce correction-ready reports.
 ### Status
 
 ```text
-PLANNED
+IN_PROGRESS
 ```
 
 ### Scope
@@ -879,6 +879,63 @@ packages/validation
 - Issues map to likely nodes
 - Draft and Maximum Fidelity thresholds differ
 - Failed regions cannot be hidden by the average score
+
+### Current Phase 7 Evidence
+
+Status update:
+
+- Date: 2026-08-02
+- Owner: Codex
+- Previous status: IN_PROGRESS
+- New status: VALIDATED
+- Evidence: `packages/validation` now owns immutable versioned validation tasks and reference snapshots, four explicit
+  threshold profiles, deterministic region and structural comparison, source-node and property-level difference
+  attribution, a replaceable deterministic local raster adapter, region-cell heatmaps, immutable validation reports,
+  serializers, and review-only correction plans. `apps/validation-worker` validates Phase 6 evidence, projects the
+  exact Canonical Design Document version, builds the Render Graph, prepares collision-free reference regions, and
+  orchestrates validation with deterministic stages and cancellation. It has no deployment or start command.
+- Validation results:
+  - `pnpm validate:docker`: PASS; Docker Compose configuration resolves the Redis service, network, and volume
+  - `pnpm validate:docs`: PASS for 12 canonical files
+  - `pnpm validate:deps`: PASS for 45 workspace packages
+  - `pnpm format:check`: PASS for 264 files
+  - `pnpm lint`: PASS for 265 files with no warnings
+  - `pnpm typecheck`: PASS, 54 Turbo tasks including required dependency builds
+  - `pnpm test`: PASS, 19 test files and 125 tests; 11 tests cover Phase 7 unit and integration behavior
+  - `pnpm build`: PASS, 45 Turbo package builds
+  - `pnpm validate`: PASS
+- Remaining warnings:
+  - The deterministic local raster adapter implements normalized RGBA mean absolute error only; SSIM and LPIPS are
+    deferred behind the adapter interface.
+  - Heatmaps are deterministic region-cell evidence and are explicitly marked as placeholders; pixel-level raster
+    heatmap generation is deferred.
+  - Phase 7 consumes supplied raster descriptors and optional RGBA buffers but does not capture or remotely load
+    renders.
+  - Correction plans support review-only `node.update` proposals for safe canonical properties; automatic correction,
+    command execution, correction audit history, and convergence policy belong to Phase 8.
+  - Docker emitted non-fatal access-denied warnings while reading the user-level Docker CLI config; Compose
+    configuration still completed successfully.
+- Blockers:
+  - None for the Phase 7 deterministic validation foundation.
+- Decisions:
+  - Validation depends on immutable document, Scene Projection, Render Graph, and reference evidence and never owns a
+    state mutation path.
+  - The validation package does not import the Command Engine; correction plans use validated command-shaped payloads
+    and explicitly require future Command Engine review and execution.
+  - Every difference records canonical source node, validation region, property, expected and actual values, severity,
+    confidence, score, threshold, and correction category.
+  - Report status evaluates overall and category scores plus the worst region, preventing aggregate scores from hiding
+    local failures.
+  - One source-analysis region may yield multiple canonical nodes, so validation reference IDs combine source-region
+    and node identity while retaining the original source-region ID.
+  - The validation worker remains in-memory and must not be activated on Railway until queue, health, and cancellation
+    infrastructure exists.
+- Next action:
+  - Begin Phase 8 by defining a versioned autonomous-correction session and pass contract that consumes a Phase 7
+    `ValidationReport`, selects only supported review-approved suggestions, compiles them into an atomic Command Engine
+    transaction against `expectedDocumentVersion`, dry-runs the transaction, re-renders and re-validates every target
+    viewport, and accepts a pass only when measured scores improve without regressing protected regions. Do not add an
+    unbounded loop or bypass Command Engine audit and rollback paths.
 
 ---
 

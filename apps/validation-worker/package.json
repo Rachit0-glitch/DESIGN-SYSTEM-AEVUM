@@ -1,5 +1,5 @@
 {
-  "name": "@aevum/validation",
+  "name": "@aevum/validation-worker",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -17,9 +17,11 @@
   },
   "dependencies": {
     "@aevum/document-model": "workspace:*",
+    "@aevum/reconstruction": "workspace:*",
     "@aevum/renderer-2d": "workspace:*",
     "@aevum/scene-runtime": "workspace:*",
     "@aevum/shared": "workspace:*",
+    "@aevum/validation": "workspace:*",
     "zod": "4.4.3"
   }
 }

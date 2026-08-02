@@ -78,6 +78,45 @@ The Visual Validation system shall follow these principles:
 
 ---
 
+## 2.1 Phase 7 Deterministic Foundation
+
+Phase 7 implements the first production validation foundation in `packages/validation` and the in-memory orchestration
+boundary in `apps/validation-worker`.
+
+The implemented path is:
+
+```text
+Validation Task
+-> Reference Snapshot
+-> Scene Projection and Render Graph Evidence
+-> Region and Structural Comparison
+-> Replaceable Raster Comparison
+-> Attributed Differences
+-> Deterministic Region Heatmaps
+-> Immutable Validation Report
+-> Non-Executable Correction Plan
+```
+
+Validation tasks and reports are tied to exact project, document version, reference, source asset, viewport, renderer
+version, projection fingerprint, Render Graph fingerprint, quality mode, deterministic seed, and threshold profile.
+Reference regions preserve both source-analysis region identity and unique canonical node identity so multiple nodes
+derived from one source region remain traceable without identity collisions.
+
+The initial raster adapter computes deterministic normalized RGBA mean absolute error when buffers are available.
+When only checksums are available, it emits explicitly marked placeholder evidence. Phase 7 heatmaps are deterministic
+region-cell evidence, not rasterized pixel heatmaps. SSIM, LPIPS, and true raster heatmaps remain replaceable future
+adapters.
+
+Every reported difference identifies its canonical source node, validation region, property, expected value, actual
+value, severity, confidence, score, threshold, and correction category. Suggested corrections are validated
+`node.update` payloads tied to the expected document version, but remain `executable: false` and require future Command
+Engine review. The validation package neither imports the Command Engine nor mutates canonical state.
+
+The Phase 7 worker is intentionally in-memory and non-deployable. It has no server, queue listener, start command, or
+Railway activation.
+
+---
+
 ## 3. Validation Objectives
 
 The Visual Validation system shall determine:

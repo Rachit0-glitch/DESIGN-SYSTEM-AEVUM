@@ -45,6 +45,12 @@ importers:
       '@aevum/typography':
         specifier: workspace:*
         version: link:packages/typography
+      '@aevum/validation':
+        specifier: workspace:*
+        version: link:packages/validation
+      '@aevum/validation-worker':
+        specifier: workspace:*
+        version: link:apps/validation-worker
       '@biomejs/biome':
         specifier: 2.5.6
         version: 2.5.6
@@ -132,6 +138,30 @@ importers:
       '@aevum/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+
+  apps/validation-worker:
+    dependencies:
+      '@aevum/document-model':
+        specifier: workspace:*
+        version: link:../../packages/document-model
+      '@aevum/reconstruction':
+        specifier: workspace:*
+        version: link:../../packages/reconstruction
+      '@aevum/renderer-2d':
+        specifier: workspace:*
+        version: link:../../packages/renderer-2d
+      '@aevum/scene-runtime':
+        specifier: workspace:*
+        version: link:../../packages/scene-runtime
+      '@aevum/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      '@aevum/validation':
+        specifier: workspace:*
+        version: link:../../packages/validation
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
 
   exporters/canva:
     dependencies:
@@ -384,9 +414,21 @@ importers:
 
   packages/validation:
     dependencies:
+      '@aevum/document-model':
+        specifier: workspace:*
+        version: link:../document-model
+      '@aevum/renderer-2d':
+        specifier: workspace:*
+        version: link:../renderer-2d
+      '@aevum/scene-runtime':
+        specifier: workspace:*
+        version: link:../scene-runtime
       '@aevum/shared':
         specifier: workspace:*
         version: link:../shared
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
 
   packages/vector-engine:
     dependencies:
