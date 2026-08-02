@@ -1,0 +1,27 @@
+{
+  "name": "@aevum/correction-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
+    "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@aevum/correction": "workspace:*",
+    "@aevum/document-model": "workspace:*",
+    "@aevum/renderer-2d": "workspace:*",
+    "@aevum/scene-runtime": "workspace:*",
+    "@aevum/shared": "workspace:*",
+    "@aevum/validation": "workspace:*",
+    "zod": "4.4.3"
+  }
+}

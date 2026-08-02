@@ -948,7 +948,7 @@ Use validation results to propose and apply reversible corrections.
 ### Status
 
 ```text
-PLANNED
+VALIDATED
 ```
 
 ### Scope
@@ -974,6 +974,66 @@ PLANNED
 - Locked nodes are respected
 - Unsupported features are not concealed
 - Plateaus are reported honestly
+
+### Current Phase 8 Evidence
+
+Status update:
+
+- Date: 2026-08-02
+- Owner: Codex
+- Previous status: PLANNED
+- New status: VALIDATED
+- Evidence: `packages/correction` now owns immutable versioned correction sessions, bounded pass history,
+  deterministic candidate ranking, generation-time rejection records, node and property protections, atomic Command
+  Engine transaction plans, dry runs, commit gating, regression evaluation, convergence stop reasons, serialization,
+  and immutable final reports. `apps/correction-worker` recreates Scene Projection and Hybrid 2D Render Graph evidence
+  for every tentative document version and revalidates through Phase 7 before an atomic transaction may commit. The
+  worker has no deployment or start command.
+- Validation results:
+  - `pnpm validate:docker`: PASS; Docker Compose configuration resolves the Redis service, network, and volume
+  - `pnpm validate:docs`: PASS for 12 canonical files
+  - `pnpm validate:deps`: PASS for 47 workspace packages
+  - `pnpm format:check`: PASS for 283 files
+  - `pnpm lint`: PASS for 284 files with no warnings
+  - `pnpm typecheck`: PASS, 57 Turbo tasks including required dependency builds
+  - `pnpm test`: PASS, 21 test files and 136 tests; 11 tests cover Phase 8 unit and integration behavior
+  - `pnpm build`: PASS, 47 Turbo package builds
+  - `pnpm validate`: PASS
+- Remaining warnings:
+  - Phase 8 corrects only properties supported by Phase 7 attribution and the canonical `node.update` surface; it does
+    not perform creative redesign or invent missing text content.
+  - Canonical visual properties that still use the documented reconstruction metadata bridge remain corrected through
+    that metadata until a future Canonical Design Document migration adds first-class fields.
+  - The worker revalidates one Phase 7 viewport per session. Multi-viewport protected-region correction belongs to
+    Phase 9 responsive reconstruction.
+  - Raster-buffer recapture is not implemented. A correction job requesting raster comparison without supplied future
+    capture infrastructure will retain Phase 7's explicit unavailable-raster diagnostic.
+  - Correction sessions and Command Engine audit records are returned in memory; durable queue, session persistence,
+    retry, and recovery adapters remain deferred.
+  - Docker emitted non-fatal access-denied warnings while reading the user-level Docker CLI config; Compose
+    configuration still completed successfully.
+- Blockers:
+  - None for the bounded Autonomous 2D Correction Loop foundation.
+- Decisions:
+  - Candidate transactions are dry-run and canonically validated before revalidation. Rejected candidates never reach
+    commit, and accepted candidates repeat the dry run before Command Engine execution.
+  - All candidates compile into deterministic `node.update` commands in one atomic transaction. Conflicting whole-field
+    updates are rejected during compilation.
+  - Locked nodes, explicit node or global property protections, hierarchy, and text content are never modified.
+  - Acceptance requires measurable overall improvement, no worst-region, typography, layout, confidence, or critical
+    issue regression, an unchanged protected-region result, and a valid resulting document.
+  - Sessions stop on threshold success, no candidates, plateau, regression, transaction failure, or a configured
+    maximum of ten passes; no unbounded loop exists.
+  - Rendering and revalidation remain worker concerns, keeping `packages/correction` independent from Scene Runtime,
+    the renderer, reconstruction, Project Store, Studio, and MCP.
+  - The correction worker remains in-memory and must not be activated on Railway until queue, health, persistence,
+    retry, and long-running cancellation infrastructure exists.
+- Next action:
+  - Begin Phase 9 by defining a versioned multi-viewport reconstruction task and responsive-proposal contract that
+    derives desktop, tablet, mobile, portrait, landscape, and reduced-motion variants from canonical responsive
+    overrides. First prove breakpoint-specific layout, typography, visibility, ordering, and asset-crop proposals can
+    be applied through one Command Engine transaction and independently projected, rendered, and validated without
+    treating mobile as a scaled desktop copy.
 
 ---
 

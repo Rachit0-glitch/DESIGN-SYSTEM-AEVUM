@@ -18,6 +18,12 @@ importers:
       '@aevum/command-engine':
         specifier: workspace:*
         version: link:packages/command-engine
+      '@aevum/correction':
+        specifier: workspace:*
+        version: link:packages/correction
+      '@aevum/correction-worker':
+        specifier: workspace:*
+        version: link:apps/correction-worker
       '@aevum/document-model':
         specifier: workspace:*
         version: link:packages/document-model
@@ -87,6 +93,30 @@ importers:
       '@aevum/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+
+  apps/correction-worker:
+    dependencies:
+      '@aevum/correction':
+        specifier: workspace:*
+        version: link:../../packages/correction
+      '@aevum/document-model':
+        specifier: workspace:*
+        version: link:../../packages/document-model
+      '@aevum/renderer-2d':
+        specifier: workspace:*
+        version: link:../../packages/renderer-2d
+      '@aevum/scene-runtime':
+        specifier: workspace:*
+        version: link:../../packages/scene-runtime
+      '@aevum/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      '@aevum/validation':
+        specifier: workspace:*
+        version: link:../../packages/validation
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
 
   apps/export-worker:
     dependencies:
@@ -282,6 +312,24 @@ importers:
       '@aevum/shared':
         specifier: workspace:*
         version: link:../shared
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
+
+  packages/correction:
+    dependencies:
+      '@aevum/command-engine':
+        specifier: workspace:*
+        version: link:../command-engine
+      '@aevum/document-model':
+        specifier: workspace:*
+        version: link:../document-model
+      '@aevum/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@aevum/validation':
+        specifier: workspace:*
+        version: link:../validation
       zod:
         specifier: 4.4.3
         version: 4.4.3

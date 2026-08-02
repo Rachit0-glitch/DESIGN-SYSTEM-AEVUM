@@ -29,6 +29,8 @@
   "devDependencies": {
     "@aevum/assets": "workspace:*",
     "@aevum/command-engine": "workspace:*",
+    "@aevum/correction": "workspace:*",
+    "@aevum/correction-worker": "workspace:*",
     "@aevum/document-model": "workspace:*",
     "@aevum/exporters": "workspace:*",
     "@aevum/project-store": "workspace:*",

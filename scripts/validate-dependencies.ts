@@ -32,6 +32,7 @@ const requiredDirs = [
   "apps/render-worker",
   "apps/reconstruction-worker",
   "apps/validation-worker",
+  "apps/correction-worker",
   "apps/asset-worker",
   "apps/export-worker",
   "apps/blender-bridge",
@@ -48,6 +49,7 @@ const requiredDirs = [
   "packages/animation",
   "packages/reconstruction",
   "packages/validation",
+  "packages/correction",
   "packages/exporters",
   "packages/mcp-protocol",
   "packages/job-system",
@@ -80,6 +82,7 @@ const appNames = new Set([
   "@aevum/render-worker",
   "@aevum/reconstruction-worker",
   "@aevum/validation-worker",
+  "@aevum/correction-worker",
   "@aevum/asset-worker",
   "@aevum/export-worker",
   "@aevum/blender-bridge",
@@ -129,6 +132,14 @@ const forbiddenDependencies: Record<string, readonly string[]> = {
   "@aevum/renderer-3d": ["@aevum/exporters"],
   "@aevum/mcp-protocol": ["@aevum/studio", "@aevum/api", "@aevum/mcp-server"],
   "@aevum/validation": ["@aevum/command-engine", "@aevum/project-store", "@aevum/studio", "@aevum/mcp-server"],
+  "@aevum/correction": [
+    "@aevum/project-store",
+    "@aevum/reconstruction",
+    "@aevum/renderer-2d",
+    "@aevum/scene-runtime",
+    "@aevum/studio",
+    "@aevum/mcp-server",
+  ],
 };
 
 function readPackageJson(filePath: string): {
