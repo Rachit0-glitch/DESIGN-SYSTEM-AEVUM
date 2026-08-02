@@ -2,7 +2,7 @@
 
 ## Responsibility
 
-Canonical Design Document schemas, IDs, serialization contracts, validation, and future migrations.
+Canonical Design Document schemas, IDs, serialization contracts, validation, and migrations.
 
 ## What It Owns
 
@@ -18,7 +18,8 @@ shared and schema validation libraries only.
 
 ## Current Status
 
-`PHASE_0_SHELL`. This directory establishes ownership only. It is not a production implementation.
+`IMPLEMENTED`. Schema `1.2.0` includes the typed responsive override contract required by Phase 9 and lossless
+migrations from `1.0.0` and `1.1.0`.
 
 ## Canonical References
 

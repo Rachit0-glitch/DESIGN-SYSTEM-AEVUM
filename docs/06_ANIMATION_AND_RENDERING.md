@@ -982,6 +982,10 @@ Possible strategies include:
 
 Reduced-motion behaviour shall be stored in responsive or accessibility metadata.
 
+Canonical schema `1.2.0` stores a typed responsive motion override with `PRESERVE`, `REDUCE`, or `DISABLE` behaviour
+and a bounded duration scale. Scene Runtime resolves this after orientation and before quality-profile overrides so
+render and validation consumers receive the same deterministic motion policy.
+
 ---
 
 ## 41. Rendering System Scope

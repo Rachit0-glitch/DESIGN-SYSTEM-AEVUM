@@ -473,9 +473,9 @@ export function compareRegions(
           "ADJUST_POSITION",
         ),
       );
-      checks.push(...typographyChecks(region, runtime.sourceNode, profile));
-      checks.push(...assetChecks(region, runtime.sourceNode, document));
-      checks.push(...visualChecks(region, runtime.sourceNode, graph, profile));
+      checks.push(...typographyChecks(region, runtime.resolvedNode, profile));
+      checks.push(...assetChecks(region, runtime.resolvedNode, document));
+      checks.push(...visualChecks(region, runtime.resolvedNode, graph, profile));
     }
     const grouped = new Map<ValidationMetric, number[]>();
     for (const check of checks) {

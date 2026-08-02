@@ -98,8 +98,8 @@ function imageOperation(
   parentOperationId: string,
   diagnostics: RenderDiagnostic[],
 ): ImageOperation | undefined {
-  if (node.sourceNode.type !== "IMAGE") return undefined;
-  const source = node.sourceNode;
+  if (node.resolvedNode.type !== "IMAGE") return undefined;
+  const source = node.resolvedNode;
   const asset = node.resolvedReferences.assets.find((entry) => entry.id === source.assetId && entry.resolved)?.value;
   if (!asset) {
     diagnostics.push({
@@ -134,7 +134,7 @@ function imageOperation(
 }
 
 function vectorSource(node: RuntimeNode, diagnostics: RenderDiagnostic[]): VectorSource | undefined {
-  const source = node.sourceNode;
+  const source = node.resolvedNode;
   if (source.type === "SHAPE") return { type: "SHAPE", shapeType: source.shapeType, geometry: source.geometry };
   if (source.type === "VECTOR") return { type: "PATHS", paths: source.paths, windingRule: source.fillRule };
   if (source.type !== "SVG") return undefined;
@@ -219,7 +219,7 @@ export function buildRenderGraph(projection: SceneProjectionResult): RenderGraph
       edges.push({ fromId: blendId, toId: paintId, type: "BLENDS" });
     }
 
-    if (node.sourceNode.type === "TEXT") {
+    if (node.resolvedNode.type === "TEXT") {
       const unresolvedFonts = node.resolvedReferences.fonts.filter((entry) => !entry.resolved).map((entry) => entry.id);
       if (unresolvedFonts.length > 0) {
         diagnostics.push({
@@ -236,9 +236,9 @@ export function buildRenderGraph(projection: SceneProjectionResult): RenderGraph
       operations.push({
         ...operationBase(node, "TEXT", order++, paintId),
         kind: "TEXT",
-        content: node.sourceNode.content,
-        runs: node.sourceNode.runs,
-        paragraphStyle: node.sourceNode.paragraphStyle,
+        content: node.resolvedNode.content,
+        runs: node.resolvedNode.runs,
+        paragraphStyle: node.resolvedNode.paragraphStyle,
         fontAssetIds: node.resolvedReferences.fonts.map((entry) => entry.id),
       });
       edges.push({ fromId: paintId, toId: textId, type: "CONTAINS" });

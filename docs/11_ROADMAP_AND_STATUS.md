@@ -1046,7 +1046,7 @@ Generate validated desktop, tablet, mobile, portrait, landscape, and reduced-mot
 ### Status
 
 ```text
-PLANNED
+VALIDATED
 ```
 
 ### Scope
@@ -1074,6 +1074,62 @@ PLANNED
 - Responsive crops preserve focal points
 - Reduced-motion alternatives exist
 - Responsive rules remain canonical
+
+### Current Phase 9 Evidence
+
+Status update:
+
+- Date: 2026-08-02
+- Owner: Codex
+- Previous status: PLANNED
+- New status: VALIDATED
+- Evidence:
+  - `packages/responsive-reconstruction` now owns immutable versioned tasks, reference evidence, protected properties,
+    deterministic local responsive inference, canonical proposals, atomic transaction plans, multi-viewport verification,
+    serialization, orchestration, and reports.
+  - Canonical Design Document schema `1.2.0` adds typed constraints, ordering, typography, crop, fit, camera,
+    container-query, reduced-motion, and quality-profile overrides with a lossless `1.1.0` migration.
+  - Scene Runtime resolves category, viewport, breakpoint, container-query, orientation, reduced-motion, and quality
+    precedence while retaining canonical and resolved nodes. The Hybrid 2D Renderer and Visual Validation consume the
+    resolved node without losing canonical attribution.
+  - Mobile regeneration uses semantic stacking, content-priority order, readable type steps, full-width constraints,
+    and focal-point crops. It never emits desktop scale transforms or invents content.
+  - Approved changes compile into deterministic `node.update` commands in one Command Engine transaction. Commit is
+    refused until the exact dry-run document passes every declared viewport validation.
+- Test results:
+  - Focused responsive reconstruction suite: PASS, 2 files and 10 tests.
+  - Full repository suite: PASS, 23 files and 146 tests.
+  - Full workspace typecheck: PASS, 58 dependency-aware Turbo tasks.
+  - Full workspace build: PASS, 48 packages.
+  - Dependency validation: PASS, 48 workspace packages.
+  - Formatting and lint: PASS with no warnings.
+  - Docker Compose configuration: PASS.
+- Remaining warnings:
+  - The deterministic local adapter infers canonical intent from structure and explicit metadata; it does not run a
+    browser layout engine or an external responsive-design model.
+  - Container-query contracts and precedence are implemented, but local container-query rule generation currently
+    requires explicit reference evidence.
+  - Multi-viewport validation uses Phase 7 structural and deterministic render-graph comparison. Raster capture,
+    SSIM, LPIPS, and real heatmap pixels remain deferred.
+  - Camera variants select canonical cameras from evidence or metadata; camera matching and cinematography remain in
+    Phase 20. Quality variants are canonical delivery metadata until the 3D renderer consumes them.
+  - Responsive jobs and reports are in-memory. No worker, queue, persistence, or Railway service was activated.
+- Blockers:
+  - None for the Responsive Reconstruction Engine foundation.
+- Decisions:
+  - Responsive child order is a viewport projection rule and must remain an exact permutation of canonical children;
+    it never rewrites hierarchy.
+  - Reference evidence has deterministic precedence over local inference, while locked nodes and protected properties
+    are never changed.
+  - Mobile acceptance requires at least one semantic layout, order, visibility, typography, crop, constraint, or
+    dimension change; transform scaling alone cannot pass.
+  - Every target requires its own reference snapshot, Scene Projection, Render Graph, and Visual Validation report.
+  - Application repeats the dry run and verifies the validated candidate document fingerprint before commit.
+- Next action:
+  - Begin Phase 10 by defining canonical timeline, track, keyframe, easing, trigger, and state-machine schemas plus a
+    deterministic time-evaluation API. First prove a Command Engine transaction can create an editable timeline and
+    Scene Runtime can evaluate the same fixed timestamp for 2D property, camera, and reduced-motion contexts without
+    coupling the canonical model to a renderer.
 
 ---
 

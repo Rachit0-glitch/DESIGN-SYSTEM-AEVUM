@@ -78,6 +78,10 @@ export interface RuntimeResponsiveData {
   readonly appliedOverrideKeys: readonly string[];
   readonly skippedOverrideKeys: readonly string[];
   readonly changedPaths: readonly string[];
+  readonly motion?: {
+    readonly behavior: "PRESERVE" | "REDUCE" | "DISABLE";
+    readonly durationScale: number;
+  };
 }
 
 export interface RuntimeReference<T> {
@@ -125,6 +129,7 @@ export interface RuntimeNode {
   readonly resolvedReferences: RuntimeResolvedReferences;
   readonly componentOrigin?: RuntimeComponentOrigin;
   readonly sourceNode: Readonly<DesignNode>;
+  readonly resolvedNode: Readonly<DesignNode>;
 }
 
 export type RuntimeDependencyType =

@@ -2,7 +2,7 @@
 
 ## Responsibility
 
-Creates an immutable, disposable, renderer-independent projection of a validated Canonical Design Document `1.1.0`.
+Creates an immutable, disposable, renderer-independent projection of a validated Canonical Design Document `1.2.0`.
 
 ## Public API
 
@@ -34,7 +34,9 @@ Schema-invalid and unsupported-version documents are never partially projected o
 
 ## Responsive Precedence
 
-Base node data is followed by matching device-category, viewport-ID, explicit breakpoint-ID, and orientation overrides. Later matches win. Container-query, reduced-motion, and quality-specific node overrides are not interpreted because Canonical Design Document `1.1.0` does not yet define those override structures.
+Base node data is followed by matching device-category, viewport-ID, explicit breakpoint-ID, ordered container-query,
+orientation, reduced-motion, and quality-profile overrides. Later matches win. Runtime nodes preserve both the
+untouched canonical source and the fully resolved node used by renderers and validation.
 
 ## Component Behavior
 
@@ -52,5 +54,5 @@ Allowed dependencies are `document-model`, `shared`, and pure validation utiliti
 
 - No flex, grid, intrinsic, constraint, or text layout calculation.
 - No HarfBuzz shaping, timeline evaluation, rendering, persistence, or asset loading.
-- Canonical `1.1.0` has no nested-timeline reference field or formal component override-path language.
+- Canonical `1.2.0` has no nested-timeline reference field or formal component override-path language.
 - Transform matrices use renderer-neutral numeric arrays and Euler composition; render adapters remain responsible for backend conversion.

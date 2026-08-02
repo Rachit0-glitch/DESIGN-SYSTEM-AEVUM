@@ -859,6 +859,12 @@ When only a desktop reference exists, the pipeline shall infer mobile and tablet
 
 The system shall not merely shrink desktop output.
 
+The Phase 9 engine expresses every responsive decision as an immutable, confidence-bearing proposal. Approved
+proposals compile into one atomic Command Engine transaction, are dry-run against canonical validation, and are then
+independently projected, rendered, and visually validated for every declared viewport before commit. Missing
+references, unreadable text, unexpected overlap, lost crop focal points, missing reduced-motion alternatives, and
+scaled-desktop mobile output block validation.
+
 ---
 
 ## 26. Responsive Confidence

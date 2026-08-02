@@ -371,7 +371,7 @@ function projectReachableNodes(
     const localTransform = createLocalTransform(resolved.node.transform);
     const parent = frame.parentRuntimeId ? state.nodes.get(frame.parentRuntimeId) : undefined;
     const worldTransform = composeWorldTransform(localTransform, parent?.worldTransform);
-    const children = candidateChildren(document, sourceNode, frame, state);
+    const children = candidateChildren(document, resolved.node, frame, state);
     const childIds = children.map((child) => child.runtimeId);
     const node: RuntimeNode = {
       id: frame.runtimeId,
@@ -399,6 +399,7 @@ function projectReachableNodes(
       ),
       ...(frame.componentOrigin ? { componentOrigin: frame.componentOrigin } : {}),
       sourceNode,
+      resolvedNode: resolved.node,
     };
     state.nodes.set(frame.runtimeId, node);
     state.maximumDepth = Math.max(state.maximumDepth, frame.depth);

@@ -134,7 +134,7 @@ export interface BlendOperation extends RenderOperationBase {
   readonly isolated: boolean;
 }
 
-type TextSource = Extract<RuntimeNode["sourceNode"], { type: "TEXT" }>;
+type TextSource = Extract<RuntimeNode["resolvedNode"], { type: "TEXT" }>;
 
 export interface TextOperation extends RenderOperationBase {
   readonly kind: "TEXT";

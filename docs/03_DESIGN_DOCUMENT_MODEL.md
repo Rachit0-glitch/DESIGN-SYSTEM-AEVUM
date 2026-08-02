@@ -578,12 +578,11 @@ Supported constraints shall include:
 
 ```ts
 interface ResponsiveOverrideSet {
-  base?: NodeOverride;
   breakpoints: Record<string, NodeOverride>;
-  containerQueries?: ContainerQueryOverride[];
-  orientationOverrides?: Record<string, NodeOverride>;
+  containerQueries?: Record<string, NodeOverride>;
+  orientations?: Partial<Record<"PORTRAIT" | "LANDSCAPE", NodeOverride>>;
   reducedMotionOverride?: NodeOverride;
-  qualityProfileOverrides?: Record<string, NodeOverride>;
+  qualityProfileOverrides?: Partial<Record<QualityMode, NodeOverride>>;
 }
 ```
 
@@ -603,6 +602,15 @@ Overrides may modify:
 - Export behaviour
 
 Responsive overrides shall store only changed values.
+
+Canonical schema `1.2.0` types visibility, transform, dimensions, constraints, layout, child order, typography,
+asset identity, crop, fit, active camera, reduced-motion behaviour, and namespaced delivery metadata. Responsive
+child order must be an exact permutation of canonical children, so viewport ordering never corrupts canonical
+hierarchy.
+
+Resolution precedence is device category, viewport ID, explicit breakpoint ID, ordered container queries,
+orientation, reduced motion, then quality profile. The Scene Runtime retains both canonical and resolved nodes for
+traceable attribution.
 
 ---
 

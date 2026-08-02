@@ -630,6 +630,22 @@ This package shall own:
 
 ---
 
+## 7.11.1 `packages/responsive-reconstruction`
+
+This package shall own:
+
+- Versioned multi-viewport reconstruction tasks
+- Reference-backed and local responsive intent inference
+- Breakpoint, container-query, orientation, reduced-motion, camera, crop, and quality proposals
+- Protected responsive properties
+- Atomic Command Engine transaction plans for canonical responsive overrides
+- Independent Scene Runtime, Hybrid 2D Renderer, and Visual Validation verification per viewport
+- Immutable responsive reconstruction reports
+
+It shall not own canonical state, browser layout, exporters, rendering backends, Studio, MCP, or deployment.
+
+---
+
 ## 7.12 `packages/validation`
 
 This package shall own:

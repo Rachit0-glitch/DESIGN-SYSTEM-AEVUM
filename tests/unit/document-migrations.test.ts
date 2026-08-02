@@ -26,14 +26,14 @@ describe("document migrations", () => {
     expect(registry.migrate(legacy).schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
   });
 
-  it("migrates Phase 1 documents to the Phase 3 asset-type contract without data loss", () => {
+  it("migrates Phase 1 documents through the asset and responsive contracts without data loss", () => {
     const current = fixtures.assetDemo();
     const legacy = { ...current, schemaVersion: "1.0.0", migrationVersion: 0 };
 
     const migrated = migrate(legacy);
 
-    expect(migrated.schemaVersion).toBe("1.1.0");
-    expect(migrated.migrationVersion).toBe(1);
+    expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(migrated.migrationVersion).toBe(CURRENT_MIGRATION_VERSION);
     expect(migrated.assets).toEqual(current.assets);
   });
 

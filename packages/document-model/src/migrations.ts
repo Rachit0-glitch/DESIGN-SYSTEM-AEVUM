@@ -56,10 +56,15 @@ export class MigrationRegistry {
 }
 
 const defaultRegistry = new MigrationRegistry();
-defaultRegistry.registerMigration("1.0.0", CURRENT_SCHEMA_VERSION, (document, context) => ({
+defaultRegistry.registerMigration("1.0.0", "1.1.0", (document, context) => ({
   ...document,
   schemaVersion: context.toVersion,
   migrationVersion: 1,
+}));
+defaultRegistry.registerMigration("1.1.0", CURRENT_SCHEMA_VERSION, (document, context) => ({
+  ...document,
+  schemaVersion: context.toVersion,
+  migrationVersion: 2,
 }));
 
 export function currentSchema(): string {

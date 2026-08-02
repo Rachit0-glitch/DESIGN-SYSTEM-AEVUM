@@ -37,6 +37,7 @@
     "@aevum/reconstruction": "workspace:*",
     "@aevum/reconstruction-worker": "workspace:*",
     "@aevum/renderer-2d": "workspace:*",
+    "@aevum/responsive-reconstruction": "workspace:*",
     "@aevum/scene-runtime": "workspace:*",
     "@aevum/shared": "workspace:*",
     "@aevum/typography": "workspace:*",

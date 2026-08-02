@@ -108,7 +108,7 @@ export interface MetadataResolution {
 }
 
 export function resolveRendererMetadata(node: RuntimeNode): MetadataResolution {
-  const raw = node.sourceNode.metadata.customData["aevum.renderer2d"];
+  const raw = node.resolvedNode.metadata.customData["aevum.renderer2d"];
   if (raw === undefined) return { metadata: DEFAULT_METADATA, diagnostics: [] };
   const parsed = RendererMetadataSchema.safeParse(raw);
   if (parsed.success) return deepFreeze({ metadata: parsed.data, diagnostics: [] });

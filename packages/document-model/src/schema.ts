@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { EntityIdSchema } from "./ids.js";
 
-export const CURRENT_SCHEMA_VERSION = "1.1.0" as const;
-export const CURRENT_MIGRATION_VERSION = 1 as const;
+export const CURRENT_SCHEMA_VERSION = "1.2.0" as const;
+export const CURRENT_MIGRATION_VERSION = 2 as const;
 
 const JsonValueSchema: z.ZodType<unknown> = z.lazy(() =>
   z.union([
@@ -115,17 +115,62 @@ export const LayoutSchema = z.discriminatedUnion("type", [
   AutoLayoutSchema,
 ]);
 
-const ResponsiveOverrideSchema = z.strictObject({
+export const TextStyleSchema = z.strictObject({
+  fontAssetId: EntityIdSchema.optional(),
+  fontFamily: z.string().min(1),
+  fallbackFamilies: z.array(z.string().min(1)),
+  fontMatchStatus: z.enum(["EXACT", "LIKELY_MATCH", "CLOSE_SUBSTITUTE", "UNKNOWN", "OUTLINED_FROM_REFERENCE"]),
+  size: LengthSchema,
+  lineHeight: z.union([LengthSchema, z.strictObject({ multiplier: z.number().finite().positive() })]),
+  letterSpacing: LengthSchema,
+  weight: z.number().int().min(1).max(1000),
+  style: z.enum(["NORMAL", "ITALIC", "OBLIQUE"]),
+  variableAxes: z.record(z.string(), z.number().finite()),
+  openTypeFeatures: z.record(z.string(), z.union([z.boolean(), z.number().finite()])),
+});
+export const ParagraphStyleSchema = z.strictObject({
+  alignment: z.enum(["LEFT", "CENTER", "RIGHT", "JUSTIFY"]),
+  verticalAlignment: z.enum(["TOP", "CENTER", "BOTTOM"]),
+  direction: z.enum(["LTR", "RTL", "AUTO"]),
+  paragraphSpacingBefore: LengthSchema,
+  paragraphSpacingAfter: LengthSchema,
+  firstLineIndent: LengthSchema,
+  hangingIndent: LengthSchema,
+});
+export const AssetCropSchema = z.strictObject({
+  x: UnitIntervalSchema,
+  y: UnitIntervalSchema,
+  width: UnitIntervalSchema,
+  height: UnitIntervalSchema,
+});
+export const ResponsiveMotionSchema = z.strictObject({
+  behavior: z.enum(["PRESERVE", "REDUCE", "DISABLE"]),
+  durationScale: UnitIntervalSchema.default(1),
+});
+export const ResponsiveOverrideSchema = z.strictObject({
   visible: z.boolean().optional(),
   transform: TransformSchema.partial().optional(),
   dimensions: DimensionsSchema.partial().optional(),
+  constraints: ConstraintsSchema.partial().optional(),
   layout: LayoutSchema.optional(),
   assetId: EntityIdSchema.optional(),
+  crop: AssetCropSchema.optional(),
+  objectFit: z.enum(["FILL", "CONTAIN", "COVER", "NONE", "SCALE_DOWN"]).optional(),
+  textStyle: TextStyleSchema.partial().optional(),
+  paragraphStyle: ParagraphStyleSchema.partial().optional(),
+  childOrder: z.array(EntityIdSchema).optional(),
+  activeCameraId: EntityIdSchema.optional(),
+  motion: ResponsiveMotionSchema.optional(),
   customData: JsonObjectSchema.optional(),
 });
 export const ResponsiveSchema = z.strictObject({
   breakpoints: z.record(z.string(), ResponsiveOverrideSchema),
   orientations: z.partialRecord(z.enum(["PORTRAIT", "LANDSCAPE"]), ResponsiveOverrideSchema).optional(),
+  containerQueries: z.record(z.string(), ResponsiveOverrideSchema).optional(),
+  reducedMotionOverride: ResponsiveOverrideSchema.optional(),
+  qualityProfileOverrides: z
+    .partialRecord(z.enum(["DRAFT", "HIGH_QUALITY", "MAXIMUM_FIDELITY"]), ResponsiveOverrideSchema)
+    .optional(),
 });
 
 const NodeMetadataSchema = z.strictObject({
@@ -182,28 +227,6 @@ const GroupNodeSchema = z.strictObject({
   passThroughBlend: z.boolean(),
 });
 
-export const TextStyleSchema = z.strictObject({
-  fontAssetId: EntityIdSchema.optional(),
-  fontFamily: z.string().min(1),
-  fallbackFamilies: z.array(z.string().min(1)),
-  fontMatchStatus: z.enum(["EXACT", "LIKELY_MATCH", "CLOSE_SUBSTITUTE", "UNKNOWN", "OUTLINED_FROM_REFERENCE"]),
-  size: LengthSchema,
-  lineHeight: z.union([LengthSchema, z.strictObject({ multiplier: z.number().finite().positive() })]),
-  letterSpacing: LengthSchema,
-  weight: z.number().int().min(1).max(1000),
-  style: z.enum(["NORMAL", "ITALIC", "OBLIQUE"]),
-  variableAxes: z.record(z.string(), z.number().finite()),
-  openTypeFeatures: z.record(z.string(), z.union([z.boolean(), z.number().finite()])),
-});
-const ParagraphStyleSchema = z.strictObject({
-  alignment: z.enum(["LEFT", "CENTER", "RIGHT", "JUSTIFY"]),
-  verticalAlignment: z.enum(["TOP", "CENTER", "BOTTOM"]),
-  direction: z.enum(["LTR", "RTL", "AUTO"]),
-  paragraphSpacingBefore: LengthSchema,
-  paragraphSpacingAfter: LengthSchema,
-  firstLineIndent: LengthSchema,
-  hangingIndent: LengthSchema,
-});
 const TextNodeSchema = z.strictObject({
   ...BaseNodeShape,
   type: z.literal("TEXT"),
@@ -227,14 +250,7 @@ const ShapeNodeSchema = z.strictObject({
 });
 const AssetNodeFields = {
   assetId: EntityIdSchema,
-  crop: z
-    .strictObject({
-      x: UnitIntervalSchema,
-      y: UnitIntervalSchema,
-      width: UnitIntervalSchema,
-      height: UnitIntervalSchema,
-    })
-    .optional(),
+  crop: AssetCropSchema.optional(),
 };
 const ImageNodeSchema = z.strictObject({
   ...BaseNodeShape,
@@ -324,7 +340,24 @@ const Mesh3DNodeSchema = z.strictObject({
   receiveShadow: z.boolean(),
 });
 
-export const DesignNodeSchema = z.discriminatedUnion("type", [
+export type DesignNode =
+  | z.infer<typeof PageNodeSchema>
+  | z.infer<typeof FrameNodeSchema>
+  | z.infer<typeof GroupNodeSchema>
+  | z.infer<typeof TextNodeSchema>
+  | z.infer<typeof ShapeNodeSchema>
+  | z.infer<typeof ImageNodeSchema>
+  | z.infer<typeof VideoNodeSchema>
+  | z.infer<typeof SvgNodeSchema>
+  | z.infer<typeof VectorNodeSchema>
+  | z.infer<typeof CanvasNodeSchema>
+  | z.infer<typeof WebGlNodeSchema>
+  | z.infer<typeof ComponentNodeSchema>
+  | z.infer<typeof ComponentInstanceNodeSchema>
+  | z.infer<typeof Scene3DNodeSchema>
+  | z.infer<typeof Model3DNodeSchema>
+  | z.infer<typeof Mesh3DNodeSchema>;
+const DesignNodeSchemaValue: z.ZodType<DesignNode> = z.discriminatedUnion("type", [
   PageNodeSchema,
   FrameNodeSchema,
   GroupNodeSchema,
@@ -342,6 +375,7 @@ export const DesignNodeSchema = z.discriminatedUnion("type", [
   Model3DNodeSchema,
   Mesh3DNodeSchema,
 ]);
+export const DesignNodeSchema: z.ZodType<DesignNode> = DesignNodeSchemaValue;
 
 export const AssetSchema = z.strictObject({
   id: EntityIdSchema,
@@ -584,7 +618,30 @@ export const DocumentMetadataSchema = z.strictObject({
   description: z.string(),
 });
 
-export const CanonicalDesignDocumentSchema = z.strictObject({
+export interface CanonicalDesignDocument {
+  schemaVersion: string;
+  migrationVersion: number;
+  documentVersion: number;
+  parentVersionId: string | null;
+  metadata: z.infer<typeof DocumentMetadataSchema>;
+  rootNodeIds: string[];
+  pages: string[];
+  nodes: Record<string, DesignNode>;
+  assets: Record<string, z.infer<typeof AssetSchema>>;
+  components: Record<string, z.infer<typeof ComponentSchema>>;
+  tokens: Record<string, z.infer<typeof TokenSchema>>;
+  typography: Record<string, z.infer<typeof TypographyRecordSchema>>;
+  timelines: Record<string, z.infer<typeof TimelineSchema>>;
+  cameras: Record<string, z.infer<typeof CameraSchema>>;
+  lights: Record<string, z.infer<typeof LightSchema>>;
+  materials: Record<string, z.infer<typeof MaterialSchema>>;
+  references: Record<string, z.infer<typeof ReferenceRecordSchema>>;
+  validations: Record<string, z.infer<typeof ValidationRecordSchema>>;
+  exports: Record<string, z.infer<typeof ExportRecordSchema>>;
+  settings: z.infer<typeof SettingsSchema>;
+}
+
+const CanonicalDesignDocumentSchemaValue: z.ZodType<CanonicalDesignDocument> = z.strictObject({
   schemaVersion: SemverSchema,
   migrationVersion: z.number().int().nonnegative(),
   documentVersion: z.number().int().positive(),
@@ -606,9 +663,8 @@ export const CanonicalDesignDocumentSchema = z.strictObject({
   exports: z.record(z.string(), ExportRecordSchema),
   settings: SettingsSchema,
 });
+export const CanonicalDesignDocumentSchema: z.ZodType<CanonicalDesignDocument> = CanonicalDesignDocumentSchemaValue;
 
-export type CanonicalDesignDocument = z.infer<typeof CanonicalDesignDocumentSchema>;
-export type DesignNode = z.infer<typeof DesignNodeSchema>;
 export type AssetRecord = z.infer<typeof AssetSchema>;
 export type ReferenceRecord = z.infer<typeof ReferenceRecordSchema>;
 export type TextStyle = z.infer<typeof TextStyleSchema>;

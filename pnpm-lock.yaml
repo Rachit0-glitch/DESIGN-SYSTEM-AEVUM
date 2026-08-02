@@ -42,6 +42,9 @@ importers:
       '@aevum/renderer-2d':
         specifier: workspace:*
         version: link:packages/renderer-2d
+      '@aevum/responsive-reconstruction':
+        specifier: workspace:*
+        version: link:packages/responsive-reconstruction
       '@aevum/scene-runtime':
         specifier: workspace:*
         version: link:packages/scene-runtime
@@ -414,6 +417,30 @@ importers:
       '@aevum/shared':
         specifier: workspace:*
         version: link:../shared
+
+  packages/responsive-reconstruction:
+    dependencies:
+      '@aevum/command-engine':
+        specifier: workspace:*
+        version: link:../command-engine
+      '@aevum/document-model':
+        specifier: workspace:*
+        version: link:../document-model
+      '@aevum/renderer-2d':
+        specifier: workspace:*
+        version: link:../renderer-2d
+      '@aevum/scene-runtime':
+        specifier: workspace:*
+        version: link:../scene-runtime
+      '@aevum/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@aevum/validation':
+        specifier: workspace:*
+        version: link:../validation
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
 
   packages/sandbox:
     dependencies:

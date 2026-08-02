@@ -219,6 +219,55 @@ function validateReferences(document: CanonicalDesignDocument, issues: DocumentV
         );
       }
     }
+    const responsiveEntries = node.responsive
+      ? [
+          ...Object.entries(node.responsive.breakpoints).map(([key, value]) => [`breakpoints.${key}`, value] as const),
+          ...Object.entries(node.responsive.orientations ?? {}).map(
+            ([key, value]) => [`orientations.${key}`, value] as const,
+          ),
+          ...Object.entries(node.responsive.containerQueries ?? {}).map(
+            ([key, value]) => [`containerQueries.${key}`, value] as const,
+          ),
+          ...(node.responsive.reducedMotionOverride
+            ? [["reducedMotionOverride", node.responsive.reducedMotionOverride] as const]
+            : []),
+          ...Object.entries(node.responsive.qualityProfileOverrides ?? {}).map(
+            ([key, value]) => [`qualityProfileOverrides.${key}`, value] as const,
+          ),
+        ]
+      : [];
+    for (const [overrideKey, override] of responsiveEntries) {
+      const path = `nodes.${id}.responsive.${overrideKey}`;
+      if (override.childOrder) {
+        const canonical = [...node.childIds].sort();
+        const proposed = [...override.childOrder].sort();
+        if (
+          new Set(override.childOrder).size !== override.childOrder.length ||
+          canonical.length !== proposed.length ||
+          canonical.some((childId, index) => childId !== proposed[index])
+        ) {
+          issues.push(
+            issue(
+              "INVALID_REFERENCE",
+              `${path}.childOrder`,
+              "Responsive childOrder must be an exact permutation of the canonical child IDs.",
+            ),
+          );
+        }
+      }
+      requireRef(override.assetId, document.assets, `${path}.assetId`, "Responsive asset");
+      requireRef(override.activeCameraId, document.cameras, `${path}.activeCameraId`, "Responsive camera");
+      requireAssetType(override.textStyle?.fontAssetId, ["FONT"], `${path}.textStyle.fontAssetId`);
+      if ((override.textStyle || override.paragraphStyle) && node.type !== "TEXT") {
+        issues.push(issue("INVALID_REFERENCE", path, "Typography overrides require a TEXT node."));
+      }
+      if ((override.crop || override.objectFit) && node.type !== "IMAGE" && node.type !== "VIDEO") {
+        issues.push(issue("INVALID_REFERENCE", path, "Crop and fit overrides require an IMAGE or VIDEO node."));
+      }
+      if (override.activeCameraId && node.type !== "SCENE_3D") {
+        issues.push(issue("INVALID_REFERENCE", path, "Camera overrides require a SCENE_3D node."));
+      }
+    }
     if (node.type === "IMAGE") requireAssetType(node.assetId, ["IMAGE"], `nodes.${id}.assetId`);
     if (node.type === "VIDEO") {
       requireAssetType(node.assetId, ["VIDEO"], `nodes.${id}.assetId`);

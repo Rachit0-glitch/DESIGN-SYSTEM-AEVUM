@@ -33,7 +33,7 @@ function tokenPaint(node: RuntimeNode, tokenId: string | undefined): RenderPaint
 export function resolveStyle(node: RuntimeNode): StyleResolution {
   const metadata = resolveRendererMetadata(node);
   const diagnostics = [...metadata.diagnostics];
-  const source = node.sourceNode;
+  const source = node.resolvedNode;
   const fillTokenId = source.type === "SHAPE" ? source.fillTokenId : undefined;
   const strokeTokenId = source.type === "SHAPE" ? source.strokeTokenId : undefined;
   const fill = tokenPaint(node, fillTokenId);
