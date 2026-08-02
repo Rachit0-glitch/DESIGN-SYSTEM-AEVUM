@@ -134,13 +134,21 @@ describe("Animation Core", () => {
 
     const machine = createAnimationStateMachine(timeline.id);
     const state = machine.states[0];
-    if (!state) throw new Error("State-machine validation fixture requires a state.");
+    const otherState = machine.states[1];
+    if (!state || !otherState) throw new Error("State-machine validation fixture requires two states.");
     const machineValidation = validateStateMachine({
       ...machine,
       transitions: [
         {
           id: createEntityId("transition"),
           fromStateId: state.id,
+          toStateId: otherState.id,
+          actions: [],
+          priority: 0,
+        },
+        {
+          id: createEntityId("transition"),
+          fromStateId: otherState.id,
           toStateId: state.id,
           actions: [],
           priority: 0,

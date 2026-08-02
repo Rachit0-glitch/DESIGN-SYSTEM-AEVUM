@@ -173,5 +173,39 @@ export function validateStateMachine(input: unknown): AnimationValidationResult<
         recoverable: true,
       });
   }
+  const unconditional = new Map<string, string[]>();
+  for (const transition of machine.transitions) {
+    if (transition.triggerId || transition.guard) continue;
+    unconditional.set(transition.fromStateId, [
+      ...(unconditional.get(transition.fromStateId) ?? []),
+      transition.toStateId,
+    ]);
+  }
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const visit = (stateId: string, trail: readonly string[]): boolean => {
+    if (visiting.has(stateId)) {
+      diagnostics.push({
+        code: "CIRCULAR_STATE",
+        severity: "ERROR",
+        message: `Unconditional state cycle detected: ${[...trail, stateId].join(" -> ")}.`,
+        path: "transitions",
+        entityId: stateId,
+        recoverable: true,
+      });
+      return true;
+    }
+    if (visited.has(stateId)) return false;
+    visiting.add(stateId);
+    for (const targetId of [...(unconditional.get(stateId) ?? [])].sort()) {
+      if (visit(targetId, [...trail, stateId])) return true;
+    }
+    visiting.delete(stateId);
+    visited.add(stateId);
+    return false;
+  };
+  for (const stateId of [...states].sort()) {
+    if (visit(stateId, [])) break;
+  }
   return deepFreeze({ success: !diagnostics.some((entry) => entry.severity === "ERROR"), value: machine, diagnostics });
 }
