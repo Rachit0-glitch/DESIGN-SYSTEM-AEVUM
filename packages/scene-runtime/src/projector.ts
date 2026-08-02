@@ -21,6 +21,7 @@ import {
 import { deepFreeze, immutableMap } from "./immutable.js";
 import { resolveDocumentReferences, resolveNodeReferences } from "./references.js";
 import { resolveResponsiveOverrides } from "./responsive.js";
+import { resolveNodeAnimation } from "./animation.js";
 import { createProjectedInstanceId, createProjectionFingerprint } from "./stable.js";
 import { composeWorldTransform, createLocalTransform } from "./transforms.js";
 import {
@@ -368,10 +369,11 @@ function projectReachableNodes(
     }
 
     const resolved = resolveResponsiveOverrides(sourceNode, viewport);
-    const localTransform = createLocalTransform(resolved.node.transform);
+    const animated = resolveNodeAnimation(document, sourceNode.id, resolved.node, resolved.data, viewport);
+    const localTransform = createLocalTransform(animated.node.transform);
     const parent = frame.parentRuntimeId ? state.nodes.get(frame.parentRuntimeId) : undefined;
     const worldTransform = composeWorldTransform(localTransform, parent?.worldTransform);
-    const children = candidateChildren(document, resolved.node, frame, state);
+    const children = candidateChildren(document, animated.node, frame, state);
     const childIds = children.map((child) => child.runtimeId);
     const node: RuntimeNode = {
       id: frame.runtimeId,
@@ -381,25 +383,26 @@ function projectReachableNodes(
       childIds,
       depth: frame.depth,
       traversalIndex: state.nodes.size,
-      visible: resolved.node.visible && (parent?.visible ?? true),
-      locked: resolved.node.locked,
+      visible: animated.node.visible && (parent?.visible ?? true),
+      locked: animated.node.locked,
       effectiveOpacity: worldTransform.opacity,
       localTransform,
       worldTransform,
-      ...(resolved.node.dimensions ? { dimensions: resolved.node.dimensions } : {}),
-      ...(resolved.node.constraints ? { constraints: resolved.node.constraints } : {}),
-      ...(resolved.node.type === "FRAME" ? { layout: resolved.node.layout } : {}),
+      ...(animated.node.dimensions ? { dimensions: animated.node.dimensions } : {}),
+      ...(animated.node.constraints ? { constraints: animated.node.constraints } : {}),
+      ...(animated.node.type === "FRAME" ? { layout: animated.node.layout } : {}),
       responsive: resolved.data,
+      animation: animated.data,
       resolvedReferences: resolveNodeReferences(
         document,
-        resolved.node,
+        animated.node,
         frame.runtimeId,
         state.diagnostics,
         state.edges,
       ),
       ...(frame.componentOrigin ? { componentOrigin: frame.componentOrigin } : {}),
       sourceNode,
-      resolvedNode: resolved.node,
+      resolvedNode: animated.node,
     };
     state.nodes.set(frame.runtimeId, node);
     state.maximumDepth = Math.max(state.maximumDepth, frame.depth);

@@ -5,6 +5,7 @@ import {
   DesignNodeSchema,
   EntityIdSchema,
   ReferenceRecordSchema,
+  TimelineSchema,
 } from "@aevum/document-model";
 import { z } from "zod";
 
@@ -116,6 +117,11 @@ export const RegisterReferenceCommandSchema = z.strictObject({
   type: z.literal("reference.register"),
   payload: z.strictObject({ reference: ReferenceRecordSchema }),
 });
+export const CreateTimelineCommandSchema = z.strictObject({
+  ...BaseCommandShape,
+  type: z.literal("timeline.create"),
+  payload: z.strictObject({ timeline: TimelineSchema }),
+});
 
 export type CreateDocumentCommand = z.infer<typeof CreateDocumentCommandSchema>;
 export type RenameDocumentCommand = z.infer<typeof RenameDocumentCommandSchema>;
@@ -131,6 +137,7 @@ export type UpdateNodeCommand = z.infer<typeof UpdateNodeCommandSchema>;
 export type RegisterAssetCommand = z.infer<typeof RegisterAssetCommandSchema>;
 export type RemoveAssetCommand = z.infer<typeof RemoveAssetCommandSchema>;
 export type RegisterReferenceCommand = z.infer<typeof RegisterReferenceCommandSchema>;
+export type CreateTimelineCommand = z.infer<typeof CreateTimelineCommandSchema>;
 export type Command =
   | CreateDocumentCommand
   | RenameDocumentCommand
@@ -145,7 +152,8 @@ export type Command =
   | UpdateNodeCommand
   | RegisterAssetCommand
   | RemoveAssetCommand
-  | RegisterReferenceCommand;
+  | RegisterReferenceCommand
+  | CreateTimelineCommand;
 
 export const CommandSchema: z.ZodType<Command> = z.discriminatedUnion("type", [
   CreateDocumentCommandSchema,
@@ -162,6 +170,7 @@ export const CommandSchema: z.ZodType<Command> = z.discriminatedUnion("type", [
   RegisterAssetCommandSchema,
   RemoveAssetCommandSchema,
   RegisterReferenceCommandSchema,
+  CreateTimelineCommandSchema,
 ]);
 
 export type CommandType = Command["type"];

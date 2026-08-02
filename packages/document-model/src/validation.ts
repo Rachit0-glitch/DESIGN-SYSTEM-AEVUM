@@ -316,8 +316,47 @@ function validateReferences(document: CanonicalDesignDocument, issues: DocumentV
   for (const [id, component] of Object.entries(document.components))
     requireRef(component.rootNodeId, document.nodes, `components.${id}.rootNodeId`, "Root node");
   for (const [id, timeline] of Object.entries(document.timelines)) {
+    const animationTargets = {
+      ...document.nodes,
+      ...document.cameras,
+      ...document.lights,
+      ...document.materials,
+    };
     for (const track of timeline.tracks)
-      requireRef(track.targetId, document.nodes, `timelines.${id}.tracks.${track.id}.targetId`, "Target node");
+      requireRef(track.targetId, animationTargets, `timelines.${id}.tracks.${track.id}.targetId`, "Animation target");
+    requireRef(
+      timeline.reducedMotionTimelineId,
+      document.timelines,
+      `timelines.${id}.reducedMotionTimelineId`,
+      "Reduced-motion timeline",
+    );
+    const tracks = Object.fromEntries(timeline.tracks.map((track) => [track.id, track]));
+    for (const clip of timeline.clips) {
+      for (const trackId of clip.trackIds)
+        requireRef(trackId, tracks, `timelines.${id}.clips.${clip.id}.trackIds`, "Clip track");
+    }
+  }
+  for (const [id, machine] of Object.entries(document.stateMachines)) {
+    const states = Object.fromEntries(machine.states.map((state) => [state.id, state]));
+    const triggers = Object.fromEntries(machine.triggers.map((trigger) => [trigger.id, trigger]));
+    requireRef(machine.initialStateId, states, `stateMachines.${id}.initialStateId`, "Initial state");
+    for (const state of machine.states)
+      requireRef(state.timelineId, document.timelines, `stateMachines.${id}.states.${state.id}.timelineId`, "Timeline");
+    for (const transition of machine.transitions) {
+      requireRef(
+        transition.fromStateId,
+        states,
+        `stateMachines.${id}.transitions.${transition.id}.fromStateId`,
+        "State",
+      );
+      requireRef(transition.toStateId, states, `stateMachines.${id}.transitions.${transition.id}.toStateId`, "State");
+      requireRef(
+        transition.triggerId,
+        triggers,
+        `stateMachines.${id}.transitions.${transition.id}.triggerId`,
+        "Trigger",
+      );
+    }
   }
   for (const [id, material] of Object.entries(document.materials)) {
     for (const texture of material.textures)
@@ -382,6 +421,7 @@ export function validateDocument(input: unknown): DocumentValidationResult {
   validateRegistry("tokens", document.tokens, seen, issues);
   validateRegistry("typography", document.typography, seen, issues);
   validateRegistry("timelines", document.timelines, seen, issues);
+  validateRegistry("stateMachines", document.stateMachines, seen, issues);
   validateRegistry("cameras", document.cameras, seen, issues);
   validateRegistry("lights", document.lights, seen, issues);
   validateRegistry("materials", document.materials, seen, issues);
@@ -403,6 +443,50 @@ export function validateDocument(input: unknown): DocumentValidationResult {
         seen,
         issues,
       );
+    validateRegistry(
+      `timelines.${timelineId}.clips`,
+      Object.fromEntries(timeline.clips.map((entry) => [entry.id, entry])),
+      seen,
+      issues,
+    );
+    validateRegistry(
+      `timelines.${timelineId}.markers`,
+      Object.fromEntries(timeline.markers.map((entry) => [entry.id, entry])),
+      seen,
+      issues,
+    );
+    validateRegistry(
+      `timelines.${timelineId}.triggers`,
+      Object.fromEntries(timeline.triggers.map((entry) => [entry.id, entry])),
+      seen,
+      issues,
+    );
+    validateRegistry(
+      `timelines.${timelineId}.events`,
+      Object.fromEntries(timeline.events.map((entry) => [entry.id, entry])),
+      seen,
+      issues,
+    );
+  }
+  for (const [machineId, machine] of Object.entries(document.stateMachines)) {
+    validateRegistry(
+      `stateMachines.${machineId}.states`,
+      Object.fromEntries(machine.states.map((entry) => [entry.id, entry])),
+      seen,
+      issues,
+    );
+    validateRegistry(
+      `stateMachines.${machineId}.transitions`,
+      Object.fromEntries(machine.transitions.map((entry) => [entry.id, entry])),
+      seen,
+      issues,
+    );
+    validateRegistry(
+      `stateMachines.${machineId}.triggers`,
+      Object.fromEntries(machine.triggers.map((entry) => [entry.id, entry])),
+      seen,
+      issues,
+    );
   }
   for (const [componentId, component] of Object.entries(document.components)) {
     validateRegistry(

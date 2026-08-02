@@ -61,11 +61,70 @@ defaultRegistry.registerMigration("1.0.0", "1.1.0", (document, context) => ({
   schemaVersion: context.toVersion,
   migrationVersion: 1,
 }));
-defaultRegistry.registerMigration("1.1.0", CURRENT_SCHEMA_VERSION, (document, context) => ({
+defaultRegistry.registerMigration("1.1.0", "1.2.0", (document, context) => ({
   ...document,
   schemaVersion: context.toVersion,
   migrationVersion: 2,
 }));
+defaultRegistry.registerMigration("1.2.0", CURRENT_SCHEMA_VERSION, (document, context) => {
+  const timelines = Object.fromEntries(
+    Object.entries((document.timelines as Record<string, Record<string, unknown>> | undefined) ?? {}).map(
+      ([id, timeline]) => [
+        id,
+        {
+          ...timeline,
+          version: "1.0.0",
+          type: "TIME",
+          timeScale: 1,
+          loop: { enabled: false, count: 1, mode: "RESTART" },
+          tracks: ((timeline.tracks as Record<string, unknown>[] | undefined) ?? []).map((track) => ({
+            ...track,
+            property: "OPACITY",
+            valueType: "NUMBER",
+            muted: false,
+            locked: false,
+            layer: 0,
+            keyframes: ((track.keyframes as Record<string, unknown>[] | undefined) ?? []).map((keyframe) => {
+              const legacyEasing = keyframe.easing;
+              const easing =
+                typeof legacyEasing === "string"
+                  ? legacyEasing === "STEP"
+                    ? { type: "STEPS", count: 1, position: "END" }
+                    : { type: legacyEasing }
+                  : legacyEasing && typeof legacyEasing === "object" && "cubicBezier" in legacyEasing
+                    ? {
+                        type: "CUBIC_BEZIER",
+                        x1: (legacyEasing.cubicBezier as number[])[0],
+                        y1: (legacyEasing.cubicBezier as number[])[1],
+                        x2: (legacyEasing.cubicBezier as number[])[2],
+                        y2: (legacyEasing.cubicBezier as number[])[3],
+                      }
+                    : { type: "LINEAR" };
+              return {
+                ...keyframe,
+                easing,
+                interpolation: typeof legacyEasing === "string" && legacyEasing === "STEP" ? "STEP" : "LINEAR",
+                metadata: {},
+              };
+            }),
+          })),
+          clips: [],
+          markers: [],
+          triggers: [],
+          events: [],
+          metadata: {},
+        },
+      ],
+    ),
+  );
+  return {
+    ...document,
+    schemaVersion: context.toVersion,
+    migrationVersion: 3,
+    timelines,
+    stateMachines: {},
+  };
+});
 
 export function currentSchema(): string {
   return defaultRegistry.currentSchema();

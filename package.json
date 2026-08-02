@@ -27,6 +27,8 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@aevum/animation-core": "workspace:*",
+    "@aevum/animation-worker": "workspace:*",
     "@aevum/assets": "workspace:*",
     "@aevum/command-engine": "workspace:*",
     "@aevum/correction": "workspace:*",

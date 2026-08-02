@@ -171,15 +171,16 @@ describe("responsive reconstruction", () => {
     expect(scene.responsive.appliedOverrideKeys).toContain("quality:DRAFT");
   });
 
-  it("migrates 1.1 documents to the additive 1.2 responsive contract", () => {
+  it("migrates 1.1 documents through responsive and animation contracts", () => {
     const fixture = createResponsiveFixture();
     const old = structuredClone(fixture.document) as unknown as Record<string, unknown>;
     old.schemaVersion = "1.1.0";
     old.migrationVersion = 1;
     const migrated = migrate(old);
 
-    expect(migrated.schemaVersion).toBe("1.2.0");
-    expect(migrated.migrationVersion).toBe(2);
+    expect(migrated.schemaVersion).toBe("1.3.0");
+    expect(migrated.migrationVersion).toBe(3);
+    expect(migrated.stateMachines).toEqual({});
     expect(validateDocument(migrated).success).toBe(true);
   });
 

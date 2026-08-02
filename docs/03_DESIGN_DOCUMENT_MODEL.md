@@ -1487,6 +1487,11 @@ interface TimelineDefinition {
 
 The timeline model shall remain runtime-independent.
 
+Canonical schema `1.3.0` stores immutable versioned timelines with a driver type, bounded duration and time scale,
+loop policy, tracks, clips, markers, triggers, events, labels, and an optional reduced-motion timeline reference. Tracks
+declare a canonical animated-property category and a schema-aware property path. Easing is a discriminated,
+library-independent record supporting named curves, cubic Bezier, deterministic spring metadata, and steps.
+
 ---
 
 ## 55. Timeline Track
@@ -1531,6 +1536,11 @@ interface Keyframe {
 ---
 
 ## 57. Animation Bindings
+
+Canonical schema `1.3.0` also stores versioned state machines as a root registry. Each machine contains a stable initial
+state, state entry and exit actions, deterministic-priority transitions, typed triggers, data-only guards, and actions.
+State and transition records are canonical data; current playback state remains runtime state and is never persisted
+into the Canonical Design Document during evaluation.
 
 ```ts
 interface AnimationBinding {

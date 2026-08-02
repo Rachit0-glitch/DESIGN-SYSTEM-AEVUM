@@ -149,18 +149,41 @@ export function createResponsiveFixture(): ResponsiveFixture {
   const keyframeId = createEntityId("keyframe");
   document.timelines[timelineId] = {
     id: timelineId,
+    version: "1.0.0",
     name: "Heading reveal",
+    type: "TIME",
     duration: 1,
     frameRate: 60,
+    timeScale: 1,
+    loop: { enabled: false, count: 1, mode: "RESTART" },
     tracks: [
       {
         id: trackId,
         targetId: heading.id,
+        property: "OPACITY",
         propertyPath: "transform.opacity",
-        keyframes: [{ id: keyframeId, time: 0, value: 0, easing: "EASE_OUT" }],
+        valueType: "NUMBER",
+        muted: false,
+        locked: false,
+        layer: 0,
+        keyframes: [
+          {
+            id: keyframeId,
+            time: 0,
+            value: 0,
+            easing: { type: "EASE_OUT" },
+            interpolation: "LINEAR",
+            metadata: {},
+          },
+        ],
       },
     ],
+    clips: [],
+    markers: [],
+    triggers: [],
+    events: [],
     labels: {},
+    metadata: {},
   };
 
   const desktopId = document.settings.defaultViewportId;

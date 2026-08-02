@@ -1,6 +1,6 @@
 {
-  "name": "@aevum/scene-runtime",
-  "version": "0.0.0",
+  "name": "@aevum/animation-worker",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",

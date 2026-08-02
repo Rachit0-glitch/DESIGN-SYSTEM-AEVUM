@@ -3,3 +3,4 @@ import "./commands/document.js";
 import "./commands/node.js";
 import "./commands/page.js";
 import "./commands/reference.js";
+import "./commands/timeline.js";

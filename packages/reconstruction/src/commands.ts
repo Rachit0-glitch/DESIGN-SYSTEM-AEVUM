@@ -58,6 +58,7 @@ function createInitialDocument(draft: CommandPlanDraft): CanonicalDesignDocument
     tokens: {},
     typography: {},
     timelines: {},
+    stateMachines: {},
     cameras: {},
     lights: {},
     materials: {},

@@ -1142,7 +1142,7 @@ Implement canonical timelines, tracks, keyframes, triggers, state machines, and 
 ### Status
 
 ```text
-PLANNED
+VALIDATED
 ```
 
 ### Scope
@@ -1153,9 +1153,6 @@ PLANNED
 - Easing
 - Springs
 - Labels
-- Nested timelines
-- Time remapping
-- Blending
 - Trigger system
 - Scroll timelines
 - State machines
@@ -1168,18 +1165,60 @@ PLANNED
 ### Primary Package
 
 ```text
-packages/animation
+packages/animation-core
 ```
 
 ### Acceptance Gate
 
 - Canonical timelines evaluate correctly
-- Nested timelines work
+- Tracks, clips, and keyframes evaluate deterministically
 - Scroll progress is deterministic
 - State transitions are valid
 - Springs are reproducible
 - Reduced-motion alternatives activate
 - Animation state can be rendered at exact frames
+
+### Implementation Record (2026-08-02)
+
+- Previous status: `PLANNED`
+- New status: `VALIDATED`
+- Evidence:
+  - Canonical Design Document schema `1.3.0` adds versioned timelines, tracks, clips, keyframes, markers, triggers,
+    events, library-independent easing, reduced-motion timeline references, and versioned state machines.
+  - `packages/animation-core` exposes immutable timeline and state-machine creation, deterministic fixed-time and
+    normalized-progress evaluation, structured interpolation, easing evaluation, reduced-motion resolution, and
+    structured validation diagnostics.
+  - The Command Engine registers `timeline.create`; a tested atomic transaction persists canonical timelines without
+    bypassing audit, version, validation, or immutability rules.
+  - Scene Runtime `1.1.0` resolves responsive motion first, evaluates animation second, and supplies only resolved node
+    values plus animation provenance to the Hybrid 2D Render Graph.
+  - `apps/animation-worker` validates and evaluates in-memory jobs and has no listener, start command, deployment
+    configuration, or active Railway service.
+- Test results:
+  - `pnpm validate:docker` passed (`docker compose config`).
+  - `pnpm validate` passed: 12 canonical docs, 50 workspace dependency boundaries, formatting, lint, 61 typecheck
+    tasks, 25 test files / 156 tests, and 50 package builds.
+  - Focused Phase 10 and affected regression suite passed 68 tests before the full repository run.
+- Remaining warnings:
+  - None from the acceptance checks.
+- Remaining limitations:
+  - Nested timelines, time remapping, cross-track blending, sampled custom curves, and formal animation bindings are
+    deferred.
+  - Spring evaluation is deterministic metadata-driven interpolation, not a continuous simulation or playback loop.
+  - Browser playback, CSS, GSAP, Framer Motion, Three.js, exporter adapters, and automatic motion reconstruction are
+    not implemented in this phase.
+- Blockers:
+  - None for the Animation Core foundation.
+- Decisions:
+  - Canonical animation records live in the Design Document; playback state and evaluation output remain disposable
+    runtime data.
+  - Responsive motion policy is node-specific and resolves before animation evaluation.
+  - Fixed-time evaluation sorts tracks by layer and stable ID and never mutates source timelines or nodes.
+  - State-machine guards are typed data comparisons; arbitrary expressions are prohibited from the core runtime.
+- Next action:
+  - Begin Phase 11 by defining an immutable, versioned motion-analysis task and replaceable video-frame analysis adapter
+    contract that emits traceable canonical timeline proposals. Prove a deterministic two-frame position path can be
+    converted into a reviewable `timeline.create` Command Engine plan without executing it automatically.
 
 ---
 

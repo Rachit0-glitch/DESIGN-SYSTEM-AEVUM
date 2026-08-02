@@ -18,8 +18,9 @@ shared and schema validation libraries only.
 
 ## Current Status
 
-`IMPLEMENTED`. Schema `1.2.0` includes the typed responsive override contract required by Phase 9 and lossless
-migrations from `1.0.0` and `1.1.0`.
+`IMPLEMENTED`. Schema `1.3.0` includes the typed responsive override contract from Phase 9 plus canonical timelines,
+tracks, clips, keyframes, triggers, events, easing, and state machines for Phase 10. Migrations remain lossless from
+`1.0.0`, `1.1.0`, and `1.2.0`.
 
 ## Canonical References
 

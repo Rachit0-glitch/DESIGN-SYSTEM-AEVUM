@@ -1,6 +1,6 @@
 import type { AssetRecord, CanonicalDesignDocument, DesignNode, Transform } from "@aevum/document-model";
 
-export const SCENE_PROJECTION_VERSION = "1.0.0" as const;
+export const SCENE_PROJECTION_VERSION = "1.1.0" as const;
 
 export type RuntimeQualityMode = CanonicalDesignDocument["settings"]["qualityMode"];
 export type RuntimeOrientation = "PORTRAIT" | "LANDSCAPE";
@@ -17,6 +17,13 @@ export interface RuntimeViewport {
   readonly breakpointId?: string;
   readonly containerQueryIds?: readonly string[];
   readonly qualityMode?: RuntimeQualityMode;
+  readonly animation?: {
+    readonly time: number;
+    readonly progress?: number;
+    readonly active?: boolean;
+    readonly playbackState?: "IDLE" | "RUNNING" | "PAUSED" | "COMPLETED" | "CANCELLED" | "REVERSED";
+    readonly timelineIds?: readonly string[];
+  };
 }
 
 export interface SceneRuntimeConfiguration {
@@ -84,6 +91,13 @@ export interface RuntimeResponsiveData {
   };
 }
 
+export interface RuntimeAnimationData {
+  readonly time: number;
+  readonly appliedTimelineIds: readonly string[];
+  readonly changedPaths: readonly string[];
+  readonly evaluationFingerprints: readonly string[];
+}
+
 export interface RuntimeReference<T> {
   readonly id: string;
   readonly resolved: boolean;
@@ -126,6 +140,7 @@ export interface RuntimeNode {
   readonly constraints?: DesignNode["constraints"];
   readonly layout?: Extract<DesignNode, { type: "FRAME" }>["layout"];
   readonly responsive: RuntimeResponsiveData;
+  readonly animation: RuntimeAnimationData;
   readonly resolvedReferences: RuntimeResolvedReferences;
   readonly componentOrigin?: RuntimeComponentOrigin;
   readonly sourceNode: Readonly<DesignNode>;

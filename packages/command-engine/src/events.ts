@@ -12,7 +12,8 @@ export type CommandEventType =
   | "NodeUpdated"
   | "AssetRegistered"
   | "AssetRemoved"
-  | "ReferenceRegistered";
+  | "ReferenceRegistered"
+  | "TimelineCreated";
 
 export interface CommandEventDraft {
   readonly type: CommandEventType;

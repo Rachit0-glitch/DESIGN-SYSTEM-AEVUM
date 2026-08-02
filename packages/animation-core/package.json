@@ -1,6 +1,6 @@
 {
-  "name": "@aevum/scene-runtime",
-  "version": "0.0.0",
+  "name": "@aevum/animation-core",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -16,7 +16,6 @@
     "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@aevum/animation-core": "workspace:*",
     "@aevum/document-model": "workspace:*",
     "@aevum/shared": "workspace:*",
     "zod": "4.4.3"

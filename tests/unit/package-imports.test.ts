@@ -3,6 +3,7 @@ import { packageContract as commandEngineContract } from "@aevum/command-engine"
 import { packageContract as documentModelContract } from "@aevum/document-model";
 import { packageContract as exportersContract } from "@aevum/exporters";
 import { packageContract as sceneRuntimeContract } from "@aevum/scene-runtime";
+import { packageContract as animationCoreContract } from "@aevum/animation-core";
 import { CANONICAL_PRODUCT_NAME, createAevumError, createLogger } from "@aevum/shared";
 
 describe("workspace package imports", () => {
@@ -12,6 +13,7 @@ describe("workspace package imports", () => {
     expect(commandEngineContract.owns).toContain("mutation");
     expect(exportersContract.responsibility).toContain("exporter");
     expect(sceneRuntimeContract.status).toBe("IMPLEMENTED");
+    expect(animationCoreContract.responsibility).toContain("timeline");
   });
 
   it("creates structured errors and logs with correlation context", () => {

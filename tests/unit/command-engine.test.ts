@@ -64,6 +64,7 @@ describe("Command Engine", () => {
       "page.delete",
       "page.rename",
       "reference.register",
+      "timeline.create",
     ]);
   });
 

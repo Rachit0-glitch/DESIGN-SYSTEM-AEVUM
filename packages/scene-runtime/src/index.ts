@@ -1,6 +1,7 @@
 import type { PackageContract } from "@aevum/shared";
 
 export * from "./cache.js";
+export * from "./animation.js";
 export * from "./config.js";
 export * from "./dependency-graph.js";
 export * from "./errors.js";

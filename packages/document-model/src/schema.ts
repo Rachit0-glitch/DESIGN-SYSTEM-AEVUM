@@ -1,10 +1,10 @@
 import { z } from "zod";
 import { EntityIdSchema } from "./ids.js";
 
-export const CURRENT_SCHEMA_VERSION = "1.2.0" as const;
-export const CURRENT_MIGRATION_VERSION = 2 as const;
+export const CURRENT_SCHEMA_VERSION = "1.3.0" as const;
+export const CURRENT_MIGRATION_VERSION = 3 as const;
 
-const JsonValueSchema: z.ZodType<unknown> = z.lazy(() =>
+export const JsonValueSchema: z.ZodType<unknown> = z.lazy(() =>
   z.union([
     z.string(),
     z.number(),
@@ -443,28 +443,169 @@ export const TypographyRecordSchema = z.strictObject({
   style: TextStyleSchema,
 });
 
-const KeyframeSchema = z.strictObject({
+export const TimelineTypeSchema = z.enum([
+  "SCROLL",
+  "TIME",
+  "HOVER",
+  "CLICK",
+  "FOCUS",
+  "LOAD",
+  "VIEWPORT",
+  "MEDIA",
+  "MANUAL",
+  "LOOP",
+]);
+export const AnimatedPropertySchema = z.enum([
+  "POSITION",
+  "ROTATION",
+  "SCALE",
+  "OPACITY",
+  "COLOR",
+  "BORDER",
+  "RADIUS",
+  "SHADOW",
+  "GRADIENT",
+  "TYPOGRAPHY",
+  "CAMERA",
+  "CONSTRAINTS",
+  "VISIBILITY",
+]);
+export const EasingSchema = z.discriminatedUnion("type", [
+  z.strictObject({ type: z.enum(["LINEAR", "EASE", "EASE_IN", "EASE_OUT", "EASE_IN_OUT"]) }),
+  z.strictObject({
+    type: z.literal("CUBIC_BEZIER"),
+    x1: z.number().finite(),
+    y1: z.number().finite(),
+    x2: z.number().finite(),
+    y2: z.number().finite(),
+  }),
+  z.strictObject({
+    type: z.literal("SPRING"),
+    mass: z.number().finite().positive(),
+    stiffness: z.number().finite().positive(),
+    damping: z.number().finite().nonnegative(),
+    initialVelocity: z.number().finite(),
+    restSpeed: z.number().finite().positive(),
+    restDelta: z.number().finite().positive(),
+    overshootClamping: z.boolean(),
+  }),
+  z.strictObject({
+    type: z.literal("STEPS"),
+    count: z.number().int().positive(),
+    position: z.enum(["START", "END"]),
+  }),
+]);
+export const KeyframeSchema = z.strictObject({
   id: EntityIdSchema,
   time: NonNegativeSchema,
   value: JsonValueSchema,
-  easing: z.union([
-    z.enum(["LINEAR", "EASE_IN", "EASE_OUT", "EASE_IN_OUT", "STEP"]),
-    z.strictObject({ cubicBezier: z.tuple([z.number(), z.number(), z.number(), z.number()]) }),
-  ]),
+  easing: EasingSchema,
+  interpolation: z.enum(["LINEAR", "STEP", "HOLD", "BEZIER", "SPRING"]),
+  metadata: z.record(z.string(), JsonValueSchema),
 });
-const TrackSchema = z.strictObject({
+export const TrackSchema = z.strictObject({
   id: EntityIdSchema,
   targetId: EntityIdSchema,
+  property: AnimatedPropertySchema,
   propertyPath: z.string().min(1),
+  valueType: z.enum(["NUMBER", "VECTOR", "COLOR", "BOOLEAN", "STRING", "STRUCTURED"]),
+  muted: z.boolean(),
+  locked: z.boolean(),
+  layer: z.number().int(),
   keyframes: z.array(KeyframeSchema),
+});
+export const ClipSchema = z.strictObject({
+  id: EntityIdSchema,
+  name: z.string().min(1),
+  start: NonNegativeSchema,
+  end: NonNegativeSchema,
+  offset: NonNegativeSchema,
+  playbackRate: z.number().finite().positive(),
+  trackIds: z.array(EntityIdSchema),
+});
+export const TimelineMarkerSchema = z.strictObject({
+  id: EntityIdSchema,
+  name: z.string().min(1),
+  time: NonNegativeSchema,
+});
+export const TimelineTriggerSchema = z.strictObject({
+  id: EntityIdSchema,
+  type: TimelineTypeSchema,
+  sourceId: EntityIdSchema.optional(),
+  event: z.string().min(1).optional(),
+  threshold: z.number().finite().optional(),
+});
+export const TimelineEventSchema = z.strictObject({
+  id: EntityIdSchema,
+  name: z.string().min(1),
+  time: NonNegativeSchema,
+  payload: z.record(z.string(), JsonValueSchema),
 });
 export const TimelineSchema = z.strictObject({
   id: EntityIdSchema,
+  version: z.string().regex(/^\d+\.\d+\.\d+$/),
   name: z.string().min(1),
+  type: TimelineTypeSchema,
   duration: NonNegativeSchema,
   frameRate: z.number().finite().positive(),
+  timeScale: z.number().finite().positive(),
+  loop: z.strictObject({
+    enabled: z.boolean(),
+    count: z.number().int().positive().nullable(),
+    mode: z.enum(["RESTART", "PING_PONG"]),
+  }),
   tracks: z.array(TrackSchema),
+  clips: z.array(ClipSchema),
+  markers: z.array(TimelineMarkerSchema),
+  triggers: z.array(TimelineTriggerSchema),
+  events: z.array(TimelineEventSchema),
   labels: z.record(z.string(), NonNegativeSchema),
+  reducedMotionTimelineId: EntityIdSchema.optional(),
+  metadata: z.record(z.string(), JsonValueSchema),
+});
+
+export const AnimationActionSchema = z.strictObject({
+  type: z.enum(["START_TIMELINE", "STOP_TIMELINE", "SET_VARIABLE", "EMIT_EVENT"]),
+  targetId: EntityIdSchema.optional(),
+  name: z.string().min(1).optional(),
+  value: JsonValueSchema.optional(),
+});
+export const AnimationGuardSchema = z.strictObject({
+  mode: z.enum(["ALL", "ANY"]),
+  conditions: z.array(
+    z.strictObject({
+      variable: z.string().min(1),
+      operator: z.enum(["EQUALS", "NOT_EQUALS", "GREATER_THAN", "LESS_THAN", "TRUTHY", "FALSY"]),
+      value: JsonValueSchema.optional(),
+    }),
+  ),
+});
+export const AnimationStateSchema = z.strictObject({
+  id: EntityIdSchema,
+  name: z.string().min(1),
+  timelineId: EntityIdSchema.optional(),
+  entryActions: z.array(AnimationActionSchema),
+  exitActions: z.array(AnimationActionSchema),
+  metadata: z.record(z.string(), JsonValueSchema),
+});
+export const AnimationTransitionSchema = z.strictObject({
+  id: EntityIdSchema,
+  fromStateId: EntityIdSchema,
+  toStateId: EntityIdSchema,
+  triggerId: EntityIdSchema.optional(),
+  guard: AnimationGuardSchema.optional(),
+  actions: z.array(AnimationActionSchema),
+  priority: z.number().int(),
+});
+export const AnimationStateMachineSchema = z.strictObject({
+  id: EntityIdSchema,
+  version: z.string().regex(/^\d+\.\d+\.\d+$/),
+  name: z.string().min(1),
+  initialStateId: EntityIdSchema,
+  states: z.array(AnimationStateSchema),
+  transitions: z.array(AnimationTransitionSchema),
+  triggers: z.array(TimelineTriggerSchema),
+  metadata: z.record(z.string(), JsonValueSchema),
 });
 
 export const CameraSchema = z.strictObject({
@@ -632,6 +773,7 @@ export interface CanonicalDesignDocument {
   tokens: Record<string, z.infer<typeof TokenSchema>>;
   typography: Record<string, z.infer<typeof TypographyRecordSchema>>;
   timelines: Record<string, z.infer<typeof TimelineSchema>>;
+  stateMachines: Record<string, z.infer<typeof AnimationStateMachineSchema>>;
   cameras: Record<string, z.infer<typeof CameraSchema>>;
   lights: Record<string, z.infer<typeof LightSchema>>;
   materials: Record<string, z.infer<typeof MaterialSchema>>;
@@ -655,6 +797,7 @@ const CanonicalDesignDocumentSchemaValue: z.ZodType<CanonicalDesignDocument> = z
   tokens: z.record(z.string(), TokenSchema),
   typography: z.record(z.string(), TypographyRecordSchema),
   timelines: z.record(z.string(), TimelineSchema),
+  stateMachines: z.record(z.string(), AnimationStateMachineSchema),
   cameras: z.record(z.string(), CameraSchema),
   lights: z.record(z.string(), LightSchema),
   materials: z.record(z.string(), MaterialSchema),
@@ -669,4 +812,9 @@ export type AssetRecord = z.infer<typeof AssetSchema>;
 export type ReferenceRecord = z.infer<typeof ReferenceRecordSchema>;
 export type TextStyle = z.infer<typeof TextStyleSchema>;
 export type Transform = z.infer<typeof TransformSchema>;
+export type Timeline = z.infer<typeof TimelineSchema>;
+export type TimelineTrack = z.infer<typeof TrackSchema>;
+export type TimelineKeyframe = z.infer<typeof KeyframeSchema>;
+export type AnimationEasing = z.infer<typeof EasingSchema>;
+export type AnimationStateMachine = z.infer<typeof AnimationStateMachineSchema>;
 export type Length = z.infer<typeof LengthSchema>;

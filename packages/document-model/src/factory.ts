@@ -77,6 +77,7 @@ export function createDocument(options: CreateDocumentOptions = {}): CanonicalDe
     tokens: {},
     typography: {},
     timelines: {},
+    stateMachines: {},
     cameras: {},
     lights: {},
     materials: {},

@@ -986,6 +986,10 @@ Canonical schema `1.2.0` stores a typed responsive motion override with `PRESERV
 and a bounded duration scale. Scene Runtime resolves this after orientation and before quality-profile overrides so
 render and validation consumers receive the same deterministic motion policy.
 
+Phase 10 applies that policy during fixed-time evaluation. A canonical reduced-motion timeline is selected when one is
+registered. Otherwise `REDUCE` applies the bounded duration scale and `DISABLE` resolves the final static state. No
+continuous playback or browser event loop is involved.
+
 ---
 
 ## 41. Rendering System Scope
@@ -1994,6 +1998,15 @@ The rendering system shall be implementation-ready when it can:
 ---
 
 ## 89. Final Animation and Rendering Statement
+
+Phase 10 implements the renderer-independent foundation in `packages/animation-core`: immutable versioned timelines,
+tracks, clips, keyframes, markers, triggers, events, state machines, named and custom easing, structured interpolation,
+fixed-time and normalized-progress evaluation, reduced-motion selection, and structured diagnostics. Scene Runtime
+evaluates these records after responsive resolution and before Render Graph construction. The inactive in-memory
+animation worker performs validation and fixed-time evaluation only.
+
+Nested timelines, time remapping, cross-track blending, sampled custom curves, continuous playback, physics, browser
+adapters, and exporter-specific animation runtimes remain deferred to their roadmap phases.
 
 Animation and rendering form the execution layer of the AEVUM AI Reconstruction Engine.
 

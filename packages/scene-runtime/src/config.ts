@@ -34,6 +34,15 @@ export const runtimeViewportSchema = z.strictObject({
   breakpointId: z.string().min(1).optional(),
   containerQueryIds: z.array(z.string().min(1)).optional(),
   qualityMode: z.enum(["DRAFT", "HIGH_QUALITY", "MAXIMUM_FIDELITY"]).optional(),
+  animation: z
+    .strictObject({
+      time: z.number().finite().nonnegative(),
+      progress: z.number().finite().min(0).max(1).optional(),
+      active: z.boolean().optional(),
+      playbackState: z.enum(["IDLE", "RUNNING", "PAUSED", "COMPLETED", "CANCELLED", "REVERSED"]).optional(),
+      timelineIds: z.array(z.string().min(1)).optional(),
+    })
+    .optional(),
 });
 
 export function resolveRuntimeConfiguration(input: Partial<SceneRuntimeConfiguration> = {}): SceneRuntimeConfiguration {
@@ -53,5 +62,16 @@ export function validateProjectionInput(viewport: RuntimeViewport): RuntimeViewp
     ...(parsed.breakpointId ? { breakpointId: parsed.breakpointId } : {}),
     ...(parsed.containerQueryIds ? { containerQueryIds: parsed.containerQueryIds } : {}),
     ...(parsed.qualityMode ? { qualityMode: parsed.qualityMode } : {}),
+    ...(parsed.animation
+      ? {
+          animation: {
+            time: parsed.animation.time,
+            ...(parsed.animation.progress !== undefined ? { progress: parsed.animation.progress } : {}),
+            ...(parsed.animation.active !== undefined ? { active: parsed.animation.active } : {}),
+            ...(parsed.animation.playbackState ? { playbackState: parsed.animation.playbackState } : {}),
+            ...(parsed.animation.timelineIds ? { timelineIds: parsed.animation.timelineIds } : {}),
+          },
+        }
+      : {}),
   });
 }
