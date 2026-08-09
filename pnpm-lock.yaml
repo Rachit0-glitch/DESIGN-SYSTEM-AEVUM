@@ -12,6 +12,21 @@ importers:
         specifier: 4.4.3
         version: 4.4.3
     devDependencies:
+      '@aevum/agent-context':
+        specifier: workspace:*
+        version: link:packages/agent-context
+      '@aevum/agent-core':
+        specifier: workspace:*
+        version: link:packages/agent-core
+      '@aevum/agent-planner':
+        specifier: workspace:*
+        version: link:packages/agent-planner
+      '@aevum/agent-runtime':
+        specifier: workspace:*
+        version: link:packages/agent-runtime
+      '@aevum/agent-worker':
+        specifier: workspace:*
+        version: link:apps/agent-worker
       '@aevum/animation-core':
         specifier: workspace:*
         version: link:packages/animation-core
@@ -96,6 +111,27 @@ importers:
       vitest:
         specifier: 4.1.10
         version: 4.1.10(@types/node@26.1.2)(vite@8.2.0(@types/node@26.1.2)(esbuild@0.28.1)(tsx@4.23.1))
+
+  apps/agent-worker:
+    dependencies:
+      '@aevum/agent-context':
+        specifier: workspace:*
+        version: link:../../packages/agent-context
+      '@aevum/agent-core':
+        specifier: workspace:*
+        version: link:../../packages/agent-core
+      '@aevum/agent-runtime':
+        specifier: workspace:*
+        version: link:../../packages/agent-runtime
+      '@aevum/mcp-protocol':
+        specifier: workspace:*
+        version: link:../../packages/mcp-protocol
+      '@aevum/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
 
   apps/animation-worker:
     dependencies:
@@ -360,6 +396,81 @@ importers:
       '@aevum/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+
+  packages/agent-context:
+    dependencies:
+      '@aevum/agent-core':
+        specifier: workspace:*
+        version: link:../agent-core
+      '@aevum/document-model':
+        specifier: workspace:*
+        version: link:../document-model
+      '@aevum/shared':
+        specifier: workspace:*
+        version: link:../shared
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
+
+  packages/agent-core:
+    dependencies:
+      '@aevum/document-model':
+        specifier: workspace:*
+        version: link:../document-model
+      '@aevum/mcp-protocol':
+        specifier: workspace:*
+        version: link:../mcp-protocol
+      '@aevum/shared':
+        specifier: workspace:*
+        version: link:../shared
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
+
+  packages/agent-planner:
+    dependencies:
+      '@aevum/agent-context':
+        specifier: workspace:*
+        version: link:../agent-context
+      '@aevum/agent-core':
+        specifier: workspace:*
+        version: link:../agent-core
+      '@aevum/document-model':
+        specifier: workspace:*
+        version: link:../document-model
+      '@aevum/mcp-protocol':
+        specifier: workspace:*
+        version: link:../mcp-protocol
+      '@aevum/shared':
+        specifier: workspace:*
+        version: link:../shared
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
+
+  packages/agent-runtime:
+    dependencies:
+      '@aevum/agent-context':
+        specifier: workspace:*
+        version: link:../agent-context
+      '@aevum/agent-core':
+        specifier: workspace:*
+        version: link:../agent-core
+      '@aevum/agent-planner':
+        specifier: workspace:*
+        version: link:../agent-planner
+      '@aevum/document-model':
+        specifier: workspace:*
+        version: link:../document-model
+      '@aevum/mcp-protocol':
+        specifier: workspace:*
+        version: link:../mcp-protocol
+      '@aevum/shared':
+        specifier: workspace:*
+        version: link:../shared
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
 
   packages/animation:
     dependencies:

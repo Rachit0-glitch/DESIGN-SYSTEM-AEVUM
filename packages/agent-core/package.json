@@ -1,0 +1,24 @@
+{
+  "name": "@aevum/agent-core",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
+    "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@aevum/document-model": "workspace:*",
+    "@aevum/mcp-protocol": "workspace:*",
+    "@aevum/shared": "workspace:*",
+    "zod": "4.4.3"
+  }
+}

@@ -94,6 +94,13 @@ describe("environment validation", () => {
       allowRasterFallback: true,
     });
     expect(environment.docker.networkName).toBe("aevum-network");
+    expect(environment.agent).toMatchObject({
+      enabled: true,
+      approvalPolicy: "AUTO_SAFE_WRITE",
+      reasoningProvider: "deterministic",
+      budget: { maxSteps: 50, maxExecutionMs: 300000 },
+      context: { maxNodes: 500, maxTokens: 50000 },
+    });
   });
 
   it("allows blank Supabase placeholders outside production", () => {
@@ -181,5 +188,34 @@ describe("environment validation", () => {
 
     expect(environment.service).toBe("mcp-server");
     expect(environment.database.url).toBeUndefined();
+  });
+
+  it("requires a real MCP endpoint and forbids fixture mode for a production agent worker", () => {
+    const invalid = safeParseAevumEnvironment({
+      NODE_ENV: "production",
+      AEVUM_RUNTIME_MODE: "full",
+      AEVUM_SERVICE: "agent-worker",
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "test-service-role-value",
+      SUPABASE_PROJECT_ID: "example",
+      AGENT_FIXTURE_MODE: "true",
+    });
+    expect(invalid.success).toBe(false);
+    if (!invalid.success) {
+      expect(invalid.error.issues.map((issue) => issue.path[0])).toContain("AGENT_MCP_URL");
+      expect(invalid.error.issues.map((issue) => issue.path[0])).toContain("AGENT_FIXTURE_MODE");
+    }
+
+    const valid = parseAevumEnvironment({
+      NODE_ENV: "production",
+      AEVUM_RUNTIME_MODE: "full",
+      AEVUM_SERVICE: "agent-worker",
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "test-service-role-value",
+      SUPABASE_PROJECT_ID: "example",
+      AGENT_MCP_URL: "https://mcp.example.com",
+      AGENT_FIXTURE_MODE: "false",
+    });
+    expect(valid.agent.mcpUrl).toBe("https://mcp.example.com");
   });
 });

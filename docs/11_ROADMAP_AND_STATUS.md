@@ -1112,7 +1112,7 @@ Status update:
   - Multi-viewport validation uses Phase 7 structural and deterministic render-graph comparison. Raster capture,
     SSIM, LPIPS, and real heatmap pixels remain deferred.
   - Camera variants select canonical cameras from evidence or metadata; camera matching and cinematography remain in
-    Phase 20. Quality variants are canonical delivery metadata until the 3D renderer consumes them.
+    Phase 21. Quality variants are canonical delivery metadata until the 3D renderer consumes them.
   - Responsive jobs and reports are in-memory. No worker, queue, persistence, or Railway service was activated.
 - Blockers:
   - None for the Responsive Reconstruction Engine foundation.
@@ -1334,7 +1334,7 @@ Expose core project, document, asset, design, render, and validation capabilitie
 ### Status
 
 ```text
-IN_PROGRESS
+VALIDATED
 ```
 
 ### Scope
@@ -1417,8 +1417,8 @@ Status update:
   - Exact local `node apps/mcp-server/dist/production-smoke.js` flow: PASS with ephemeral Auth creation, sign-in,
     authenticated read, dry run, committed Command Engine write, persisted document/version/audit/idempotency records,
     idempotent replay, workspace denial, and verified cleanup
-  - Railway service `mcp-server`: ACTIVE at `https://mcp-server-production-ead2.up.railway.app`; deployment
-    `5cb3cf1f-0494-4a7c-bfcd-35ad9db8a60a` built all MCP dependencies and passed its `/health` gate
+  - Railway service `mcp-server`: ACTIVE at `https://mcp-server-production-209e.up.railway.app`; the migrated service
+    builds all MCP dependencies and passes its `/health` gate
   - Deployed `/health`, `/ready`, and `/version`: PASS with HTTP 200; authenticated `POST /mcp` read, dry run, write,
     persistence, replay, workspace isolation, and permission denial: PASS
   - Deployed malformed, invalid-signature, expired, wrong-issuer, and wrong-audience JWT rejection: PASS; payload limit,
@@ -1455,13 +1455,124 @@ Status update:
     fails; only unauthenticated failures use the `anonymous` actor.
   - The MCP and API services remain separate deployments.
 - Next action:
-  - Begin Phase 13 by defining canonical 3D import inspection, format-adapter, normalization, coordinate-system,
-    hierarchy, mesh/material/texture/animation inventory, diagnostic, and Command Engine proposal contracts. Do not
-    begin Phase 13 automatically.
+  - Begin Phase 13 by implementing provider-neutral Agent sessions, bounded context, explicit capability-aware plans,
+    typed MCP execution, dry-run-first writes, approval, optimistic-concurrency replanning, verification, cancellation,
+    structured audit, and deterministic integration fixtures. Do not create a privileged mutation path.
 
 ---
 
-## 19. Phase 13 — 3D Import and Runtime Foundation
+## 19. Phase 13 — AI Agent Orchestration and Tool Execution Engine
+
+### Goal
+
+Allow an AI Agent to understand user intent, assemble relevant canonical context, create inspectable plans, execute
+actor-permitted MCP tools, observe results, verify completion, and replan within explicit budgets.
+
+### Status
+
+```text
+VALIDATED
+```
+
+### Scope
+
+- Immutable versioned Agent sessions, runs, observations, outcomes, and audit records
+- Structured goals and provider-neutral intent analysis
+- Relevance-driven context selection and deterministic context budgets
+- Explicit dependency-ordered plans and cycle validation
+- MCP capability discovery and typed transport-independent client
+- Tool safety classification and configurable approval policy
+- Dry-run-first writes, deterministic idempotency, optimistic concurrency, and bounded replanning
+- Retry classification, execution budgets, cancellation, and explicit verification strategies
+- Prompt-injection and tool-result trust boundaries
+- Replaceable persistence and deterministic provider adapters
+- Inactive Agent Worker shell with health, readiness, cancellation, and graceful shutdown
+
+### Primary Applications and Packages
+
+```text
+packages/agent-core
+packages/agent-context
+packages/agent-planner
+packages/agent-runtime
+apps/agent-worker
+```
+
+### Acceptance Gate
+
+- Sessions, runs, intents, plans, steps, observations, outcomes, and audits are immutable and versioned
+- Plans use actor-visible capabilities and report capability gaps
+- Reads and writes cross MCP with authentication, scope, correlation, and permissions preserved
+- Writes are dry-run first, version checked, idempotent, approved where required, and canonically verified
+- Version conflicts refresh state and replan without data loss
+- Budgets, retries, cancellation, protected properties, and destructive safety are enforced
+- Untrusted design and tool-result content cannot become Agent instructions
+- Deterministic and integration tests pass
+- Existing production services remain healthy
+- Agent Worker remains inactive
+
+### Current Phase 13 Evidence
+
+Status update:
+
+- Date: 2026-08-09
+- Owner: Codex
+- Previous status: IN_PROGRESS
+- New status: VALIDATED
+- Evidence: `packages/agent-core` defines immutable, versioned goals, sessions, runs, observations, outcomes, audits,
+  budgets, diagnostics, approvals, and verification contracts. `packages/agent-context` provides deterministic,
+  relevance-ranked context assembly with category and character budgets, omission diagnostics, working memory, and
+  strict trusted-instruction boundaries. `packages/agent-planner` provides provider-neutral intent analysis, explicit
+  dependency-ordered plans, capability-gap reporting, safety classification, approval requirements, and deterministic
+  planning fixtures. `packages/agent-runtime` executes typed MCP operations with actor scope, dry-run-first writes,
+  optimistic concurrency, deterministic idempotency, bounded retries and replanning, cancellation, timeouts, protected
+  properties, post-write verification, and structured agent audit. `apps/agent-worker` is an inactive in-memory worker
+  shell with health, readiness, version, cancellation, stage tracking, and graceful shutdown; it has no Railway
+  manifest or public job-ingress route.
+- Validation results:
+  - Focused Phase 13 validation: PASS, 5 files and 27 tests
+  - Full test suite: PASS, 36 files and 208 tests
+  - `pnpm validate:docs`: PASS for 12 canonical files
+  - `pnpm validate:deps`: PASS for 57 workspace packages
+  - `pnpm format:check`: PASS for 407 files
+  - `pnpm lint`: PASS for 408 files with no warnings
+  - `pnpm typecheck`: PASS, 75 Turbo tasks
+  - `pnpm build`: PASS for all 57 workspace packages
+  - `pnpm validate`: PASS
+  - `pnpm validate:docker`: PASS; the existing Compose model remains valid
+  - Environment safety tests: PASS; production rejects fixture mode and requires an MCP server URL
+  - Secret scan and ignored-environment review: PASS; no credential values or local environment files are included
+  - `git diff --check`: PASS
+  - Railway `@aevum/api`: ONLINE; deployed `/health` returned HTTP 200
+  - Railway `mcp-server`: ONLINE; deployed `/health`, `/ready`, and `/version` returned HTTP 200
+  - Vercel `design-system-aevum`: READY; production alias returned HTTP 200
+  - Supabase linked migration history: synchronized through `20260809000100`
+  - Railway `@aevum/blender-bridge`: intentionally OFFLINE
+  - Agent Worker: intentionally inactive and not deployed
+- Remaining warnings:
+  - The deterministic provider is the only Phase 13 planning provider. External LLM provider adapters are deferred.
+  - Agent persistence is replaceable but currently in-memory; no Phase 13 database migration was required or applied.
+  - The Agent can execute only capabilities exposed by the Phase 12 MCP registry and reports unsupported intents as
+    capability gaps instead of bypassing MCP.
+  - The inactive worker is single-process and in-memory. Durable queues, distributed execution, streaming, and
+    autonomous background operation are deferred.
+- Blockers:
+  - None.
+- Decisions:
+  - MCP remains the exclusive Agent tool boundary and the Command Engine remains the exclusive canonical write path.
+  - Agent records retain structured decisions, observations, diagnostics, and tool references without storing private
+    chain-of-thought.
+  - All external design content and tool output remains untrusted context and cannot override system or user
+    instructions.
+  - Agent Worker deployment remains prohibited for this phase; existing production services were inspected only and
+    were not recreated, relinked, or reconfigured.
+- Next action:
+  - Begin Phase 14 with canonical 3D import contracts and normalized scene-runtime projections for registered GLB and
+    GLTF assets, then add deterministic inspection fixtures before implementing rendering or bridge execution.
+
+---
+
+## 20. Phase 14 — 3D Import and Runtime Foundation
 
 ### Goal
 
@@ -1516,7 +1627,7 @@ packages/renderer-3d
 
 ---
 
-## 20. Phase 14 — Blender Bridge
+## 21. Phase 15 — Blender Bridge
 
 ### Goal
 
@@ -1562,7 +1673,7 @@ PLANNED
 
 ---
 
-## 21. Phase 15 — Professional Mesh and Material Toolchain
+## 22. Phase 16 — Professional Mesh and Material Toolchain
 
 ### Goal
 
@@ -1604,7 +1715,7 @@ PLANNED
 
 ---
 
-## 22. Phase 16 — AI Multi-View 3D Reconstruction
+## 23. Phase 17 — AI Multi-View 3D Reconstruction
 
 ### Goal
 
@@ -1647,7 +1758,7 @@ PLANNED
 
 ---
 
-## 23. Phase 17 — Rigging and Character Animation
+## 24. Phase 18 — Rigging and Character Animation
 
 ### Goal
 
@@ -1690,7 +1801,7 @@ PLANNED
 
 ---
 
-## 24. Phase 18 — Physics and Simulation
+## 25. Phase 19 — Physics and Simulation
 
 ### Goal
 
@@ -1734,7 +1845,7 @@ PLANNED
 
 ---
 
-## 25. Phase 19 — Lighting and Environment System
+## 26. Phase 20 — Lighting and Environment System
 
 ### Goal
 
@@ -1774,7 +1885,7 @@ PLANNED
 
 ---
 
-## 26. Phase 20 — Camera and Cinematics
+## 27. Phase 21 — Camera and Cinematics
 
 ### Goal
 
@@ -1820,7 +1931,7 @@ PLANNED
 
 ---
 
-## 27. Phase 21 — 3D Visual Validation and Correction
+## 28. Phase 22 — 3D Visual Validation and Correction
 
 ### Goal
 
@@ -1861,7 +1972,7 @@ PLANNED
 
 ---
 
-## 28. Phase 22 — Exporter Framework
+## 29. Phase 23 — Exporter Framework
 
 ### Goal
 
@@ -1908,7 +2019,7 @@ packages/exporters
 
 ---
 
-## 29. Phase 23 — Core Web Exporters
+## 30. Phase 24 — Core Web Exporters
 
 ### Goal
 
@@ -1952,7 +2063,7 @@ PLANNED
 
 ---
 
-## 30. Phase 24 — Core 3D Exporters
+## 31. Phase 25 — Core 3D Exporters
 
 ### Goal
 
@@ -1993,7 +2104,7 @@ PLANNED
 
 ---
 
-## 31. Phase 25 — Canva Export
+## 32. Phase 26 — Canva Export
 
 ### Goal
 
@@ -2034,7 +2145,7 @@ PLANNED
 
 ---
 
-## 32. Phase 26 — Maximum Fidelity Orchestration
+## 33. Phase 27 — Maximum Fidelity Orchestration
 
 ### Goal
 
@@ -2074,7 +2185,7 @@ PLANNED
 
 ---
 
-## 33. Phase 27 — Studio Inspection Interface
+## 34. Phase 28 — Studio Inspection Interface
 
 ### Goal
 
@@ -2119,7 +2230,7 @@ PLANNED
 
 ---
 
-## 34. Phase 28 — Production Hardening
+## 35. Phase 29 — Production Hardening
 
 ### Goal
 
@@ -2167,7 +2278,7 @@ PLANNED
 
 ---
 
-## 35. Phase 29 — Beta Release
+## 36. Phase 30 — Beta Release
 
 ### Goal
 
@@ -2210,7 +2321,7 @@ The first beta should support:
 
 ---
 
-## 36. Phase 30 — Version 1.0
+## 37. Phase 31 — Version 1.0
 
 ### Goal
 
@@ -2384,33 +2495,33 @@ Phases 5–8 validated.
 
 Phases 9–11 validated.
 
-### M4 — Full MCP Control
+### M4 — MCP and Agent Control
 
-Phase 12 validated across completed capabilities.
+Phases 12–13 validated across completed capabilities.
 
 ### M5 — Professional 3D Foundation
 
-Phases 13–15 validated.
+Phases 14–16 validated.
 
 ### M6 — AI 3D and Cinematics
 
-Phases 16–21 validated.
+Phases 17–22 validated.
 
 ### M7 — Multi-Stack Export
 
-Phases 22–25 validated.
+Phases 23–26 validated.
 
 ### M8 — Maximum Fidelity
 
-Phase 26 validated.
+Phase 27 validated.
 
 ### M9 — Production Beta
 
-Phases 27–29 validated.
+Phases 28–30 validated.
 
 ### M10 — Version 1.0
 
-Phase 30 validated.
+Phase 31 validated.
 
 ---
 

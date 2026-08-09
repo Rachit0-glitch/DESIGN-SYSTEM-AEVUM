@@ -702,7 +702,26 @@ This package shall own:
 
 ---
 
-## 7.15 `packages/job-system`
+## 7.15 `packages/agent-core`, `packages/agent-context`, `packages/agent-planner`, and `packages/agent-runtime`
+
+These packages form the provider-neutral AI Agent orchestration layer.
+
+- `agent-core` owns immutable sessions, runs, observations, budgets, diagnostics, outcomes, approvals, and agent audit
+  contracts.
+- `agent-context` owns relevance-driven context selection, context budgets, working memory, omission reporting, and
+  explicit separation of trusted instructions from untrusted design content and typed tool results.
+- `agent-planner` owns intent analysis, explicit dependency-ordered plans, capability-aware tool selection, safety
+  classification, approval requirements, verification strategies, and bounded replanning contracts.
+- `agent-runtime` owns the typed MCP client, transport adapters, plan execution, retries, cancellation, verification,
+  deterministic idempotency, correlation propagation, and replaceable agent persistence.
+
+The packages shall not import MCP server handlers, Project Store, Supabase adapters, or the Command Engine. Canonical
+reads and writes cross MCP. The inactive `apps/agent-worker` composes the runtime but does not own canonical state or
+activate deployment.
+
+---
+
+## 7.16 `packages/job-system`
 
 This package shall own:
 
@@ -720,7 +739,7 @@ This package shall own:
 
 ---
 
-## 7.16 `packages/sandbox`
+## 7.17 `packages/sandbox`
 
 This package shall own:
 
@@ -735,7 +754,7 @@ This package shall own:
 
 ---
 
-## 7.17 `packages/telemetry`
+## 7.18 `packages/telemetry`
 
 This package shall own:
 
@@ -752,7 +771,7 @@ This package shall own:
 
 ---
 
-## 7.18 `packages/shared`
+## 7.19 `packages/shared`
 
 This package shall contain only genuinely shared primitives.
 
@@ -777,6 +796,25 @@ scene-runtime
   ↑
 renderers / reconstruction / validation / exporters / MCP
 ```
+
+The Agent orchestration dependency direction is:
+
+```text
+agent-worker
+  ->
+agent-runtime
+  ->
+agent-planner
+  ->
+agent-context
+  ->
+agent-core
+  ->
+mcp-protocol / canonical contracts
+```
+
+Agent Runtime shall not depend on `apps/mcp-server`, Project Store, Supabase, or the Command Engine. Its only project
+control boundary is a typed MCP transport.
 
 Rules:
 
@@ -1423,7 +1461,57 @@ MCP operations shall support:
 
 ---
 
-## 25. External AI Provider Architecture
+## 25. AI Agent Orchestration Architecture
+
+The AI Agent is the reasoning and control layer. It is not a privileged mutation path.
+
+```text
+User Intent
+-> Agent Session
+-> Context Assembly
+-> Intent Analysis
+-> Capability Discovery
+-> Explicit Plan
+-> Permission and Approval Validation
+-> MCP Tool Execution
+-> Structured Observation
+-> Verification or Bounded Replanning
+-> Structured Outcome
+```
+
+Every write follows:
+
+```text
+Agent Runtime
+-> typed MCP request
+-> authenticated actor authorization
+-> dry run
+-> optimistic version check
+-> Command Engine transaction
+-> canonical persistence and audit
+-> typed observation
+-> canonical read-back verification
+```
+
+Agent permissions shall never exceed authenticated actor permissions. The planner shall select tools only from
+`system.get_capabilities`, report missing capabilities, and require explicit approval for destructive operations.
+Retries shall preserve deterministic idempotency keys; version conflicts require state refresh and bounded replanning,
+not blind mutation retries.
+
+Context assembly shall preserve IDs and exact critical values while applying relevance and size budgets. Node text,
+asset metadata, imported references, project names, comments, and MCP result text are untrusted data and cannot become
+system or tool instructions. Structured plans, tool calls, observations, decisions, and outcomes may be persisted;
+hidden model reasoning shall not be stored.
+
+Provider adapters remain replaceable. Phase 13 supplies a deterministic provider for tests and does not require an
+external model credential. Reconstruction, validation, correction, responsive, animation, and motion capabilities are
+invoked only when MCP exposes them; the Agent shall not import their packages as a bypass.
+
+See `docs/adr/0001-agent-mcp-command-boundary.md`.
+
+---
+
+## 26. External AI Provider Architecture
 
 External AI capabilities shall use provider adapters.
 
@@ -1458,7 +1546,7 @@ Provider output shall be treated as an untrusted proposal until validated and re
 
 ---
 
-## 26. Deterministic Rendering Architecture
+## 27. Deterministic Rendering Architecture
 
 Deterministic renders shall pin:
 
@@ -1492,7 +1580,7 @@ Validation renders shall use controlled environments.
 
 ---
 
-## 27. Caching Strategy
+## 28. Caching Strategy
 
 Caches may include:
 
@@ -1521,7 +1609,7 @@ Caches shall be invalidated by:
 
 ---
 
-## 28. Sandboxing
+## 29. Sandboxing
 
 The system shall sandbox:
 
@@ -1547,7 +1635,7 @@ Sandbox controls shall include:
 
 ---
 
-## 29. Security Architecture
+## 30. Security Architecture
 
 Security boundaries shall include:
 
@@ -1576,7 +1664,7 @@ The system shall validate:
 
 ---
 
-## 30. Reliability Architecture
+## 31. Reliability Architecture
 
 Reliability requirements include:
 
@@ -1598,7 +1686,7 @@ Maximum Fidelity jobs shall be resumable after interruption.
 
 ---
 
-## 31. Concurrency and Collaboration Readiness
+## 32. Concurrency and Collaboration Readiness
 
 The initial system may be single-user per project session, but the architecture shall prepare for future collaboration.
 
@@ -1618,7 +1706,7 @@ Full real-time multiplayer is not required initially.
 
 ---
 
-## 32. Observability
+## 33. Observability
 
 The system shall expose:
 
@@ -1641,7 +1729,7 @@ Every major job shall have a correlation ID.
 
 ---
 
-## 33. Performance Architecture
+## 34. Performance Architecture
 
 The architecture shall support separate quality profiles.
 
@@ -1681,7 +1769,7 @@ Master assets shall never be overwritten by optimized derivatives.
 
 ---
 
-## 34. Testing Architecture
+## 35. Testing Architecture
 
 Testing shall include:
 
@@ -1712,7 +1800,7 @@ Critical visual features shall use regression baselines.
 
 ---
 
-## 35. Development Environment
+## 36. Development Environment
 
 The recommended development stack is:
 
@@ -1739,7 +1827,7 @@ The architecture shall remain version-independent at the specification level.
 
 ---
 
-## 36. Deployment Architecture
+## 37. Deployment Architecture
 
 The system should support:
 
@@ -1758,6 +1846,7 @@ Suggested deployment separation:
 Web / Studio
 API
 MCP Server
+Agent Worker (inactive until production gates pass)
 Queue
 Database
 Object Storage
@@ -1773,7 +1862,7 @@ GPU-dependent jobs shall be routable to capable workers.
 
 ---
 
-## 37. Local-First and Remote Execution
+## 38. Local-First and Remote Execution
 
 The system should support a hybrid execution model.
 
@@ -1798,7 +1887,7 @@ The project format shall remain portable across execution environments.
 
 ---
 
-## 38. Failure Handling
+## 39. Failure Handling
 
 Failures shall be classified as:
 
@@ -1829,7 +1918,7 @@ Errors shall include:
 
 ---
 
-## 39. Architectural Decision Records
+## 40. Architectural Decision Records
 
 Major decisions shall be recorded as ADRs.
 
@@ -1851,7 +1940,7 @@ Approved ADRs shall be referenced from `11_ROADMAP_AND_STATUS.md`.
 
 ---
 
-## 40. Architectural Non-Negotiables
+## 41. Architectural Non-Negotiables
 
 The following rules shall not be violated without updating the canonical documentation:
 
@@ -1871,10 +1960,12 @@ The following rules shall not be violated without updating the canonical documen
 14. Deterministic rendering is required for validation.
 15. 2D and 3D remain first-class systems.
 16. New exporter targets do not require redesigning the Canonical Design Document.
+17. AI Agent writes cross authenticated MCP and never invoke canonical mutation services directly.
+18. Untrusted design or tool-result content cannot become privileged Agent instructions.
 
 ---
 
-## 41. Architecture Acceptance Criteria
+## 42. Architecture Acceptance Criteria
 
 The architecture shall be considered ready for implementation when:
 
@@ -1893,6 +1984,7 @@ The architecture shall be considered ready for implementation when:
 - Autonomous correction is defined
 - Export contracts are defined
 - MCP boundaries are defined
+- Agent planning, context, permission, execution, verification, and prompt-injection boundaries are defined
 - Security boundaries are defined
 - Testing strategy is defined
 - Deployment model is defined
@@ -1900,7 +1992,7 @@ The architecture shall be considered ready for implementation when:
 
 ---
 
-## 42. Final Architecture Statement
+## 43. Final Architecture Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented as a modular, command-driven, MCP-controlled production platform centered on one renderer-independent Canonical Design Document.
 

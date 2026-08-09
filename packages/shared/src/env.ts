@@ -43,7 +43,7 @@ export const aevumEnvironmentVariablesSchema = z
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
     AEVUM_RUNTIME_MODE: z.enum(["foundation", "full"]).default("full"),
-    AEVUM_SERVICE: z.enum(["platform", "mcp-server"]).default("platform"),
+    AEVUM_SERVICE: z.enum(["platform", "mcp-server", "agent-worker"]).default("platform"),
     AEVUM_FEATURE_FLAGS: z.string().default(""),
     PORT: positiveIntegerFromString.optional(),
 
@@ -115,6 +115,31 @@ export const aevumEnvironmentVariablesSchema = z
     MCP_DEPLOYMENT_VERSION: z.string().min(1).default("development"),
     MCP_TRUST_PROXY: booleanFromString.default(false),
 
+    AGENT_ENABLED: booleanFromString.default(true),
+    AGENT_MCP_URL: optionalUrl,
+    AGENT_FIXTURE_MODE: booleanFromString.default(false),
+    AGENT_MAX_STEPS: positiveIntegerFromString.default(50),
+    AGENT_MAX_TOOL_CALLS: positiveIntegerFromString.default(100),
+    AGENT_MAX_WRITES: nonNegativeIntegerFromString.default(20),
+    AGENT_MAX_REPLANS: nonNegativeIntegerFromString.default(5),
+    AGENT_MAX_RETRIES: nonNegativeIntegerFromString.default(3),
+    AGENT_MAX_EXECUTION_MS: positiveIntegerFromString.default(300_000),
+    AGENT_MAX_VALIDATION_PASSES: nonNegativeIntegerFromString.default(5),
+    AGENT_CONTEXT_MAX_NODES: positiveIntegerFromString.default(500),
+    AGENT_CONTEXT_MAX_ASSETS: positiveIntegerFromString.default(100),
+    AGENT_CONTEXT_MAX_TIMELINES: positiveIntegerFromString.default(50),
+    AGENT_CONTEXT_MAX_VALIDATION_ISSUES: positiveIntegerFromString.default(200),
+    AGENT_CONTEXT_MAX_HISTORY: positiveIntegerFromString.default(50),
+    AGENT_CONTEXT_MAX_CHARACTERS: positiveIntegerFromString.default(200_000),
+    AGENT_CONTEXT_MAX_TOKENS: positiveIntegerFromString.default(50_000),
+    AGENT_APPROVAL_POLICY: z
+      .enum(["AUTO_READ", "AUTO_SAFE_WRITE", "REQUIRE_DESTRUCTIVE_APPROVAL", "REQUIRE_ALL_WRITE_APPROVAL"])
+      .default("AUTO_SAFE_WRITE"),
+    AGENT_DRY_RUN_WRITES: booleanFromString.default(true),
+    AGENT_PERSIST_SESSIONS: booleanFromString.default(true),
+    AGENT_PERSIST_OBSERVATIONS: booleanFromString.default(true),
+    AGENT_REASONING_PROVIDER: z.string().min(1).default("deterministic"),
+
     COMPOSE_PROJECT_NAME: z.string().min(1).default("aevum"),
     POSTGRES_PORT: positiveIntegerFromString.default(5432),
     REDIS_PORT: positiveIntegerFromString.default(6379),
@@ -125,6 +150,7 @@ export const aevumEnvironmentVariablesSchema = z
     RENDER_WORKER_PORT: positiveIntegerFromString.default(3020),
     EXPORT_WORKER_PORT: positiveIntegerFromString.default(3030),
     BLENDER_BRIDGE_PORT: positiveIntegerFromString.default(3040),
+    AGENT_WORKER_PORT: positiveIntegerFromString.default(3050),
     NETWORK_NAME: z.string().min(1).default("aevum-network"),
     MINIO_ROOT_USER: optionalString,
     MINIO_ROOT_PASSWORD: optionalString,
@@ -140,7 +166,7 @@ export const aevumEnvironmentVariablesSchema = z
 
     if (variables.NODE_ENV === "production" && variables.AEVUM_RUNTIME_MODE === "full") {
       const requiredKeys =
-        variables.AEVUM_SERVICE === "mcp-server"
+        variables.AEVUM_SERVICE === "mcp-server" || variables.AEVUM_SERVICE === "agent-worker"
           ? (["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_PROJECT_ID"] as const)
           : requiredInProduction;
       for (const key of requiredKeys) {
@@ -148,26 +174,49 @@ export const aevumEnvironmentVariablesSchema = z
           context.addIssue({ code: "custom", path: [key], message: `${key} is required in production.` });
         }
       }
-      if (variables.MCP_AUTH_MODE !== "supabase") {
+      if (variables.AEVUM_SERVICE !== "agent-worker" && variables.MCP_AUTH_MODE !== "supabase") {
         context.addIssue({
           code: "custom",
           path: ["MCP_AUTH_MODE"],
           message: "MCP_AUTH_MODE must be supabase in a full production runtime.",
         });
       }
-      if (variables.MCP_ALLOWED_ORIGINS.trim() === "") {
+      if (variables.AEVUM_SERVICE !== "agent-worker" && variables.MCP_ALLOWED_ORIGINS.trim() === "") {
         context.addIssue({
           code: "custom",
           path: ["MCP_ALLOWED_ORIGINS"],
           message: "MCP_ALLOWED_ORIGINS is required in a full production runtime.",
         });
       }
-      if (variables.MCP_SERVER_HOST !== "0.0.0.0") {
+      if (variables.AEVUM_SERVICE !== "agent-worker" && variables.MCP_SERVER_HOST !== "0.0.0.0") {
         context.addIssue({
           code: "custom",
           path: ["MCP_SERVER_HOST"],
           message: "MCP_SERVER_HOST must be 0.0.0.0 in a full production runtime.",
         });
+      }
+      if (variables.AEVUM_SERVICE === "agent-worker") {
+        if (!variables.AGENT_ENABLED) {
+          context.addIssue({
+            code: "custom",
+            path: ["AGENT_ENABLED"],
+            message: "AGENT_ENABLED must be true for a production agent-worker runtime.",
+          });
+        }
+        if (!variables.AGENT_MCP_URL) {
+          context.addIssue({
+            code: "custom",
+            path: ["AGENT_MCP_URL"],
+            message: "AGENT_MCP_URL is required for a production agent-worker runtime.",
+          });
+        }
+        if (variables.AGENT_FIXTURE_MODE) {
+          context.addIssue({
+            code: "custom",
+            path: ["AGENT_FIXTURE_MODE"],
+            message: "Deterministic fixture mode is forbidden in a production agent-worker runtime.",
+          });
+        }
       }
     }
     if (variables.MCP_ALLOWED_ORIGINS.split(",").some((origin) => origin.trim() === "*")) {
@@ -185,7 +234,7 @@ export interface AevumEnvironment {
   readonly nodeEnv: "development" | "test" | "production";
   readonly logLevel: "debug" | "info" | "warn" | "error";
   readonly runtimeMode: "foundation" | "full";
-  readonly service: "platform" | "mcp-server";
+  readonly service: "platform" | "mcp-server" | "agent-worker";
   readonly featureFlags: readonly string[];
   readonly supabase: {
     readonly url?: string;
@@ -226,6 +275,7 @@ export interface AevumEnvironment {
     readonly renderWorkerPort: number;
     readonly exportWorkerPort: number;
     readonly blenderBridgePort: number;
+    readonly agentWorkerPort: number;
     readonly mcpHost: string;
     readonly mcpRequireAuth: boolean;
     readonly renderWorkerConcurrency: number;
@@ -280,6 +330,34 @@ export interface AevumEnvironment {
     readonly auditRetentionDays: number;
     readonly deploymentVersion: string;
     readonly trustProxy: boolean;
+  };
+  readonly agent: {
+    readonly enabled: boolean;
+    readonly mcpUrl?: string;
+    readonly fixtureMode: boolean;
+    readonly approvalPolicy: AevumEnvironmentVariables["AGENT_APPROVAL_POLICY"];
+    readonly dryRunWrites: boolean;
+    readonly reasoningProvider: string;
+    readonly persistSessions: boolean;
+    readonly persistObservations: boolean;
+    readonly budget: {
+      readonly maxSteps: number;
+      readonly maxToolCalls: number;
+      readonly maxWrites: number;
+      readonly maxReplans: number;
+      readonly maxRetries: number;
+      readonly maxExecutionMs: number;
+      readonly maxValidationPasses: number;
+    };
+    readonly context: {
+      readonly maxNodes: number;
+      readonly maxAssets: number;
+      readonly maxTimelines: number;
+      readonly maxValidationIssues: number;
+      readonly maxHistoryEntries: number;
+      readonly maxCharacters: number;
+      readonly maxTokens: number;
+    };
   };
   readonly docker: {
     readonly composeProjectName: string;
@@ -343,6 +421,7 @@ function toEnvironment(variables: AevumEnvironmentVariables): AevumEnvironment {
       renderWorkerPort: variables.RENDER_WORKER_PORT,
       exportWorkerPort: variables.EXPORT_WORKER_PORT,
       blenderBridgePort: variables.BLENDER_BRIDGE_PORT,
+      agentWorkerPort: variables.AGENT_WORKER_PORT,
       mcpHost: variables.MCP_SERVER_HOST,
       mcpRequireAuth: variables.MCP_REQUIRE_AUTH,
       renderWorkerConcurrency: variables.RENDER_WORKER_CONCURRENCY,
@@ -403,6 +482,34 @@ function toEnvironment(variables: AevumEnvironmentVariables): AevumEnvironment {
       auditRetentionDays: variables.MCP_AUDIT_RETENTION_DAYS,
       deploymentVersion: variables.MCP_DEPLOYMENT_VERSION,
       trustProxy: variables.MCP_TRUST_PROXY,
+    },
+    agent: {
+      enabled: variables.AGENT_ENABLED,
+      ...(variables.AGENT_MCP_URL ? { mcpUrl: variables.AGENT_MCP_URL } : {}),
+      fixtureMode: variables.AGENT_FIXTURE_MODE,
+      approvalPolicy: variables.AGENT_APPROVAL_POLICY,
+      dryRunWrites: variables.AGENT_DRY_RUN_WRITES,
+      reasoningProvider: variables.AGENT_REASONING_PROVIDER,
+      persistSessions: variables.AGENT_PERSIST_SESSIONS,
+      persistObservations: variables.AGENT_PERSIST_OBSERVATIONS,
+      budget: {
+        maxSteps: variables.AGENT_MAX_STEPS,
+        maxToolCalls: variables.AGENT_MAX_TOOL_CALLS,
+        maxWrites: variables.AGENT_MAX_WRITES,
+        maxReplans: variables.AGENT_MAX_REPLANS,
+        maxRetries: variables.AGENT_MAX_RETRIES,
+        maxExecutionMs: variables.AGENT_MAX_EXECUTION_MS,
+        maxValidationPasses: variables.AGENT_MAX_VALIDATION_PASSES,
+      },
+      context: {
+        maxNodes: variables.AGENT_CONTEXT_MAX_NODES,
+        maxAssets: variables.AGENT_CONTEXT_MAX_ASSETS,
+        maxTimelines: variables.AGENT_CONTEXT_MAX_TIMELINES,
+        maxValidationIssues: variables.AGENT_CONTEXT_MAX_VALIDATION_ISSUES,
+        maxHistoryEntries: variables.AGENT_CONTEXT_MAX_HISTORY,
+        maxCharacters: variables.AGENT_CONTEXT_MAX_CHARACTERS,
+        maxTokens: variables.AGENT_CONTEXT_MAX_TOKENS,
+      },
     },
     docker: {
       composeProjectName: variables.COMPOSE_PROJECT_NAME,

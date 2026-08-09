@@ -27,6 +27,11 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@aevum/agent-context": "workspace:*",
+    "@aevum/agent-core": "workspace:*",
+    "@aevum/agent-planner": "workspace:*",
+    "@aevum/agent-runtime": "workspace:*",
+    "@aevum/agent-worker": "workspace:*",
     "@aevum/animation-core": "workspace:*",
     "@aevum/animation-worker": "workspace:*",
     "@aevum/assets": "workspace:*",

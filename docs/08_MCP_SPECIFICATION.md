@@ -74,6 +74,44 @@ Command Engine transaction; no generic command execution endpoint exists. Read t
 Transaction, job-progress, and cancellation schemas are versioned foundations. Persistent job queues, multi-command
 transaction lifecycle tools, WebSockets, and full-domain MCP coverage remain deferred.
 
+### Phase 13 Agent Orchestration Boundary
+
+Phase 13 implements a provider-neutral AI Agent above MCP. The Agent is a client of MCP, not part of the MCP server and
+not a replacement for authentication, authorization, workspace isolation, or the Command Engine.
+
+The implemented flow is:
+
+```text
+Agent Session
+-> relevance-bounded context
+-> structured intent
+-> system.get_capabilities
+-> explicit dependency-ordered plan
+-> permission and approval checks
+-> typed MCP calls
+-> structured observations
+-> verification or bounded replanning
+-> structured outcome
+```
+
+`packages/agent-runtime` invokes MCP only through replaceable transports. Its deterministic in-process transport is a
+test adapter over the same request and response envelopes; it does not import server handlers. Production HTTP
+transport propagates the authenticated actor token, workspace/project/document scope, request IDs, one correlation ID,
+timeouts, cancellation, and deterministic idempotency keys.
+
+Every Agent write is dry-run first. Destructive writes require both session policy permission and explicit approval.
+Version conflicts refresh canonical state and trigger bounded replanning; they are never blindly retried. A successful
+write response is not completion proof: the Agent performs a canonical read and evaluates the plan's explicit
+verification assertions.
+
+Agent permission is always less than or equal to authenticated actor permission. Tools absent from actor-visible
+capabilities are reported as `AGENT_CAPABILITY_MISSING` or `AGENT_PERMISSION_DENIED`; Agent packages never import an
+underlying subsystem to bypass MCP.
+
+Design text, asset metadata, imported content, project names, comments, and text inside tool results are untrusted data.
+Agent context keeps `INSTRUCTIONS`, structural `CONTEXT`, `UNTRUSTED_DESIGN_CONTENT`, and typed `TOOL_RESULTS` in
+separate fields. No raw hidden model reasoning is stored.
+
 ---
 
 ## 2. Core MCP Principles
@@ -1855,15 +1893,15 @@ Recommended workflow:
 
 ```text
 system.get_capabilities
-→ project.get_summary
-→ document.get
-→ inspect relevant resources
-→ begin transaction or submit job
-→ monitor progress
-→ inspect result
-→ validate
-→ commit or apply correction
-→ export
+-> project.get
+-> inspect only relevant canonical resources
+-> create an explicit permission-aware plan
+-> dry-run writes
+-> commit with expected version and idempotency
+-> inspect structured observations
+-> read canonical result
+-> verify completion criteria
+-> replan within bounded budgets or complete
 ```
 
 ---
