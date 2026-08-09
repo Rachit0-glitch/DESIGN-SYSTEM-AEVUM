@@ -5,6 +5,9 @@ import { AgentIntentSchema, type AgentIntent } from "./schemas.js";
 function initialCapabilities(session: AgentSession): string[] {
   const goal = session.goal;
   if (goal.requiredCapabilities.length > 0) return [...goal.requiredCapabilities];
+  if (goal.parameters.operation === "three_transform") {
+    return ["three.inspect_asset", "three.inspect_scene", "document.get", "three.update_node_transform"];
+  }
   switch (goal.category) {
     case "INSPECT":
       return ["project.get", "document.inspect_hierarchy"];
@@ -50,6 +53,10 @@ function requiredPermissions(capabilities: readonly string[]): AgentIntent["requ
     if (capability.startsWith("asset.")) permissions.add(capability === "asset.get" ? "asset.read" : "asset.write");
     if (capability.startsWith("timeline."))
       permissions.add(capability === "timeline.get" ? "timeline.read" : "timeline.write");
+    if (capability.startsWith("three.")) {
+      permissions.add(capability === "three.update_node_transform" ? "three.write" : "three.read");
+      if (capability === "three.update_node_transform") permissions.add("document.write");
+    }
     if (capability.startsWith("validation.")) permissions.add("validation.read");
     if (capability.startsWith("correction.")) permissions.add("correction.read");
   }

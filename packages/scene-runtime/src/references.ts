@@ -158,8 +158,13 @@ export function resolveDocumentReferences(
     const timeline = document.timelines[timelineId];
     if (!timeline) continue;
     for (const track of timeline.tracks) {
-      edges.push({ fromId: timelineId, toId: track.targetId, type: "TARGETS_NODE" });
-      if (!document.nodes[track.targetId])
+      const targetsCamera = Boolean(document.cameras[track.targetId]);
+      edges.push({
+        fromId: timelineId,
+        toId: track.targetId,
+        type: targetsCamera ? "TARGETS_CAMERA" : "TARGETS_NODE",
+      });
+      if (!document.nodes[track.targetId] && !targetsCamera)
         missing(
           diagnostics,
           "TIMELINE_TARGET_MISSING",

@@ -66,7 +66,7 @@ defaultRegistry.registerMigration("1.1.0", "1.2.0", (document, context) => ({
   schemaVersion: context.toVersion,
   migrationVersion: 2,
 }));
-defaultRegistry.registerMigration("1.2.0", CURRENT_SCHEMA_VERSION, (document, context) => {
+defaultRegistry.registerMigration("1.2.0", "1.3.0", (document, context) => {
   const timelines = Object.fromEntries(
     Object.entries((document.timelines as Record<string, Record<string, unknown>> | undefined) ?? {}).map(
       ([id, timeline]) => [
@@ -123,6 +123,61 @@ defaultRegistry.registerMigration("1.2.0", CURRENT_SCHEMA_VERSION, (document, co
     migrationVersion: 3,
     timelines,
     stateMachines: {},
+  };
+});
+defaultRegistry.registerMigration("1.3.0", CURRENT_SCHEMA_VERSION, (document, context) => {
+  const nodes = Object.fromEntries(
+    Object.entries((document.nodes as Record<string, Record<string, unknown>> | undefined) ?? {}).map(([id, node]) => {
+      if (node.type === "SCENE_3D") {
+        return [
+          id,
+          {
+            ...node,
+            coordinateSystem: {
+              handedness: "RIGHT_HANDED",
+              upAxis: "Y",
+              forwardAxis: "NEGATIVE_Z",
+              unit: "M",
+              rotationUnit: "RADIANS",
+              quaternionOrder: "XYZW",
+              transformComposition: "TRS",
+            },
+          },
+        ];
+      }
+      if (node.type === "MESH_3D") {
+        const topology = (node.topology as Record<string, unknown> | undefined) ?? {};
+        return [
+          id,
+          {
+            ...node,
+            geometry: {
+              sourceAssetId: node.geometryAssetId,
+              sourceMeshIndex: 0,
+              sourcePrimitiveIndex: 0,
+              primitiveMode: "TRIANGLES",
+              vertexCount: topology.vertices ?? 0,
+              indexCount: Number(topology.triangles ?? 0) * 3,
+              triangleCount: topology.triangles ?? 0,
+              attributes: [],
+              normalAvailable: false,
+              tangentAvailable: false,
+              texCoordSets: 0,
+              skinAttributes: false,
+              morphTargetCount: 0,
+              drawCallEstimate: 1,
+            },
+          },
+        ];
+      }
+      return [id, node];
+    }),
+  );
+  return {
+    ...document,
+    schemaVersion: context.toVersion,
+    migrationVersion: 4,
+    nodes,
   };
 });
 

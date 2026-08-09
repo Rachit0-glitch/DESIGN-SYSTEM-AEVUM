@@ -1581,32 +1581,21 @@ Import, inspect, normalize, render, and control existing 3D scenes.
 ### Status
 
 ```text
-PLANNED
+VALIDATED
 ```
 
 ### Scope
 
-- GLB
-- GLTF
-- FBX
-- OBJ
-- STL
-- USD
-- Scene inspection
-- Units
-- Axis conversion
-- Hierarchy
-- Meshes
-- Materials
-- Textures
-- Cameras
-- Lights
-- Rigs
-- Animations
-- Morph targets
-- Three.js runtime
-- React Three Fiber integration
-- Deterministic 3D capture
+- Registered GLB and GLTF parsing and inspection
+- Explicit coordinate, unit, rotation, quaternion, and transform conventions
+- Stable canonical scene, group, model, primitive, material, texture, camera, and light identities
+- Geometry/accessor metadata, local/world bounds, performance metrics, and diagnostics
+- Embedded texture hashing, deduplication, derivative records, and import provenance
+- Atomic reviewable `scene3d.import` Command Engine transaction
+- Immutable Scene Runtime 3D projection with transforms, responsive cameras, quality, and Animation Core evaluation
+- Deterministic renderer-neutral 3D Render Plan
+- Authenticated, authorized, workspace-isolated MCP reads and dry-run-first transform write
+- Deterministic Agent inspection, planning, write, and persisted-state verification
 
 ### Primary Package
 
@@ -1616,14 +1605,80 @@ packages/renderer-3d
 
 ### Acceptance Gate
 
-- Supported files import
-- Scene diagnostics are complete
-- Scale and orientation normalize correctly
-- Multi-mesh hierarchy is preserved
-- Materials and textures resolve
-- Cameras and lights load
-- Animation plays
-- Deterministic turntables render
+- Registered GLB and GLTF bytes parse through a mature standards-compliant library
+- Untrusted resources are bounded and unsafe paths, network URIs, malformed buffers, and hash mismatches are rejected
+- Scene diagnostics and performance metrics are immutable, deterministic, and serializable
+- Canonical hierarchy and one independently addressable mesh node per primitive are preserved
+- PBR materials, embedded texture derivatives, cameras, punctual lights, transforms, and provenance resolve
+- Import is reviewable, dry-runnable, atomic, versioned, auditable, and rollback safe
+- Scene Runtime resolves local/world transforms, bounds, visibility, responsive camera/quality, and camera timelines
+- Render Plans are deterministic and renderer neutral
+- MCP and Agent integration retain authentication, authorization, workspace isolation, permissions, idempotency, audit,
+  protected-property enforcement, and Command Engine-only writes
+- Tests, build, validation, Docker configuration, documentation, production health, and secret checks pass
+
+### Current Phase 14 Evidence
+
+Status update:
+
+- Date: 2026-08-09
+- Owner: Codex
+- Previous status: PLANNED
+- New status: VALIDATED
+- Evidence:
+  - Canonical Design Document schema `1.4.0` adds explicit 3D conventions, quaternion transforms, `GROUP_3D`, geometry
+    references, bounds, import provenance, full base PBR metadata, texture bindings, and enriched camera/light records.
+  - The `1.3.0` to `1.4.0` migration adds conservative conventions and legacy geometry metadata without inventing
+    unavailable geometry quality.
+  - `@aevum/renderer-3d` uses glTF Transform `4.4.2` for real GLB/GLTF parsing, gl-matrix `3.4.4` for transform and
+    camera math, and emits immutable inspection reports, import proposals, diagnostics, and Render Plans.
+  - Real deterministic fixtures cover indexed cube, hierarchical multi-mesh, multi-material, textured, camera, light,
+    and nested-transform scenes in both GLB and resource-backed GLTF forms.
+  - `scene3d.import` commits the complete proposal atomically. Scene Runtime projects typed 3D records and Animation
+    Core camera targets. The renderer plan contains ordered scene, camera, light, transform, mesh, material, draw, and
+    end operations.
+  - MCP tool version `1.1.0` exposes `three.inspect_asset`, `three.inspect_scene`, and
+    `three.update_node_transform`; the deterministic Agent proves inspect, plan, dry-run, commit, and verification.
+- Validation results:
+  - Focused Phase 14 validation: PASS, 7 files and 43 tests
+  - Full repository suite: PASS, 38 files and 218 tests
+  - `pnpm validate:docs`: PASS for 12 canonical files
+  - `pnpm validate:deps`: PASS for 57 workspace packages
+  - `pnpm format:check`: PASS for 420 files
+  - `pnpm lint`: PASS for 421 files with no warnings
+  - `pnpm typecheck`: PASS, 76 Turbo tasks
+  - `pnpm build`: PASS for all 57 workspace packages
+  - `pnpm validate`: PASS
+  - `pnpm validate:docker`: PASS; existing Compose configuration remains valid
+  - `git diff --check`: PASS
+  - Secret-pattern scan: PASS with zero matches; `.env` and `.env.local` remain ignored
+  - Supabase migration review: no Phase 14 database migration was required or created
+  - Railway `@aevum/api`: ONLINE; deployed `/health` returned HTTP 200
+  - Railway `mcp-server`: ONLINE; deployed `/health`, `/ready`, and `/version` returned HTTP 200
+  - Vercel `design-system-aevum`: READY; production alias returned HTTP 200
+  - Railway Blender Bridge: intentionally OFFLINE
+  - Agent Worker: intentionally inactive and not deployed
+- Remaining warnings:
+  - Implemented import formats are GLB and GLTF only. FBX, OBJ, STL, USD, USDZ, and BLEND remain future adapters.
+  - Skin, animation, morph-target, and advanced material-extension metadata is inspected and diagnosed but not executed.
+  - External GLTF resources must be explicitly supplied by trusted asset resolution; the parser never performs network
+    fetches. No upload or remote resource resolver was added.
+  - Geometry editing/repair, decimation, retopology, UV editing, texture generation, advanced material authoring,
+    rigging, physics, particles, simulations, HDRI execution, visual comparison, and 3D reconstruction are deferred.
+  - Render Plans are renderer-neutral contracts. Production WebGL, Three.js, R3F, frame capture, turntables, and
+    high-end rendering are not implemented.
+- Blockers:
+  - None.
+- Decisions:
+  - Canonical imported primitives remain independently addressable and retain source-index provenance.
+  - Generic `node.update` remains the canonical transform mutation; no redundant 3D update command was introduced.
+  - No new environment variable or Supabase migration was needed; import limits are typed caller configuration.
+  - Existing Railway, Vercel, Supabase, and GitHub infrastructure was inspected but not recreated or reconfigured.
+  - Blender Bridge remains inactive until a real version-pinned execution backend exists.
+- Next action:
+  - Begin Phase 15 by defining version-pinned Blender operation, input, and output manifests plus an isolated local
+    workspace/process adapter with deterministic fixture validation. Do not activate Railway until a real Blender
+    binary smoke test, sandbox boundary, timeout/cancellation, artifact provenance, and canonical command handoff pass.
 
 ---
 

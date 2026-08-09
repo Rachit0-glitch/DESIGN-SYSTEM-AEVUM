@@ -1,4 +1,5 @@
 import {
+  CANONICAL_3D_COORDINATE_SYSTEM,
   createEntityId,
   createTransform,
   fixtures,
@@ -140,6 +141,7 @@ export function createResponsiveFixture(): ResponsiveFixture {
     },
     activeCameraId: desktopCameraId,
     lightIds: [],
+    coordinateSystem: CANONICAL_3D_COORDINATE_SYSTEM,
   };
   page.childIds.push(scene.id);
   document.nodes[scene.id] = scene;

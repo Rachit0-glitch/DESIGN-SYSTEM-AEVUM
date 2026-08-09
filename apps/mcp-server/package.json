@@ -22,6 +22,8 @@
     "@aevum/document-model": "workspace:*",
     "@aevum/mcp-protocol": "workspace:*",
     "@aevum/project-store": "workspace:*",
+    "@aevum/renderer-3d": "workspace:*",
+    "@aevum/scene-runtime": "workspace:*",
     "@aevum/shared": "workspace:*",
     "@supabase/supabase-js": "2.111.0",
     "jose": "6.2.7",

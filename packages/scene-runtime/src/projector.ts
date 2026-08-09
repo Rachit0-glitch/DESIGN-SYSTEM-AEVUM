@@ -57,7 +57,7 @@ interface ProjectionState {
   stoppedByLimit: boolean;
 }
 
-const threeDimensionalTypes = new Set<DesignNode["type"]>(["SCENE_3D", "MODEL_3D", "MESH_3D"]);
+const threeDimensionalTypes = new Set<DesignNode["type"]>(["SCENE_3D", "GROUP_3D", "MODEL_3D", "MESH_3D"]);
 
 function diagnosticKey(diagnostic: RuntimeDiagnostic): string {
   return [diagnostic.code, diagnostic.path ?? "", diagnostic.entityId ?? "", ...(diagnostic.relatedIds ?? [])].join(

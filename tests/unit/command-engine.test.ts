@@ -48,7 +48,7 @@ function expectCommandError(action: () => unknown, code: CommandEngineError["cod
 }
 
 describe("Command Engine", () => {
-  it("self-registers the complete Phase 2 command surface", () => {
+  it("self-registers the complete canonical command surface", () => {
     expect(listCommands()).toEqual([
       "asset.register",
       "asset.remove",
@@ -64,6 +64,7 @@ describe("Command Engine", () => {
       "page.delete",
       "page.rename",
       "reference.register",
+      "scene3d.import",
       "timeline.create",
       "timeline.delete",
       "timeline.update",

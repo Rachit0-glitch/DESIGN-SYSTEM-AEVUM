@@ -16,6 +16,8 @@ import {
   type McpPermission,
   type McpToolName,
 } from "@aevum/mcp-protocol";
+import { create3DRenderPlan } from "@aevum/renderer-3d";
+import { createRuntimeViewport, project3DScene, projectScene, type RuntimeViewport } from "@aevum/scene-runtime";
 import type { McpServerRuntimeConfig, McpToolDefinition, McpToolRegistry, ToolExecutionContext } from "./registry.js";
 
 function fail(context: ToolExecutionContext, code: McpErrorCode, message: string, suggestedAction?: string): never {
@@ -114,6 +116,31 @@ function actorForCommand(context: ToolExecutionContext) {
     type: context.actor.type === "USER" ? ("USER" as const) : ("MCP_AGENT" as const),
     ...(context.actor.email ? { displayName: context.actor.email } : {}),
     provider: context.actor.authProvider,
+  };
+}
+
+function threeViewport(document: CanonicalDesignDocument, input: unknown): RuntimeViewport {
+  const override = input as
+    | {
+        width: number;
+        height: number;
+        deviceScaleFactor: number;
+        orientation: "PORTRAIT" | "LANDSCAPE";
+        category: "DESKTOP" | "TABLET" | "MOBILE" | "CUSTOM";
+        reducedMotion: boolean;
+        breakpointId?: string;
+      }
+    | undefined;
+  if (!override) return createRuntimeViewport(document);
+  return {
+    id: `mcp-three-${override.width}x${override.height}`,
+    width: override.width,
+    height: override.height,
+    deviceScaleFactor: override.deviceScaleFactor,
+    orientation: override.orientation,
+    category: override.category,
+    reducedMotion: override.reducedMotion,
+    ...(override.breakpointId ? { breakpointId: override.breakpointId } : {}),
   };
 }
 
@@ -387,6 +414,96 @@ export function registerInitialTools(registry: McpToolRegistry, config: McpServe
 
   registry.registerTool(
     definition(
+      "three.inspect_asset",
+      "Inspect canonical entities derived from one registered GLB or GLTF asset.",
+      ["asset.read", "three.read"],
+      "READ",
+      async (raw, context) => {
+        const input = TOOL_SCHEMAS["three.inspect_asset"].input.parse(raw);
+        const document = await currentDocument(context);
+        const asset = document.assets[input.assetId];
+        if (!asset || (asset.type !== "GLB" && asset.type !== "GLTF")) {
+          fail(context, "MCP_DOCUMENT_NOT_FOUND", "The requested registered GLB or GLTF asset does not exist.");
+        }
+        const sourceNodes = Object.values(document.nodes).filter(
+          (node) =>
+            node.importProvenance?.sourceAssetId === asset.id ||
+            (node.type === "SCENE_3D" && node.sourceAssetId === asset.id),
+        );
+        const sourceMaterials = Object.values(document.materials).filter(
+          (material) => material.importProvenance?.sourceAssetId === asset.id,
+        );
+        const sourceCameras = Object.values(document.cameras).filter(
+          (camera) => camera.importProvenance?.sourceAssetId === asset.id,
+        );
+        const sourceLights = Object.values(document.lights).filter(
+          (light) => light.importProvenance?.sourceAssetId === asset.id,
+        );
+        return {
+          data: {
+            asset,
+            sourceAssetHash: asset.hash,
+            rootSceneIds: sourceNodes
+              .filter((node) => node.type === "SCENE_3D")
+              .map((node) => node.id)
+              .sort(),
+            nodeIds: sourceNodes.map((node) => node.id).sort(),
+            meshIds: sourceNodes
+              .filter((node) => node.type === "MESH_3D")
+              .map((node) => node.id)
+              .sort(),
+            materialIds: sourceMaterials.map((material) => material.id).sort(),
+            cameraIds: sourceCameras.map((camera) => camera.id).sort(),
+            lightIds: sourceLights.map((light) => light.id).sort(),
+          },
+        };
+      },
+      config,
+    ),
+  );
+
+  registry.registerTool(
+    definition(
+      "three.inspect_scene",
+      "Project one canonical 3D scene and return renderer-neutral plan metadata.",
+      ["document.read", "three.read"],
+      "READ",
+      async (raw, context) => {
+        const input = TOOL_SCHEMAS["three.inspect_scene"].input.parse(raw);
+        const document = await currentDocument(context);
+        const source = document.nodes[input.sceneId];
+        if (source?.type !== "SCENE_3D") {
+          fail(context, "MCP_DOCUMENT_NOT_FOUND", "The requested canonical 3D scene does not exist.");
+        }
+        const projection = projectScene(document, threeViewport(document, input.viewport));
+        const threeProjection = project3DScene(document, projection);
+        const scene = threeProjection.scenes.find((value) => value.sceneId === source.id);
+        if (!scene) fail(context, "MCP_INTERNAL_ERROR", "The canonical 3D scene could not be projected.");
+        const plan = create3DRenderPlan(threeProjection, source.id);
+        return {
+          data: {
+            sceneId: source.id,
+            ...(source.sourceAssetId ? { sourceAssetId: source.sourceAssetId } : {}),
+            coordinateSystem: source.coordinateSystem,
+            ...(scene.activeCameraId ? { activeCameraId: scene.activeCameraId } : {}),
+            nodeIds: scene.nodeIds,
+            meshIds: scene.meshIds,
+            materialIds: scene.materialIds,
+            lightIds: scene.lightIds,
+            ...(scene.bounds ? { bounds: scene.bounds } : {}),
+            projectionFingerprint: threeProjection.fingerprint,
+            renderPlanFingerprint: plan.fingerprint,
+            renderOperationCount: plan.operations.length,
+            diagnostics: threeProjection.diagnostics.map((diagnostic) => diagnostic.code),
+          },
+        };
+      },
+      config,
+    ),
+  );
+
+  registry.registerTool(
+    definition(
       "document.rename",
       "Rename the canonical document.",
       ["document.write"],
@@ -451,6 +568,29 @@ export function registerInitialTools(registry: McpToolRegistry, config: McpServe
           ...base,
           type: "node.delete",
           payload: { nodeId: input.nodeId },
+        }));
+      },
+      config,
+    ),
+  );
+
+  registry.registerTool(
+    definition(
+      "three.update_node_transform",
+      "Update one canonical 3D node transform in local meter space.",
+      ["document.write", "three.write"],
+      "WRITE",
+      async (raw, context) => {
+        const input = TOOL_SCHEMAS["three.update_node_transform"].input.parse(raw);
+        const document = await currentDocument(context);
+        const node = document.nodes[input.nodeId];
+        if (!node || !["SCENE_3D", "GROUP_3D", "MODEL_3D", "MESH_3D"].includes(node.type)) {
+          fail(context, "MCP_INPUT_INVALID", "The target must be a canonical 3D node.");
+        }
+        return executeWrite(context, input, (base) => ({
+          ...base,
+          type: "node.update",
+          payload: { nodeId: input.nodeId, changes: { transform: input.transform } },
         }));
       },
       config,

@@ -159,6 +159,7 @@ export type RuntimeDependencyType =
   | "USES_TEXTURE"
   | "USES_CAMERA"
   | "USES_LIGHT"
+  | "TARGETS_CAMERA"
   | "TARGETS_NODE";
 
 export interface RuntimeDependencyEdge {
@@ -203,6 +204,40 @@ export interface SceneProjectionResult {
   readonly dependencyGraph: RuntimeDependencyGraph;
   readonly diagnostics: readonly RuntimeDiagnostic[];
   readonly statistics: RuntimeProjectionStatistics;
+  readonly fingerprint: string;
+  readonly complete: boolean;
+}
+
+export interface RuntimeMesh3D {
+  readonly nodeId: string;
+  readonly geometry: Extract<DesignNode, { type: "MESH_3D" }>["geometry"];
+  readonly materialIds: readonly string[];
+  readonly localBounds?: import("@aevum/document-model").Bounds3D;
+  readonly worldBounds?: import("@aevum/document-model").Bounds3D;
+}
+
+export interface RuntimeScene3D {
+  readonly sceneId: string;
+  readonly rootNodeId: string;
+  readonly nodeIds: readonly string[];
+  readonly meshIds: readonly string[];
+  readonly materialIds: readonly string[];
+  readonly lightIds: readonly string[];
+  readonly activeCameraId?: string;
+  readonly bounds?: import("@aevum/document-model").Bounds3D;
+  readonly qualityMode: RuntimeQualityMode;
+}
+
+export interface Scene3DProjectionResult {
+  readonly version: "1.0.0";
+  readonly sourceProjectionFingerprint: string;
+  readonly scenes: readonly RuntimeScene3D[];
+  readonly nodes: ReadonlyMap<string, RuntimeNode>;
+  readonly meshes: ReadonlyMap<string, RuntimeMesh3D>;
+  readonly materials: ReadonlyMap<string, Readonly<CanonicalDesignDocument["materials"][string]>>;
+  readonly cameras: ReadonlyMap<string, Readonly<CanonicalDesignDocument["cameras"][string]>>;
+  readonly lights: ReadonlyMap<string, Readonly<CanonicalDesignDocument["lights"][string]>>;
+  readonly diagnostics: readonly RuntimeDiagnostic[];
   readonly fingerprint: string;
   readonly complete: boolean;
 }

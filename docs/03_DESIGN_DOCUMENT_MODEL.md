@@ -2272,3 +2272,27 @@ The Canonical Design Document shall be considered implementation-ready when it c
 The Canonical Design Document is the central contract of the AEVUM AI Reconstruction Engine.
 
 It shall represent the full editable state of 2D design, 3D production, animation, interaction, validation, and export while remaining independent from any specific renderer, frontend framework, 3D runtime, AI provider, or creative platform.
+
+---
+
+## 92. Phase 14 Canonical 3D Foundation
+
+Schema `1.4.0` makes imported 3D state explicit and renderer independent. `SCENE_3D`, `GROUP_3D`, `MODEL_3D`, and
+`MESH_3D` preserve hierarchy and stable IDs. Each mesh primitive has a geometry reference containing source indexes,
+primitive mode, counts, attributes, local bounds, UV/normal/tangent/skin/morph metadata, and draw-call estimate.
+
+Canonical conventions are right-handed, Y-up, negative-Z-forward, meters, radians, XYZW quaternions, and TRS
+composition. Node transforms may retain a normalized quaternion in addition to legacy Euler rotation. Imported nodes,
+materials, cameras, and lights retain source asset hash and source scene/node/mesh/primitive indexes as applicable.
+
+PBR materials preserve base color, metallic, roughness, opacity, emissive, normal scale, occlusion, alpha mode,
+alpha cutoff, double-sided intent, texture coordinate sets, sampler metadata, and explicit texture bindings. Embedded
+images are immutable hashed derivative assets with provenance to the registered GLB or GLTF.
+
+Perspective and orthographic cameras preserve canonical transforms, projection values, clipping, target metadata,
+and import provenance. Directional, point, and spot lights preserve transforms, color, intensity, range, cone angles,
+shadow intent, and provenance. Live renderer, WebGL, Three.js, R3F, and Blender objects remain prohibited canonical
+state.
+
+The `1.3.0` to `1.4.0` migration adds explicit coordinate conventions and conservative legacy geometry metadata.
+It does not infer unavailable source indexes, bounds, normals, tangents, UVs, or topology quality.

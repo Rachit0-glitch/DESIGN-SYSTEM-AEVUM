@@ -57,6 +57,7 @@ const expectedNodePrefixes: Record<DesignNode["type"], string> = {
   COMPONENT: "component",
   COMPONENT_INSTANCE: "component",
   SCENE_3D: "scene",
+  GROUP_3D: "group",
   MODEL_3D: "model",
   MESH_3D: "mesh",
 };
@@ -298,6 +299,7 @@ function validateReferences(document: CanonicalDesignDocument, issues: DocumentV
       requireRef(node.activeCameraId, document.cameras, `nodes.${id}.activeCameraId`, "Camera");
       requireRef(node.environmentAssetId, document.assets, `nodes.${id}.environmentAssetId`, "Environment asset");
       for (const lightId of node.lightIds) requireRef(lightId, document.lights, `nodes.${id}.lightIds`, "Light");
+      requireAssetType(node.sourceAssetId, ["GLB", "GLTF"], `nodes.${id}.sourceAssetId`);
     }
     if (node.type === "MODEL_3D") {
       requireRef(node.sourceAssetId, document.assets, `nodes.${id}.sourceAssetId`, "Source asset");
@@ -305,6 +307,16 @@ function validateReferences(document: CanonicalDesignDocument, issues: DocumentV
     }
     if (node.type === "MESH_3D") {
       requireRef(node.geometryAssetId, document.assets, `nodes.${id}.geometryAssetId`, "Geometry asset");
+      requireAssetType(node.geometry.sourceAssetId, ["GLB", "GLTF"], `nodes.${id}.geometry.sourceAssetId`);
+      if (node.geometry.sourceAssetId !== node.geometryAssetId) {
+        issues.push(
+          issue(
+            "INVALID_REFERENCE",
+            `nodes.${id}.geometry.sourceAssetId`,
+            "Geometry metadata must reference the same registered source asset as geometryAssetId.",
+          ),
+        );
+      }
       for (const materialId of node.materialIds)
         requireRef(materialId, document.materials, `nodes.${id}.materialIds`, "Material");
     }
@@ -312,6 +324,8 @@ function validateReferences(document: CanonicalDesignDocument, issues: DocumentV
       for (const [runIndex, run] of node.runs.entries())
         requireAssetType(run.style.fontAssetId, ["FONT"], `nodes.${id}.runs.${runIndex}.style.fontAssetId`);
     }
+    if (node.importProvenance)
+      requireAssetType(node.importProvenance.sourceAssetId, ["GLB", "GLTF"], `nodes.${id}.importProvenance`);
   }
   for (const [id, component] of Object.entries(document.components))
     requireRef(component.rootNodeId, document.nodes, `components.${id}.rootNodeId`, "Root node");
@@ -362,6 +376,8 @@ function validateReferences(document: CanonicalDesignDocument, issues: DocumentV
     for (const texture of material.textures)
       requireRef(texture.assetId, document.assets, `materials.${id}.textures`, "Texture asset");
     requireRef(material.shader?.sourceAssetId, document.assets, `materials.${id}.shader.sourceAssetId`, "Shader asset");
+    if (material.importProvenance)
+      requireAssetType(material.importProvenance.sourceAssetId, ["GLB", "GLTF"], `materials.${id}.importProvenance`);
   }
   for (const [id, reference] of Object.entries(document.references)) {
     requireRef(reference.assetId, document.assets, `references.${id}.assetId`, "Reference asset");
@@ -369,10 +385,14 @@ function validateReferences(document: CanonicalDesignDocument, issues: DocumentV
   }
   for (const [id, camera] of Object.entries(document.cameras)) {
     requireRef(camera.targetNodeId, document.nodes, `cameras.${id}.targetNodeId`, "Target node");
+    if (camera.importProvenance)
+      requireAssetType(camera.importProvenance.sourceAssetId, ["GLB", "GLTF"], `cameras.${id}.importProvenance`);
   }
   for (const [id, light] of Object.entries(document.lights)) {
     requireRef(light.targetNodeId, document.nodes, `lights.${id}.targetNodeId`, "Target node");
     requireAssetType(light.assetId, ["HDRI"], `lights.${id}.assetId`);
+    if (light.importProvenance)
+      requireAssetType(light.importProvenance.sourceAssetId, ["GLB", "GLTF"], `lights.${id}.importProvenance`);
   }
   for (const [id, validation] of Object.entries(document.validations)) {
     for (const referenceId of validation.referenceIds)

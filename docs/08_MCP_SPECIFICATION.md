@@ -2052,3 +2052,21 @@ The MCP system shall be implementation-ready when it can:
 MCP is the primary AI control layer of the AEVUM AI Reconstruction Engine.
 
 It shall expose the full 2D, 3D, animation, rendering, validation, and export capabilities of the system through typed, permissioned, auditable, transactional, versioned, and model-vendor-independent tools while preserving the Canonical Design Document and Command Engine as the only authoritative state path.
+
+---
+
+## 93. Phase 14 3D MCP Capability Surface
+
+MCP tool version `1.1.0` adds three bounded capabilities:
+
+- `three.inspect_asset` reads one registered GLB/GLTF and lists canonical imported scene, node, primitive, material,
+  camera, and light identities by source provenance.
+- `three.inspect_scene` regenerates a responsive Scene Runtime 3D projection and deterministic Render Plan metadata,
+  including bounds, active camera, entities, diagnostics, and fingerprints.
+- `three.update_node_transform` validates a full canonical local transform in meters and compiles it to the existing
+  versioned `node.update` Command Engine path. It supports dry-run and idempotent commit.
+
+The tools use `three.read` and `three.write` permissions together with asset/document permissions. Existing JWT
+authentication, workspace/project isolation, payload bounds, rate limits, audit, optimistic version checks, locked-node
+handling, idempotency, and atomic persistence remain mandatory. MCP never receives arbitrary filesystem paths, owns
+raw 3D state, writes renderer objects, or calls Blender.

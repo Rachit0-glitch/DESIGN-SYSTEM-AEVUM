@@ -10,6 +10,7 @@ import {
   McpRequestEnvelopeSchema,
   McpResponseEnvelopeSchema,
   ROLE_PERMISSIONS,
+  TOOL_SCHEMAS,
   type McpActor,
   type McpAuditRecord,
   type McpError,
@@ -488,7 +489,7 @@ export function createMcpExecutor(options: McpExecutorOptions) {
     },
     async readiness() {
       const [auth, repository] = await Promise.all([options.authVerifier.readiness(), options.repository.readiness()]);
-      const registry = options.registry.listTools().length === 12;
+      const registry = options.registry.listTools().length === Object.keys(TOOL_SCHEMAS).length;
       const result = {
         ok: auth && repository.ok && registry,
         checks: {

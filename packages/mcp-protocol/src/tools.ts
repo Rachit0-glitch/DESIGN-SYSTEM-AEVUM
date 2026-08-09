@@ -1,19 +1,22 @@
 import { CURRENT_COMMAND_VERSION, type ChangeSet } from "@aevum/command-engine";
 import {
   AssetSchema,
+  Bounds3DSchema,
   CURRENT_SCHEMA_VERSION,
   CanonicalDesignDocumentSchema,
+  CoordinateSystem3DSchema,
   DesignNodeSchema,
   EntityIdSchema,
   JsonValueSchema,
   TimelineSchema,
+  TransformSchema,
 } from "@aevum/document-model";
 import { WorkspaceIdSchema } from "@aevum/project-store";
 import { z } from "zod";
 import { McpPermissionSchema } from "./permissions.js";
 import { MCP_PROTOCOL_VERSION } from "./version.js";
 
-export const MCP_TOOL_VERSION = "1.0.0" as const;
+export const MCP_TOOL_VERSION = "1.1.0" as const;
 export const McpAuthModeSchema = z.enum(["development", "supabase", "disabled"]);
 export const McpToolNameSchema = z.enum([
   "system.get_capabilities",
@@ -24,6 +27,9 @@ export const McpToolNameSchema = z.enum([
   "document.inspect_hierarchy",
   "asset.get",
   "timeline.get",
+  "three.inspect_asset",
+  "three.inspect_scene",
+  "three.update_node_transform",
   "document.rename",
   "node.create",
   "node.update",
@@ -157,6 +163,47 @@ export const AssetGetOutputSchema = AssetSchema;
 export const TimelineGetInputSchema = z.strictObject({ timelineId: EntityIdSchema });
 export const TimelineGetOutputSchema = TimelineSchema;
 
+export const ThreeInspectAssetInputSchema = z.strictObject({ assetId: EntityIdSchema });
+export const ThreeInspectAssetOutputSchema = z.strictObject({
+  asset: AssetSchema,
+  sourceAssetHash: z.string().regex(/^sha256:[0-9a-f]{64}$/i),
+  rootSceneIds: z.array(EntityIdSchema),
+  nodeIds: z.array(EntityIdSchema),
+  meshIds: z.array(EntityIdSchema),
+  materialIds: z.array(EntityIdSchema),
+  cameraIds: z.array(EntityIdSchema),
+  lightIds: z.array(EntityIdSchema),
+});
+export const ThreeInspectSceneInputSchema = z.strictObject({
+  sceneId: EntityIdSchema,
+  viewport: z
+    .strictObject({
+      width: z.number().int().positive().max(16_384),
+      height: z.number().int().positive().max(16_384),
+      deviceScaleFactor: z.number().finite().positive().max(8).default(1),
+      orientation: z.enum(["PORTRAIT", "LANDSCAPE"]),
+      category: z.enum(["DESKTOP", "TABLET", "MOBILE", "CUSTOM"]),
+      reducedMotion: z.boolean().default(false),
+      breakpointId: z.string().min(1).max(128).optional(),
+    })
+    .optional(),
+});
+export const ThreeInspectSceneOutputSchema = z.strictObject({
+  sceneId: EntityIdSchema,
+  sourceAssetId: EntityIdSchema.optional(),
+  coordinateSystem: CoordinateSystem3DSchema,
+  activeCameraId: EntityIdSchema.optional(),
+  nodeIds: z.array(EntityIdSchema),
+  meshIds: z.array(EntityIdSchema),
+  materialIds: z.array(EntityIdSchema),
+  lightIds: z.array(EntityIdSchema),
+  bounds: Bounds3DSchema.optional(),
+  projectionFingerprint: z.string().regex(/^sha256:[0-9a-f]{64}$/i),
+  renderPlanFingerprint: z.string().regex(/^sha256:[0-9a-f]{64}$/i),
+  renderOperationCount: z.number().int().nonnegative(),
+  diagnostics: z.array(z.string()),
+});
+
 const WriteBaseSchema = z.strictObject({ expectedDocumentVersion: z.number().int().positive() });
 export const DocumentRenameInputSchema = WriteBaseSchema.extend({ name: z.string().trim().min(1).max(255) });
 export const NodeCreateInputSchema = WriteBaseSchema.extend({
@@ -168,6 +215,12 @@ export const NodeUpdateInputSchema = WriteBaseSchema.extend({
   changes: z.record(z.string().min(1).max(100), JsonValueSchema),
 });
 export const NodeDeleteInputSchema = WriteBaseSchema.extend({ nodeId: EntityIdSchema });
+export const ThreeUpdateNodeTransformInputSchema = WriteBaseSchema.extend({
+  nodeId: EntityIdSchema,
+  transform: TransformSchema,
+  coordinateSpace: z.literal("LOCAL"),
+  unit: z.literal("M"),
+});
 
 const ChangeSetSchema: z.ZodType<ChangeSet> = z.strictObject({
   added: z.array(z.string()),
@@ -203,10 +256,16 @@ export const TOOL_SCHEMAS = Object.freeze({
   },
   "asset.get": { input: AssetGetInputSchema, output: AssetGetOutputSchema },
   "timeline.get": { input: TimelineGetInputSchema, output: TimelineGetOutputSchema },
+  "three.inspect_asset": { input: ThreeInspectAssetInputSchema, output: ThreeInspectAssetOutputSchema },
+  "three.inspect_scene": { input: ThreeInspectSceneInputSchema, output: ThreeInspectSceneOutputSchema },
   "document.rename": { input: DocumentRenameInputSchema, output: WriteToolOutputSchema },
   "node.create": { input: NodeCreateInputSchema, output: WriteToolOutputSchema },
   "node.update": { input: NodeUpdateInputSchema, output: WriteToolOutputSchema },
   "node.delete": { input: NodeDeleteInputSchema, output: WriteToolOutputSchema },
+  "three.update_node_transform": {
+    input: ThreeUpdateNodeTransformInputSchema,
+    output: WriteToolOutputSchema,
+  },
 });
 
 export type McpAuthMode = z.infer<typeof McpAuthModeSchema>;

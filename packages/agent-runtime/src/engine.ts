@@ -129,6 +129,18 @@ function analyzeStep(input: Record<string, unknown>): Record<string, unknown> {
     return { changes: { transform }, expectedY: transform.position.y };
   }
   if (input.operation === "NODE_CHANGES") return { changes: structuredClone(input.changes ?? {}) };
+  if (input.operation === "THREE_OFFSET_X") {
+    const source = input.source as { nodes?: Array<Record<string, unknown>> } | undefined;
+    const node = source?.nodes?.find((entry) => entry.id === input.nodeId) ?? source?.nodes?.[0];
+    const transform = structuredClone(node?.transform) as
+      | { position?: { x?: number; y?: number; z?: number } }
+      | undefined;
+    if (!transform?.position || typeof transform.position.x !== "number" || typeof input.deltaX !== "number") {
+      throw new Error("Target 3D node transform is unavailable for offset analysis.");
+    }
+    transform.position.x += input.deltaX;
+    return { transform, expectedX: transform.position.x };
+  }
   return { analysis: "NO_OP" };
 }
 
@@ -137,9 +149,14 @@ function protectedViolation(
   step: AgentPlanStep,
   input: Record<string, unknown>,
 ): string | undefined {
-  if (step.tool !== "node.update") return undefined;
+  if (step.tool !== "node.update" && step.tool !== "three.update_node_transform") return undefined;
   const nodeId = typeof input.nodeId === "string" ? input.nodeId : undefined;
-  const changes = input.changes && typeof input.changes === "object" ? Object.keys(input.changes as object) : [];
+  const changes =
+    step.tool === "three.update_node_transform"
+      ? ["transform"]
+      : input.changes && typeof input.changes === "object"
+        ? Object.keys(input.changes as object)
+        : [];
   return session.constraints.protectedProperties.find((property) => {
     if (property.nodeId && property.nodeId !== nodeId) return false;
     return changes.some((changed) => property.property === changed || property.property.startsWith(`${changed}.`));

@@ -1,4 +1,5 @@
 import {
+  CANONICAL_3D_COORDINATE_SYSTEM,
   createAsset,
   createEntityId,
   createFrame,
@@ -137,6 +138,7 @@ export function createMixedSceneFixture(): CanonicalDesignDocument {
     metadata: { tags: [], customData: {} },
     activeCameraId: cameraId,
     lightIds: [],
+    coordinateSystem: CANONICAL_3D_COORDINATE_SYSTEM,
   };
   document.nodes[meshId] = {
     id: meshId,
@@ -150,6 +152,22 @@ export function createMixedSceneFixture(): CanonicalDesignDocument {
     sourceLinks: [],
     metadata: { tags: [], customData: {} },
     geometryAssetId: geometry.id,
+    geometry: {
+      sourceAssetId: geometry.id,
+      sourceMeshIndex: 0,
+      sourcePrimitiveIndex: 0,
+      primitiveMode: "TRIANGLES",
+      vertexCount: 8,
+      indexCount: 36,
+      triangleCount: 12,
+      attributes: [],
+      normalAvailable: false,
+      tangentAvailable: false,
+      texCoordSets: 0,
+      skinAttributes: false,
+      morphTargetCount: 0,
+      drawCallEstimate: 1,
+    },
     materialIds: [materialId],
     topology: { vertices: 8, faces: 6, triangles: 12, manifold: true },
     castShadow: true,

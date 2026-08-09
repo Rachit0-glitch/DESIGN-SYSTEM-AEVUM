@@ -71,7 +71,8 @@ provider remain replaceable future adapters.
 - Multi-command transaction tools and persistent job queues are deferred. Versioned protocol foundations exist.
 - The production rate-limit interface is replaceable, but the included implementation is in-process and intended for
   one replica.
-- Tool coverage is intentionally limited to the twelve Phase 12 tools.
+- The Phase 12 tools plus the three bounded Phase 14 3D tools are implemented. Raw model bytes, uploads, modelling,
+  rendering, and Blender execution are not MCP operations in this phase.
 
 ## Canonical References
 

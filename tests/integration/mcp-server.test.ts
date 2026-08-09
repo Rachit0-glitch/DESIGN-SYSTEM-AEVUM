@@ -1,4 +1,7 @@
-import { createFrame, fixtures } from "@aevum/document-model";
+import { computeSha256 } from "@aevum/assets";
+import { createAsset, createFrame, fixtures } from "@aevum/document-model";
+import { apply3DImportProposal, create3DImportProposal } from "@aevum/renderer-3d";
+import { createThreeFixture } from "@aevum/test-fixtures";
 import { describe, expect, it } from "vitest";
 import { MCP_OTHER_WORKSPACE_ID, createMcpTestFixture } from "../helpers/mcp-fixture.js";
 
@@ -15,7 +18,7 @@ describe("MCP server integration", () => {
     const version = await fixture.execute("document.get_version", { version: 1, projection: "summary" });
 
     expect(capabilities.success).toBe(true);
-    expect((capabilities.data as { enabledTools: string[] }).enabledTools).toHaveLength(12);
+    expect((capabilities.data as { enabledTools: string[] }).enabledTools).toHaveLength(15);
     expect(project.data).toMatchObject({ projectId: fixture.projectId, currentDocumentVersion: 1 });
     expect(document.data).toMatchObject({ id: fixture.document.metadata.id, documentVersion: 1 });
     expect((hierarchy.data as { nodes: unknown[] }).nodes.length).toBe(Object.keys(fixture.document.nodes).length);
@@ -163,6 +166,71 @@ describe("MCP server integration", () => {
     expect(current?.nodes[node.id]).toBeUndefined();
     expect(current?.documentVersion).toBe(4);
     expect(fixture.document.nodes[node.id]).toBeUndefined();
+  });
+
+  it("inspects registered 3D entities and dry-runs then persists a canonical transform write", async () => {
+    const binary = await createThreeFixture();
+    const source = createAsset({
+      type: "GLB",
+      name: "MCP 3D fixture",
+      hash: computeSha256(binary.glb),
+      uri: "registered/mcp-fixture.glb",
+      mimeType: "model/gltf-binary",
+      byteSize: binary.glb.byteLength,
+    });
+    const base = fixtures.empty();
+    base.assets[source.id] = source;
+    const proposal = await create3DImportProposal({ canonicalDocument: base, asset: source, bytes: binary.glb });
+    const imported = apply3DImportProposal({
+      proposal,
+      document: base,
+      actor: { id: "mcp-fixture", type: "SYSTEM", displayName: "MCP fixture" },
+      timestamp: "2026-08-02T11:00:00.000Z",
+      correlationId: "mcp-three-fixture",
+    }).newDocument;
+    const fixture = createMcpTestFixture({ role: "AGENT", document: imported });
+    const scene = proposal.nodes.find((node) => node.type === "SCENE_3D");
+    const mesh = proposal.nodes.find((node) => node.type === "MESH_3D");
+    if (!scene || !mesh) throw new Error("Imported 3D fixture requires a scene and mesh.");
+    const assetInspection = await fixture.execute("three.inspect_asset", { assetId: source.id });
+    const sceneInspection = await fixture.execute("three.inspect_scene", { sceneId: scene.id });
+    const nextTransform = structuredClone(mesh.transform);
+    nextTransform.position.x += 2;
+    const dryRun = await fixture.execute(
+      "three.update_node_transform",
+      {
+        expectedDocumentVersion: 2,
+        nodeId: mesh.id,
+        transform: nextTransform,
+        coordinateSpace: "LOCAL",
+        unit: "M",
+      },
+      { dryRun: true, idempotencyKey: "three-transform-dry-run" },
+    );
+    expect((await fixture.repository.getCurrentDocument(fixture.workspaceId, fixture.projectId))?.documentVersion).toBe(
+      2,
+    );
+    const write = await fixture.execute(
+      "three.update_node_transform",
+      {
+        expectedDocumentVersion: 2,
+        nodeId: mesh.id,
+        transform: nextTransform,
+        coordinateSpace: "LOCAL",
+        unit: "M",
+      },
+      { idempotencyKey: "three-transform-write" },
+    );
+    const current = await fixture.repository.getCurrentDocument(fixture.workspaceId, fixture.projectId);
+
+    expect(assetInspection.data).toMatchObject({ sourceAssetHash: source.hash, rootSceneIds: [scene.id] });
+    expect((assetInspection.data as { meshIds: string[] }).meshIds).toHaveLength(3);
+    expect(sceneInspection.success, JSON.stringify(sceneInspection.errors)).toBe(true);
+    expect(sceneInspection.data).toMatchObject({ sceneId: scene.id, sourceAssetId: source.id });
+    expect((sceneInspection.data as { renderOperationCount: number }).renderOperationCount).toBeGreaterThan(5);
+    expect(dryRun.data).toMatchObject({ dryRun: true, predictedDocumentVersion: 3 });
+    expect(write.data).toMatchObject({ dryRun: false, resultVersion: 3 });
+    expect(current?.nodes[mesh.id]?.transform.position.x).toBe(nextTransform.position.x);
   });
 
   it("rejects MCP writes against locked canonical nodes", async () => {

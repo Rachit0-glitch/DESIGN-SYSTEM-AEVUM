@@ -43,6 +43,10 @@ Read tools: `system.get_capabilities`, `project.get`, `document.get`, `document.
 
 Write tools: `document.rename`, `node.create`, `node.update`, and `node.delete`.
 
+Phase 14 adds tool contract version `1.1.0`: read tools `three.inspect_asset` and `three.inspect_scene`, plus the
+dry-run and idempotency capable write tool `three.update_node_transform`. The tools use dedicated `three.read` and
+`three.write` permissions in addition to the canonical asset/document permissions required by each operation.
+
 This package defines contracts only. Authentication, authorization, persistence, and execution belong to
 `@aevum/mcp-server`.
 

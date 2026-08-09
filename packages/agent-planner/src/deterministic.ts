@@ -365,6 +365,141 @@ function nodeUpdatePlan(
   ];
 }
 
+function threeTransformPlan(
+  intent: AgentIntent,
+  capabilities: AgentCapabilities,
+  policy: AgentApprovalPolicy,
+): AgentPlanStep[] {
+  const assetId = String(intent.parameters.assetId ?? "missing-asset");
+  const sceneId = String(intent.parameters.sceneId ?? "missing-scene");
+  const nodeId = intent.targetNodeIds[0] ?? String(intent.parameters.nodeId ?? "missing-node");
+  const inspectAsset = step({
+    goalId: intent.goalId,
+    index: 0,
+    type: "INSPECT",
+    label: "Inspect registered 3D asset provenance",
+    tool: "three.inspect_asset",
+    descriptor: findDescriptor(capabilities, "three.inspect_asset"),
+    data: { assetId },
+    approvalPolicy: policy,
+  });
+  const inspectScene = step({
+    goalId: intent.goalId,
+    index: 1,
+    type: "INSPECT",
+    label: "Inspect canonical 3D scene projection",
+    tool: "three.inspect_scene",
+    descriptor: findDescriptor(capabilities, "three.inspect_scene"),
+    dependencies: [inspectAsset.id],
+    data: { sceneId },
+    approvalPolicy: policy,
+  });
+  const read = step({
+    goalId: intent.goalId,
+    index: 2,
+    type: "READ",
+    label: "Read canonical 3D node",
+    tool: "document.get",
+    descriptor: findDescriptor(capabilities, "document.get"),
+    dependencies: [inspectScene.id],
+    data: { projection: "node-subtree", nodeId },
+    approvalPolicy: policy,
+  });
+  const analyze = step({
+    goalId: intent.goalId,
+    index: 3,
+    type: "ANALYZE",
+    label: "Calculate deterministic 3D transform",
+    dependencies: [read.id],
+    data: { operation: "THREE_OFFSET_X", nodeId, deltaX: intent.parameters.deltaX ?? 0 },
+    bindings: [{ targetPath: "source", sourceStepId: read.id, sourcePath: "data" }],
+    approvalPolicy: policy,
+  });
+  const descriptor = findDescriptor(capabilities, "three.update_node_transform");
+  const baseInput = {
+    expectedDocumentVersion: 1,
+    nodeId,
+    transform: {},
+    coordinateSpace: "LOCAL",
+    unit: "M",
+  };
+  const bindings: AgentPlanStep["inputBindings"] = [
+    { targetPath: "expectedDocumentVersion", sourceStepId: read.id, sourcePath: "data.document.documentVersion" },
+    { targetPath: "transform", sourceStepId: analyze.id, sourcePath: "transform" },
+  ];
+  const dryRun = step({
+    goalId: intent.goalId,
+    index: 4,
+    type: "DRY_RUN",
+    label: "Dry-run canonical 3D transform",
+    tool: "three.update_node_transform",
+    descriptor,
+    dependencies: [analyze.id],
+    data: baseInput,
+    bindings,
+    approvalPolicy: policy,
+  });
+  const write = step({
+    goalId: intent.goalId,
+    index: 5,
+    type: "WRITE",
+    label: "Commit canonical 3D transform",
+    tool: "three.update_node_transform",
+    descriptor,
+    dependencies: [dryRun.id],
+    data: baseInput,
+    bindings,
+    failurePolicy: "REPLAN",
+    approvalPolicy: policy,
+  });
+  const verifyRead = step({
+    goalId: intent.goalId,
+    index: 6,
+    type: "READ",
+    label: "Read transformed canonical 3D node",
+    tool: "document.get",
+    descriptor: findDescriptor(capabilities, "document.get"),
+    dependencies: [write.id],
+    data: { projection: "node-subtree", nodeId },
+    approvalPolicy: policy,
+  });
+  const assertion = {
+    sourceStepId: verifyRead.id,
+    path: "data.nodes.0.transform.position.x",
+    expectedSourceStepId: analyze.id,
+    expectedSourcePath: "expectedX",
+    operator: "EQUALS" as const,
+  };
+  const verify = step({
+    goalId: intent.goalId,
+    index: 7,
+    type: "VERIFY",
+    label: "Verify exact canonical 3D transform",
+    dependencies: [verifyRead.id],
+    expected: assertion,
+    verification: { required: true, strategy: "STATE_ASSERTION", assertions: [assertion] },
+    approvalPolicy: policy,
+  });
+  return [
+    inspectAsset,
+    inspectScene,
+    read,
+    analyze,
+    dryRun,
+    write,
+    verifyRead,
+    verify,
+    step({
+      goalId: intent.goalId,
+      index: 8,
+      type: "COMPLETE",
+      label: "Complete canonical 3D transform",
+      dependencies: [verify.id],
+      approvalPolicy: policy,
+    }),
+  ];
+}
+
 function nodeCreatePlan(
   intent: AgentIntent,
   capabilities: AgentCapabilities,
@@ -552,6 +687,8 @@ export function generateDeterministicPlan(input: {
         approvalPolicy: policy,
       }),
     ];
+  } else if (operation === "three_transform") {
+    steps = threeTransformPlan(input.intent, input.capabilities, policy);
   } else if (input.intent.category === "INSPECT" || input.intent.category === "PROJECT") {
     steps = inspectPlan(input.intent, input.capabilities, policy);
   } else if (operation === "delete" || input.intent.requiredCapabilities.includes("node.delete")) {

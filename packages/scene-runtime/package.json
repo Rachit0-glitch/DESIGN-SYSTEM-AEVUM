@@ -19,6 +19,7 @@
     "@aevum/animation-core": "workspace:*",
     "@aevum/document-model": "workspace:*",
     "@aevum/shared": "workspace:*",
+    "gl-matrix": "3.4.4",
     "zod": "4.4.3"
   }
 }

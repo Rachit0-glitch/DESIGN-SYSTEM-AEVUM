@@ -2040,3 +2040,20 @@ playback, and Blender animation remain outside Phase 11.
 Animation and rendering form the execution layer of the AEVUM AI Reconstruction Engine.
 
 They shall convert the Canonical Design Document into accurate, editable, interactive, deterministic, and exportable 2D and 3D experiences while preserving structured motion, responsive behaviour, accessibility, validation compatibility, and performance-aware delivery.
+
+---
+
+## 90. Phase 14 Camera Animation And 3D Render Plans
+
+Scene Runtime now recognizes canonical cameras as valid Animation Core timeline targets. Camera position, quaternion or
+rotation, target, field of view, and other canonical camera property paths are resolved at an explicit timeline time
+before a 3D Render Plan is created. Reduced-motion evaluation uses Animation Core policy and resolves disabled motion
+to its deterministic terminal composition or a declared alternate timeline.
+
+`project3DScene()` derives immutable runtime scenes, nodes, primitive records, materials, cameras, lights, local and
+world bounds, visibility, responsive active-camera selection, viewport quality, animation values, diagnostics, and a
+projection fingerprint. `create3DRenderPlan()` emits ordered `SCENE_BEGIN`, `CAMERA_BIND`, `LIGHT_BIND`,
+`NODE_TRANSFORM`, `MESH_BIND`, `MATERIAL_BIND`, `DRAW_PRIMITIVE`, and `SCENE_END` operations.
+
+The plan is an execution contract, not rendered pixels. Browser playback, GPU work, Three.js/R3F execution,
+turntables, frame capture, and 3D visual comparison remain future renderer and validation work.

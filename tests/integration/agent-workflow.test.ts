@@ -1,6 +1,9 @@
 import { createAgentCancellationController } from "@aevum/agent-runtime";
 import { createAgentWorker, createAgentWorkerHttpServer } from "@aevum/agent-worker";
-import { createFrame } from "@aevum/document-model";
+import { computeSha256 } from "@aevum/assets";
+import { createAsset, createFrame, fixtures } from "@aevum/document-model";
+import { apply3DImportProposal, create3DImportProposal } from "@aevum/renderer-3d";
+import { createThreeFixture } from "@aevum/test-fixtures";
 import type { Server } from "node:http";
 import { describe, expect, it } from "vitest";
 import { createAgentTestFixture } from "../helpers/agent-fixture.js";
@@ -40,6 +43,65 @@ describe("agent orchestration workflow", () => {
     expect(
       fixture.calls.some((entry) => entry.request.tool.endsWith(".delete") || entry.request.tool === "document.rename"),
     ).toBe(false);
+  });
+
+  it("plans, dry-runs, commits, and verifies a canonical 3D transform through MCP", async () => {
+    const binary = await createThreeFixture();
+    const asset = createAsset({
+      type: "GLB",
+      name: "Agent 3D fixture",
+      hash: computeSha256(binary.glb),
+      uri: "registered/agent-fixture.glb",
+      mimeType: "model/gltf-binary",
+      byteSize: binary.glb.byteLength,
+    });
+    const source = fixtures.empty();
+    source.assets[asset.id] = asset;
+    const proposal = await create3DImportProposal({ canonicalDocument: source, asset, bytes: binary.glb });
+    const document = apply3DImportProposal({
+      proposal,
+      document: source,
+      actor: { id: "agent-fixture", type: "SYSTEM", displayName: "Agent fixture" },
+      timestamp: "2026-08-02T11:00:00.000Z",
+      correlationId: "agent-three-fixture",
+    }).newDocument;
+    const scene = proposal.nodes.find((node) => node.type === "SCENE_3D");
+    const mesh = proposal.nodes.find((node) => node.type === "MESH_3D");
+    if (!scene || !mesh) throw new Error("Agent fixture requires imported scene and mesh records.");
+    const originalX = mesh.transform.position.x;
+    const fixture = createAgentTestFixture({
+      document,
+      category: "CUSTOM_3D",
+      request: "Move the selected 3D primitive 1.25 meters on local X after inspecting its source and scene.",
+      targetNodeIds: [mesh.id],
+      parameters: {
+        operation: "three_transform",
+        assetId: asset.id,
+        sceneId: scene.id,
+        deltaX: 1.25,
+      },
+    });
+    const result = await fixture.run();
+    const current = await fixture.mcp.repository.getCurrentDocument(fixture.mcp.workspaceId, fixture.mcp.projectId);
+
+    expect(result.run.status).toBe("SUCCEEDED");
+    expect(fixture.calls.map((entry) => entry.request.tool)).toEqual([
+      "system.get_capabilities",
+      "three.inspect_asset",
+      "three.inspect_scene",
+      "document.get",
+      "three.update_node_transform",
+      "three.update_node_transform",
+      "document.get",
+    ]);
+    expect(
+      fixture.calls
+        .filter((entry) => entry.request.tool === "three.update_node_transform")
+        .map((entry) => entry.request.dryRun),
+    ).toEqual([true, false]);
+    expect(current?.nodes[mesh.id]?.transform.position.x).toBeCloseTo(originalX + 1.25);
+    expect(current?.documentVersion).toBe(3);
+    expect(result.run.outcome?.verification?.success).toBe(true);
   });
 
   it("renames through dry run, Command Engine commit, verification, persistence, audit, and idempotent retry", async () => {

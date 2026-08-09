@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { EntityIdSchema } from "./ids.js";
 
-export const CURRENT_SCHEMA_VERSION = "1.3.0" as const;
-export const CURRENT_MIGRATION_VERSION = 3 as const;
+export const CURRENT_SCHEMA_VERSION = "1.4.0" as const;
+export const CURRENT_MIGRATION_VERSION = 4 as const;
 
 export const JsonValueSchema: z.ZodType<unknown> = z.lazy(() =>
   z.union([
@@ -29,6 +29,12 @@ export const ActorRefSchema = z.strictObject({
 
 export const Vector2Schema = z.strictObject({ x: z.number().finite(), y: z.number().finite() });
 export const Vector3Schema = Vector2Schema.extend({ z: z.number().finite() });
+export const QuaternionSchema = z.strictObject({
+  x: z.number().finite(),
+  y: z.number().finite(),
+  z: z.number().finite(),
+  w: z.number().finite(),
+});
 export const ColorSchema = z.strictObject({
   r: UnitIntervalSchema,
   g: UnitIntervalSchema,
@@ -46,6 +52,7 @@ export const LengthSchema = z.strictObject({
 export const TransformSchema = z.strictObject({
   position: Vector3Schema,
   rotation: Vector3Schema,
+  quaternion: QuaternionSchema.optional(),
   scale: Vector3Schema,
   skew: Vector2Schema,
   anchor: Vector2Schema,
@@ -178,6 +185,68 @@ const NodeMetadataSchema = z.strictObject({
   description: z.string().optional(),
   customData: JsonObjectSchema,
 });
+export const ImportProvenanceSchema = z.strictObject({
+  sourceAssetId: EntityIdSchema,
+  sourceAssetHash: z.string().regex(/^sha256:[0-9a-f]{64}$/i),
+  sourceSceneIndex: z.number().int().nonnegative().optional(),
+  sourceNodeIndex: z.number().int().nonnegative().optional(),
+  sourceMeshIndex: z.number().int().nonnegative().optional(),
+  sourcePrimitiveIndex: z.number().int().nonnegative().optional(),
+  sourceMaterialIndex: z.number().int().nonnegative().optional(),
+  sourceCameraIndex: z.number().int().nonnegative().optional(),
+  sourceLightIndex: z.number().int().nonnegative().optional(),
+});
+export const CoordinateSystem3DSchema = z.strictObject({
+  handedness: z.literal("RIGHT_HANDED"),
+  upAxis: z.literal("Y"),
+  forwardAxis: z.literal("NEGATIVE_Z"),
+  unit: z.literal("M"),
+  rotationUnit: z.literal("RADIANS"),
+  quaternionOrder: z.literal("XYZW"),
+  transformComposition: z.literal("TRS"),
+});
+export const CANONICAL_3D_COORDINATE_SYSTEM = Object.freeze({
+  handedness: "RIGHT_HANDED" as const,
+  upAxis: "Y" as const,
+  forwardAxis: "NEGATIVE_Z" as const,
+  unit: "M" as const,
+  rotationUnit: "RADIANS" as const,
+  quaternionOrder: "XYZW" as const,
+  transformComposition: "TRS" as const,
+});
+export const Bounds3DSchema = z.strictObject({
+  min: Vector3Schema,
+  max: Vector3Schema,
+  center: Vector3Schema,
+  size: Vector3Schema,
+  radius: NonNegativeSchema,
+});
+export const GeometryAttributeSchema = z.strictObject({
+  semantic: z.string().min(1),
+  count: z.number().int().nonnegative(),
+  componentType: z.string().min(1),
+  elementType: z.string().min(1),
+  normalized: z.boolean(),
+  min: z.array(z.number().finite()).optional(),
+  max: z.array(z.number().finite()).optional(),
+});
+export const GeometryReferenceSchema = z.strictObject({
+  sourceAssetId: EntityIdSchema,
+  sourceMeshIndex: z.number().int().nonnegative(),
+  sourcePrimitiveIndex: z.number().int().nonnegative(),
+  primitiveMode: z.enum(["POINTS", "LINES", "LINE_LOOP", "LINE_STRIP", "TRIANGLES", "TRIANGLE_STRIP", "TRIANGLE_FAN"]),
+  vertexCount: z.number().int().nonnegative(),
+  indexCount: z.number().int().nonnegative(),
+  triangleCount: z.number().int().nonnegative(),
+  attributes: z.array(GeometryAttributeSchema),
+  bounds: Bounds3DSchema.optional(),
+  normalAvailable: z.boolean(),
+  tangentAvailable: z.boolean(),
+  texCoordSets: z.number().int().nonnegative(),
+  skinAttributes: z.boolean(),
+  morphTargetCount: z.number().int().nonnegative(),
+  drawCallEstimate: z.number().int().positive(),
+});
 export const SourceReferenceLinkSchema = z.strictObject({
   referenceId: EntityIdSchema,
   regionId: z.string().min(1).optional(),
@@ -206,6 +275,7 @@ const BaseNodeShape = {
   responsive: ResponsiveSchema.optional(),
   sourceLinks: z.array(SourceReferenceLinkSchema),
   metadata: NodeMetadataSchema,
+  importProvenance: ImportProvenanceSchema.optional(),
 };
 
 const PageNodeSchema = z.strictObject({
@@ -315,12 +385,20 @@ const Scene3DNodeSchema = z.strictObject({
   activeCameraId: EntityIdSchema.optional(),
   lightIds: z.array(EntityIdSchema),
   environmentAssetId: EntityIdSchema.optional(),
+  coordinateSystem: CoordinateSystem3DSchema,
+  sourceAssetId: EntityIdSchema.optional(),
+  qualityProfile: z.enum(["DRAFT", "HIGH_QUALITY", "MAXIMUM_FIDELITY"]).optional(),
+});
+const Group3DNodeSchema = z.strictObject({
+  ...BaseNodeShape,
+  type: z.literal("GROUP_3D"),
 });
 const Model3DNodeSchema = z.strictObject({
   ...BaseNodeShape,
   type: z.literal("MODEL_3D"),
   sourceAssetId: EntityIdSchema.optional(),
   meshIds: z.array(EntityIdSchema),
+  sourceSceneIndex: z.number().int().nonnegative().optional(),
   realWorldScale: z
     .strictObject({ value: z.number().finite().positive(), unit: z.enum(["MM", "CM", "M", "IN", "WORLD_UNIT"]) })
     .optional(),
@@ -329,12 +407,13 @@ const Mesh3DNodeSchema = z.strictObject({
   ...BaseNodeShape,
   type: z.literal("MESH_3D"),
   geometryAssetId: EntityIdSchema,
+  geometry: GeometryReferenceSchema,
   materialIds: z.array(EntityIdSchema),
   topology: z.strictObject({
     vertices: z.number().int().nonnegative(),
     faces: z.number().int().nonnegative(),
     triangles: z.number().int().nonnegative(),
-    manifold: z.boolean(),
+    manifold: z.boolean().nullable(),
   }),
   castShadow: z.boolean(),
   receiveShadow: z.boolean(),
@@ -355,6 +434,7 @@ export type DesignNode =
   | z.infer<typeof ComponentNodeSchema>
   | z.infer<typeof ComponentInstanceNodeSchema>
   | z.infer<typeof Scene3DNodeSchema>
+  | z.infer<typeof Group3DNodeSchema>
   | z.infer<typeof Model3DNodeSchema>
   | z.infer<typeof Mesh3DNodeSchema>;
 const DesignNodeSchemaValue: z.ZodType<DesignNode> = z.discriminatedUnion("type", [
@@ -372,6 +452,7 @@ const DesignNodeSchemaValue: z.ZodType<DesignNode> = z.discriminatedUnion("type"
   ComponentNodeSchema,
   ComponentInstanceNodeSchema,
   Scene3DNodeSchema,
+  Group3DNodeSchema,
   Model3DNodeSchema,
   Mesh3DNodeSchema,
 ]);
@@ -614,7 +695,17 @@ export const CameraSchema = z.strictObject({
   projection: z.enum(["PERSPECTIVE", "ORTHOGRAPHIC"]),
   transform: TransformSchema,
   focalLength: z.number().finite().positive().optional(),
+  verticalFieldOfView: z.number().finite().positive().max(Math.PI).optional(),
+  aspectRatio: z.number().finite().positive().optional(),
   orthographicSize: z.number().finite().positive().optional(),
+  orthographicBounds: z
+    .strictObject({
+      left: z.number().finite(),
+      right: z.number().finite(),
+      top: z.number().finite(),
+      bottom: z.number().finite(),
+    })
+    .optional(),
   nearClip: z.number().finite().positive(),
   farClip: z.number().finite().positive(),
   depthOfField: z.strictObject({
@@ -623,6 +714,8 @@ export const CameraSchema = z.strictObject({
     focusDistance: z.number().finite().nonnegative(),
   }),
   targetNodeId: EntityIdSchema.optional(),
+  target: Vector3Schema.optional(),
+  importProvenance: ImportProvenanceSchema.optional(),
 });
 export const LightSchema = z.strictObject({
   id: EntityIdSchema,
@@ -633,6 +726,21 @@ export const LightSchema = z.strictObject({
   intensity: NonNegativeSchema,
   assetId: EntityIdSchema.optional(),
   targetNodeId: EntityIdSchema.optional(),
+  range: z.number().finite().positive().optional(),
+  innerConeAngle: z
+    .number()
+    .finite()
+    .nonnegative()
+    .max(Math.PI / 2)
+    .optional(),
+  outerConeAngle: z
+    .number()
+    .finite()
+    .positive()
+    .max(Math.PI / 2)
+    .optional(),
+  castShadow: z.boolean().optional(),
+  importProvenance: ImportProvenanceSchema.optional(),
 });
 export const MaterialSchema = z.strictObject({
   id: EntityIdSchema,
@@ -644,6 +752,12 @@ export const MaterialSchema = z.strictObject({
       roughness: UnitIntervalSchema,
       metalness: UnitIntervalSchema,
       opacity: UnitIntervalSchema,
+      emissiveColor: ColorSchema.optional(),
+      normalScale: z.number().finite().nonnegative().optional(),
+      occlusionStrength: z.number().finite().nonnegative().optional(),
+      alphaMode: z.enum(["OPAQUE", "MASK", "BLEND"]).optional(),
+      alphaCutoff: UnitIntervalSchema.optional(),
+      doubleSided: z.boolean().optional(),
     })
     .optional(),
   textures: z.array(
@@ -660,10 +774,24 @@ export const MaterialSchema = z.strictObject({
         "CUSTOM",
       ]),
       assetId: EntityIdSchema,
+      texCoord: z.number().int().nonnegative().optional(),
+      sourceTextureIndex: z.number().int().nonnegative().optional(),
+      sourceImageIndex: z.number().int().nonnegative().optional(),
+      scale: z.number().finite().optional(),
+      strength: z.number().finite().optional(),
+      sampler: z
+        .strictObject({
+          magFilter: z.string().optional(),
+          minFilter: z.string().optional(),
+          wrapS: z.string(),
+          wrapT: z.string(),
+        })
+        .optional(),
     }),
   ),
   shader: z.strictObject({ language: z.string().min(1), sourceAssetId: EntityIdSchema }).optional(),
   metadata: JsonObjectSchema,
+  importProvenance: ImportProvenanceSchema.optional(),
 });
 
 export const ReferenceRecordSchema = z.strictObject({
@@ -812,6 +940,13 @@ export type AssetRecord = z.infer<typeof AssetSchema>;
 export type ReferenceRecord = z.infer<typeof ReferenceRecordSchema>;
 export type TextStyle = z.infer<typeof TextStyleSchema>;
 export type Transform = z.infer<typeof TransformSchema>;
+export type Quaternion = z.infer<typeof QuaternionSchema>;
+export type Bounds3D = z.infer<typeof Bounds3DSchema>;
+export type CoordinateSystem3D = z.infer<typeof CoordinateSystem3DSchema>;
+export type GeometryReference = z.infer<typeof GeometryReferenceSchema>;
+export type CameraRecord = z.infer<typeof CameraSchema>;
+export type LightRecord = z.infer<typeof LightSchema>;
+export type MaterialRecord = z.infer<typeof MaterialSchema>;
 export type Timeline = z.infer<typeof TimelineSchema>;
 export type TimelineTrack = z.infer<typeof TrackSchema>;
 export type TimelineKeyframe = z.infer<typeof KeyframeSchema>;

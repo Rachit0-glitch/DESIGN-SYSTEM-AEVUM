@@ -1,9 +1,12 @@
 import {
   ActorRefSchema,
   AssetSchema,
+  CameraSchema,
   CanonicalDesignDocumentSchema,
   DesignNodeSchema,
   EntityIdSchema,
+  LightSchema,
+  MaterialSchema,
   ReferenceRecordSchema,
   TimelineSchema,
 } from "@aevum/document-model";
@@ -132,6 +135,19 @@ export const DeleteTimelineCommandSchema = z.strictObject({
   type: z.literal("timeline.delete"),
   payload: z.strictObject({ timelineId: EntityIdSchema }),
 });
+export const ImportScene3DCommandSchema = z.strictObject({
+  ...BaseCommandShape,
+  type: z.literal("scene3d.import"),
+  payload: z.strictObject({
+    sourceAssetId: EntityIdSchema,
+    rootNodeIds: z.array(EntityIdSchema).min(1),
+    nodes: z.array(DesignNodeSchema).min(2),
+    assets: z.array(AssetSchema),
+    materials: z.array(MaterialSchema),
+    cameras: z.array(CameraSchema),
+    lights: z.array(LightSchema),
+  }),
+});
 
 export type CreateDocumentCommand = z.infer<typeof CreateDocumentCommandSchema>;
 export type RenameDocumentCommand = z.infer<typeof RenameDocumentCommandSchema>;
@@ -150,6 +166,7 @@ export type RegisterReferenceCommand = z.infer<typeof RegisterReferenceCommandSc
 export type CreateTimelineCommand = z.infer<typeof CreateTimelineCommandSchema>;
 export type UpdateTimelineCommand = z.infer<typeof UpdateTimelineCommandSchema>;
 export type DeleteTimelineCommand = z.infer<typeof DeleteTimelineCommandSchema>;
+export type ImportScene3DCommand = z.infer<typeof ImportScene3DCommandSchema>;
 export type Command =
   | CreateDocumentCommand
   | RenameDocumentCommand
@@ -167,7 +184,8 @@ export type Command =
   | RegisterReferenceCommand
   | CreateTimelineCommand
   | UpdateTimelineCommand
-  | DeleteTimelineCommand;
+  | DeleteTimelineCommand
+  | ImportScene3DCommand;
 
 export const CommandSchema: z.ZodType<Command> = z.discriminatedUnion("type", [
   CreateDocumentCommandSchema,
@@ -187,6 +205,7 @@ export const CommandSchema: z.ZodType<Command> = z.discriminatedUnion("type", [
   CreateTimelineCommandSchema,
   UpdateTimelineCommandSchema,
   DeleteTimelineCommandSchema,
+  ImportScene3DCommandSchema,
 ]);
 
 export type CommandType = Command["type"];

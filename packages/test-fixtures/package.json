@@ -16,6 +16,8 @@
     "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@aevum/shared": "workspace:*"
+    "@aevum/shared": "workspace:*",
+    "@gltf-transform/core": "4.4.2",
+    "@gltf-transform/extensions": "4.4.2"
   }
 }

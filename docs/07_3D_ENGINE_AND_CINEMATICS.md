@@ -2177,3 +2177,28 @@ The 3D Engine shall be implementation-ready when it can:
 The AEVUM 3D Engine and Cinematics system shall provide professional modelling, topology, UV, texturing, materials, rigging, animation, simulation, lighting, environment, camera, cinematography, validation, optimization, and export capabilities within one AI-controlled production workflow.
 
 It shall produce high-quality, consistent, editable, and web-ready 3D experiences while preserving the Canonical Design Document as the single source of truth.
+
+---
+
+## 100. Phase 14 Implemented Foundation
+
+Phase 14 implements production-grade registered GLB and GLTF inspection with glTF Transform, immutable normalized
+import proposals, one independently addressable canonical mesh node per primitive, PBR material and embedded texture
+extraction, camera and punctual-light extraction, deterministic transforms and bounds, one atomic `scene3d.import`
+command, immutable Scene Runtime 3D projections, and renderer-neutral 3D Render Plans.
+
+Inspection covers scenes, hierarchy, meshes, primitives, accessors, attributes, buffers, materials, textures, images,
+samplers, cameras, lights, animations, skins, morph targets, extensions, vertices, triangles, draw calls, texture bytes,
+and scene bounds. Missing positions, invalid indexes, invalid transforms or bounds, degenerate scale, unsupported
+extensions/material features/primitive modes/skins/animations, missing resources, and absent cameras or scenes produce
+structured diagnostics. Unsupported features are not silently executed.
+
+Input must be an already registered GLB or GLTF asset whose SHA-256 identity matches supplied bytes. The local adapter
+does not fetch network resources. It rejects unsafe URI schemes, absolute paths, backslashes, traversal, malformed
+JSON/binary/buffers, missing dependencies, and configurable resource-limit violations.
+
+Phase 14 does not implement FBX, OBJ, STL, USD, USDZ, or BLEND import; geometry repair or modelling; decimation;
+retopology; UV editing; texture generation; advanced material authoring; rig or skin execution; character animation;
+physics; particles; simulations; HDRI execution; Blender automation; production WebGL/R3F rendering; image or
+multi-view 3D reconstruction; AI cinematography; high-end rendering; or 3D visual comparison. Those remain future
+phases and must not be inferred from the canonical records or diagnostics.

@@ -11,6 +11,7 @@ export * from "./responsive.js";
 export * from "./serialization.js";
 export * from "./stable.js";
 export * from "./transforms.js";
+export * from "./three.js";
 export * from "./types.js";
 
 export const packageContract: PackageContract = {

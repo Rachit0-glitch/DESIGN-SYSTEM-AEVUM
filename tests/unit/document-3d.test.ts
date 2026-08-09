@@ -1,4 +1,5 @@
 import {
+  CANONICAL_3D_COORDINATE_SYSTEM,
   createAsset,
   createEntityId,
   createTransform,
@@ -75,6 +76,7 @@ describe("2D and 3D coexistence", () => {
       metadata: { tags: [], customData: {} },
       activeCameraId: cameraId,
       lightIds: [lightId],
+      coordinateSystem: CANONICAL_3D_COORDINATE_SYSTEM,
     };
     const model: DesignNode = {
       id: modelId,
@@ -103,6 +105,22 @@ describe("2D and 3D coexistence", () => {
       sourceLinks: [],
       metadata: { tags: [], customData: {} },
       geometryAssetId: geometry.id,
+      geometry: {
+        sourceAssetId: geometry.id,
+        sourceMeshIndex: 0,
+        sourcePrimitiveIndex: 0,
+        primitiveMode: "TRIANGLES",
+        vertexCount: 128,
+        indexCount: 756,
+        triangleCount: 252,
+        attributes: [],
+        normalAvailable: false,
+        tangentAvailable: false,
+        texCoordSets: 0,
+        skinAttributes: false,
+        morphTargetCount: 0,
+        drawCallEstimate: 1,
+      },
       materialIds: [materialId],
       topology: { vertices: 128, faces: 126, triangles: 252, manifold: true },
       castShadow: true,
