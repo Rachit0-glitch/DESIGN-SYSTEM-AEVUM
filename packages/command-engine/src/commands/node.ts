@@ -38,7 +38,12 @@ registerCommand<CreateNodeCommand>({
       throw commandError("DUPLICATE_ID", `Node ${node.id} already exists.`, { nodeId: node.id });
     if (node.childIds.length > 0)
       throw commandError("CONFLICT_ERROR", "A created node must not contain existing children.");
-    if (node.parentId) requireNode(source, node.parentId);
+    if (node.parentId) {
+      const parent = requireNode(source, node.parentId);
+      if (parent.locked) {
+        throw commandError("LOCKED_ENTITY", `Node ${parent.id} is locked.`, { nodeId: parent.id });
+      }
+    }
   },
   apply(document, command) {
     const source = requireDocument(document);
@@ -58,8 +63,19 @@ registerCommand<DeleteNodeCommand>({
   type: "node.delete",
   schema: DeleteNodeCommandSchema,
   canExecute(document, command) {
-    const node = requireNode(requireDocument(document), command.payload.nodeId);
+    const source = requireDocument(document);
+    const node = requireNode(source, command.payload.nodeId);
     if (node.type === "PAGE") throw commandError("CONFLICT_ERROR", "PAGE nodes must use page.delete.");
+    const lockedNodeId = collectSubtreeIds(source, node.id).find((nodeId) => requireNode(source, nodeId).locked);
+    if (lockedNodeId) {
+      throw commandError("LOCKED_ENTITY", `Node ${lockedNodeId} is locked.`, { nodeId: lockedNodeId });
+    }
+    if (node.parentId) {
+      const parent = requireNode(source, node.parentId);
+      if (parent.locked) {
+        throw commandError("LOCKED_ENTITY", `Node ${parent.id} is locked.`, { nodeId: parent.id });
+      }
+    }
   },
   apply(document, command) {
     const source = requireDocument(document);
@@ -77,7 +93,10 @@ registerCommand<MoveNodeCommand>({
   type: "node.move",
   schema: MoveNodeCommandSchema,
   canExecute(document, command) {
-    requireNode(requireDocument(document), command.payload.nodeId);
+    const node = requireNode(requireDocument(document), command.payload.nodeId);
+    if (node.locked) {
+      throw commandError("LOCKED_ENTITY", `Node ${node.id} is locked.`, { nodeId: node.id });
+    }
   },
   apply(document, command) {
     const source = requireDocument(document);
@@ -224,7 +243,10 @@ registerCommand<UpdateNodeCommand>({
   type: "node.update",
   schema: UpdateNodeCommandSchema,
   canExecute(document, command) {
-    requireNode(requireDocument(document), command.payload.nodeId);
+    const node = requireNode(requireDocument(document), command.payload.nodeId);
+    if (node.locked) {
+      throw commandError("LOCKED_ENTITY", `Node ${node.id} is locked.`, { nodeId: node.id });
+    }
     const keys = Object.keys(command.payload.changes);
     if (keys.length === 0) throw commandError("COMMAND_VALIDATION_ERROR", "UpdateNode changes must not be empty.");
     const forbidden = keys.filter((key) => forbiddenUpdateKeys.has(key));

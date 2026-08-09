@@ -16,6 +16,10 @@
     "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@aevum/shared": "workspace:*"
+    "@aevum/command-engine": "workspace:*",
+    "@aevum/document-model": "workspace:*",
+    "@aevum/project-store": "workspace:*",
+    "@aevum/shared": "workspace:*",
+    "zod": "4.4.3"
   }
 }

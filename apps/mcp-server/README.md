@@ -14,11 +14,64 @@ Mutate canonical project state directly or depend on Studio UI.
 
 ## Allowed Dependencies
 
-mcp-protocol, command-engine, document-model, job-system, telemetry, shared.
+mcp-protocol, project-store, command-engine, document-model, approved authentication libraries, and shared.
 
 ## Current Status
 
-`PHASE_0_SHELL`. This directory establishes ownership only. It is not a production implementation.
+`IMPLEMENTED` for Phase 12.
+
+## Request Path
+
+```text
+POST /mcp
+-> strict envelope validation
+-> signed Supabase JWT verification
+-> workspace membership resolution
+-> role and permission checks
+-> tool registry
+-> Command Engine transaction for writes
+-> atomic Supabase document/version/audit/idempotency commit
+-> structured MCP response
+```
+
+The server also exposes unauthenticated `GET /health`, `GET /ready`, and `GET /version` endpoints. Readiness checks
+the auth verifier, Supabase-backed Project Store, migration version, tool registry, and audit persistence boundary.
+
+## Authentication And Isolation
+
+Production requires `MCP_AUTH_MODE=supabase`. JWT signatures, issuer, audience, and expiry are verified before signed
+claims are used. Roles and permissions are resolved from `workspace_memberships`; token metadata cannot grant project
+access. Project and document queries always include the resolved workspace scope.
+
+Development and disabled auth modes are available only outside production. They still require a repository
+membership and never bypass authorization.
+
+## Writes
+
+Every write requires `expectedDocumentVersion` and an idempotency key. The tool compiles one high-level operation into
+a typed Command Engine command. Dry runs execute command validation without persistence. Commits atomically persist
+the new Canonical Design Document, immutable version record, audit record, and idempotency result. Locked nodes are
+enforced by the Command Engine.
+
+## Operations
+
+- `pnpm --filter @aevum/mcp-server... build`
+- `pnpm --filter @aevum/mcp-server start`
+- Railway config: `apps/mcp-server/railway.toml`; use `/apps/mcp-server/railway.toml` as the Git service Config File
+- Production bind: `MCP_SERVER_HOST=0.0.0.0`; Railway supplies `PORT`
+- Graceful shutdown: `SIGINT` and `SIGTERM`, bounded by `MCP_SHUTDOWN_GRACE_MS`
+
+Structured log events provide hooks for request/tool counts, latency, failures, authorization denials, version
+conflicts, rate limits, audit failures, and readiness failures. A distributed metrics sink and Redis rate-limit
+provider remain replaceable future adapters.
+
+## Current Limitations
+
+- HTTP JSON is the only Phase 12 transport; WebSockets are deferred.
+- Multi-command transaction tools and persistent job queues are deferred. Versioned protocol foundations exist.
+- The production rate-limit interface is replaceable, but the included implementation is in-process and intended for
+  one replica.
+- Tool coverage is intentionally limited to the twelve Phase 12 tools.
 
 ## Canonical References
 
@@ -26,4 +79,6 @@ mcp-protocol, command-engine, document-model, job-system, telemetry, shared.
 - `../../docs/00_PROJECT_CONTEXT.md`
 - `../../docs/01_PRODUCT_REQUIREMENTS.md`
 - `../../docs/02_SYSTEM_ARCHITECTURE.md`
+- `../../docs/08_MCP_SPECIFICATION.md`
+- `../../docs/MCP_DEPLOYMENT.md`
 - `../../docs/11_ROADMAP_AND_STATUS.md`

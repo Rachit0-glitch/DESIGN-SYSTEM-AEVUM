@@ -18,7 +18,9 @@ document-model, command-engine, assets, shared, telemetry.
 
 ## Current Status
 
-`IMPLEMENTED`. Phase 2 provides current project state, replay-based undo/redo, immutable snapshots, project locks, workspace/open-document records, and persistence/autosave interfaces. No database adapter exists yet.
+`IMPLEMENTED`. Phase 2 provides current project state, replay-based undo/redo, immutable snapshots, project locks,
+workspace/open-document records, and persistence/autosave interfaces. Phase 12 adds a workspace-scoped production
+Supabase repository for canonical projects, current documents, immutable versions, MCP audits, and idempotency.
 
 ## Public API
 
@@ -28,6 +30,8 @@ document-model, command-engine, assets, shared, telemetry.
 - Immutable snapshot creation and reading
 - Project lock acquisition, inspection, and release
 - `ProjectPersistenceAdapter` and `AutosaveController` interfaces
+- `ProjectRepository`, `createInMemoryProjectRepository()`, and `createSupabaseProjectRepository()`
+- Compare-and-swap document commits with atomic audit and idempotency persistence
 - Empty, history, transaction, and rollback fixtures
 
 ## Canonical References

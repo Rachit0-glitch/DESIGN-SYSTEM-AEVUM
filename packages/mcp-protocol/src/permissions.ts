@@ -1,0 +1,74 @@
+import { WorkspaceIdSchema } from "@aevum/project-store";
+import { z } from "zod";
+
+export const McpRoleSchema = z.enum(["OWNER", "ADMIN", "EDITOR", "VIEWER", "AGENT", "SERVICE"]);
+export const McpPermissionSchema = z.enum([
+  "project.read",
+  "project.write",
+  "document.read",
+  "document.write",
+  "asset.read",
+  "asset.write",
+  "timeline.read",
+  "timeline.write",
+  "validation.read",
+  "correction.read",
+  "mcp.tool.execute",
+  "mcp.audit.read",
+  "system.health.read",
+]);
+
+export const McpActorSchema = z.strictObject({
+  id: z.string().min(1).max(255),
+  type: z.enum(["USER", "SERVICE", "AGENT"]),
+  authProvider: z.enum(["SUPABASE", "DEVELOPMENT"]),
+  subject: z.string().min(1).max(255),
+  email: z.email().optional(),
+  roles: z.array(McpRoleSchema),
+  permissions: z.array(McpPermissionSchema),
+  workspaceIds: z.array(WorkspaceIdSchema),
+});
+
+export const ROLE_PERMISSIONS = Object.freeze({
+  OWNER: McpPermissionSchema.options,
+  ADMIN: McpPermissionSchema.options,
+  EDITOR: [
+    "project.read",
+    "project.write",
+    "document.read",
+    "document.write",
+    "asset.read",
+    "asset.write",
+    "timeline.read",
+    "timeline.write",
+    "validation.read",
+    "correction.read",
+    "mcp.tool.execute",
+    "system.health.read",
+  ],
+  VIEWER: [
+    "project.read",
+    "document.read",
+    "asset.read",
+    "timeline.read",
+    "validation.read",
+    "mcp.tool.execute",
+    "system.health.read",
+  ],
+  AGENT: [
+    "project.read",
+    "document.read",
+    "document.write",
+    "asset.read",
+    "timeline.read",
+    "validation.read",
+    "correction.read",
+    "mcp.tool.execute",
+    "system.health.read",
+  ],
+  SERVICE: McpPermissionSchema.options,
+} satisfies Readonly<Record<z.infer<typeof McpRoleSchema>, readonly z.infer<typeof McpPermissionSchema>[]>>);
+
+export type McpRole = z.infer<typeof McpRoleSchema>;
+export type McpPermission = z.infer<typeof McpPermissionSchema>;
+export type McpActor = z.infer<typeof McpActorSchema>;

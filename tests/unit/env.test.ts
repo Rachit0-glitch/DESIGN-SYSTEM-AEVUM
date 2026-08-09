@@ -64,6 +64,7 @@ describe("environment validation", () => {
 
     expect(environment.featureFlags).toEqual(["phase3", "local-dev"]);
     expect(environment.runtimeMode).toBe("full");
+    expect(environment.service).toBe("platform");
     expect(environment.supabase).toMatchObject({
       url: "https://example.supabase.co",
       projectId: "example",
@@ -134,5 +135,51 @@ describe("environment validation", () => {
     expect(
       safeParseAevumEnvironment({ ...validEnvironment, DATABASE_POOL_MIN: "20", DATABASE_POOL_MAX: "10" }).success,
     ).toBe(false);
+  });
+
+  it("enforces Supabase auth and explicit CORS origins for the full production MCP runtime", () => {
+    const disabled = safeParseAevumEnvironment({
+      ...validEnvironment,
+      NODE_ENV: "production",
+      MCP_SERVER_HOST: "0.0.0.0",
+      MCP_AUTH_MODE: "disabled",
+      MCP_ALLOWED_ORIGINS: "https://studio.aevum.example",
+    });
+    const wildcard = safeParseAevumEnvironment({
+      ...validEnvironment,
+      NODE_ENV: "production",
+      MCP_SERVER_HOST: "0.0.0.0",
+      MCP_AUTH_MODE: "supabase",
+      MCP_ALLOWED_ORIGINS: "*",
+    });
+    const valid = parseAevumEnvironment({
+      ...validEnvironment,
+      NODE_ENV: "production",
+      MCP_SERVER_HOST: "0.0.0.0",
+      MCP_AUTH_MODE: "supabase",
+      MCP_ALLOWED_ORIGINS: "https://studio.aevum.example,https://agent.aevum.example",
+    });
+
+    expect(disabled.success).toBe(false);
+    expect(wildcard.success).toBe(false);
+    expect(valid.mcp.authMode).toBe("supabase");
+    expect(valid.mcp.allowedOrigins).toEqual(["https://studio.aevum.example", "https://agent.aevum.example"]);
+  });
+
+  it("requires only runtime-consumed Supabase credentials for the production MCP service profile", () => {
+    const environment = parseAevumEnvironment({
+      NODE_ENV: "production",
+      AEVUM_RUNTIME_MODE: "full",
+      AEVUM_SERVICE: "mcp-server",
+      MCP_SERVER_HOST: "0.0.0.0",
+      MCP_AUTH_MODE: "supabase",
+      MCP_ALLOWED_ORIGINS: "https://studio.aevum.example",
+      SUPABASE_URL: "https://example.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "test-service-role-value",
+      SUPABASE_PROJECT_ID: "example",
+    });
+
+    expect(environment.service).toBe("mcp-server");
+    expect(environment.database.url).toBeUndefined();
   });
 });

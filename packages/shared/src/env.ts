@@ -43,6 +43,7 @@ export const aevumEnvironmentVariablesSchema = z
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
     AEVUM_RUNTIME_MODE: z.enum(["foundation", "full"]).default("full"),
+    AEVUM_SERVICE: z.enum(["platform", "mcp-server"]).default("platform"),
     AEVUM_FEATURE_FLAGS: z.string().default(""),
     PORT: positiveIntegerFromString.optional(),
 
@@ -88,6 +89,31 @@ export const aevumEnvironmentVariablesSchema = z
     RECONSTRUCTION_ALLOW_RASTER_FALLBACK: booleanFromString.default(true),
     MCP_SERVER_HOST: z.string().min(1).default("127.0.0.1"),
     MCP_REQUIRE_AUTH: booleanFromString.default(false),
+    MCP_SERVER_PORT: positiveIntegerFromString.default(3010),
+    MCP_AUTH_MODE: z.enum(["development", "supabase", "disabled"]).default("development"),
+    MCP_ALLOWED_ORIGINS: z.string().default(""),
+    MCP_REQUEST_TIMEOUT_MS: positiveIntegerFromString.default(30_000),
+    MCP_TOOL_TIMEOUT_MS: positiveIntegerFromString.default(20_000),
+    MCP_DATABASE_TIMEOUT_MS: positiveIntegerFromString.default(10_000),
+    MCP_AUTH_TIMEOUT_MS: positiveIntegerFromString.default(5_000),
+    MCP_MAX_PAYLOAD_BYTES: positiveIntegerFromString.default(1_048_576),
+    MCP_MAX_RESPONSE_BYTES: positiveIntegerFromString.default(5_242_880),
+    MCP_MAX_TOOL_INPUT_BYTES: positiveIntegerFromString.default(524_288),
+    MCP_MAX_NODE_PAYLOAD_BYTES: positiveIntegerFromString.default(262_144),
+    MCP_MAX_AUDIT_PAYLOAD_BYTES: positiveIntegerFromString.default(65_536),
+    MCP_MAX_BATCH_SIZE: positiveIntegerFromString.default(50),
+    MCP_ENABLE_AUDIT_LOGS: booleanFromString.default(true),
+    MCP_ENABLE_DRY_RUN: booleanFromString.default(true),
+    MCP_ENABLE_TRANSACTIONS: booleanFromString.default(true),
+    MCP_ENABLE_IDEMPOTENCY: booleanFromString.default(true),
+    MCP_SHUTDOWN_GRACE_MS: positiveIntegerFromString.default(15_000),
+    MCP_RATE_LIMIT_ENABLED: booleanFromString.default(true),
+    MCP_RATE_LIMIT_READ_PER_MINUTE: positiveIntegerFromString.default(120),
+    MCP_RATE_LIMIT_WRITE_PER_MINUTE: positiveIntegerFromString.default(30),
+    MCP_IDEMPOTENCY_TTL_SECONDS: positiveIntegerFromString.default(86_400),
+    MCP_AUDIT_RETENTION_DAYS: positiveIntegerFromString.default(90),
+    MCP_DEPLOYMENT_VERSION: z.string().min(1).default("development"),
+    MCP_TRUST_PROXY: booleanFromString.default(false),
 
     COMPOSE_PROJECT_NAME: z.string().min(1).default("aevum"),
     POSTGRES_PORT: positiveIntegerFromString.default(5432),
@@ -113,11 +139,43 @@ export const aevumEnvironmentVariablesSchema = z
     }
 
     if (variables.NODE_ENV === "production" && variables.AEVUM_RUNTIME_MODE === "full") {
-      for (const key of requiredInProduction) {
+      const requiredKeys =
+        variables.AEVUM_SERVICE === "mcp-server"
+          ? (["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_PROJECT_ID"] as const)
+          : requiredInProduction;
+      for (const key of requiredKeys) {
         if (variables[key] === undefined) {
           context.addIssue({ code: "custom", path: [key], message: `${key} is required in production.` });
         }
       }
+      if (variables.MCP_AUTH_MODE !== "supabase") {
+        context.addIssue({
+          code: "custom",
+          path: ["MCP_AUTH_MODE"],
+          message: "MCP_AUTH_MODE must be supabase in a full production runtime.",
+        });
+      }
+      if (variables.MCP_ALLOWED_ORIGINS.trim() === "") {
+        context.addIssue({
+          code: "custom",
+          path: ["MCP_ALLOWED_ORIGINS"],
+          message: "MCP_ALLOWED_ORIGINS is required in a full production runtime.",
+        });
+      }
+      if (variables.MCP_SERVER_HOST !== "0.0.0.0") {
+        context.addIssue({
+          code: "custom",
+          path: ["MCP_SERVER_HOST"],
+          message: "MCP_SERVER_HOST must be 0.0.0.0 in a full production runtime.",
+        });
+      }
+    }
+    if (variables.MCP_ALLOWED_ORIGINS.split(",").some((origin) => origin.trim() === "*")) {
+      context.addIssue({
+        code: "custom",
+        path: ["MCP_ALLOWED_ORIGINS"],
+        message: "Wildcard MCP origins are forbidden.",
+      });
     }
   });
 
@@ -127,6 +185,7 @@ export interface AevumEnvironment {
   readonly nodeEnv: "development" | "test" | "production";
   readonly logLevel: "debug" | "info" | "warn" | "error";
   readonly runtimeMode: "foundation" | "full";
+  readonly service: "platform" | "mcp-server";
   readonly featureFlags: readonly string[];
   readonly supabase: {
     readonly url?: string;
@@ -191,6 +250,37 @@ export interface AevumEnvironment {
     readonly enableTokenInference: boolean;
     readonly allowRasterFallback: boolean;
   };
+  readonly mcp: {
+    readonly host: string;
+    readonly port: number;
+    readonly authMode: "development" | "supabase" | "disabled";
+    readonly allowedOrigins: readonly string[];
+    readonly requestTimeoutMs: number;
+    readonly toolTimeoutMs: number;
+    readonly databaseTimeoutMs: number;
+    readonly authenticationTimeoutMs: number;
+    readonly shutdownGraceMs: number;
+    readonly limits: {
+      readonly requestBodyBytes: number;
+      readonly responseBytes: number;
+      readonly toolInputBytes: number;
+      readonly metadataBytes: number;
+      readonly nodePayloadBytes: number;
+      readonly auditPayloadBytes: number;
+      readonly batchSize: number;
+    };
+    readonly features: {
+      readonly auditLogs: boolean;
+      readonly dryRun: boolean;
+      readonly transactions: boolean;
+      readonly idempotency: boolean;
+    };
+    readonly rateLimit: { readonly enabled: boolean; readonly readPerMinute: number; readonly writePerMinute: number };
+    readonly idempotencyTtlSeconds: number;
+    readonly auditRetentionDays: number;
+    readonly deploymentVersion: string;
+    readonly trustProxy: boolean;
+  };
   readonly docker: {
     readonly composeProjectName: string;
     readonly postgresPort: number;
@@ -208,6 +298,7 @@ function toEnvironment(variables: AevumEnvironmentVariables): AevumEnvironment {
     nodeEnv: variables.NODE_ENV,
     logLevel: variables.LOG_LEVEL,
     runtimeMode: variables.AEVUM_RUNTIME_MODE,
+    service: variables.AEVUM_SERVICE,
     featureFlags,
     supabase: {
       ...(variables.SUPABASE_URL ? { url: variables.SUPABASE_URL } : {}),
@@ -275,6 +366,43 @@ function toEnvironment(variables: AevumEnvironmentVariables): AevumEnvironment {
       enableComponentInference: variables.RECONSTRUCTION_ENABLE_COMPONENT_INFERENCE,
       enableTokenInference: variables.RECONSTRUCTION_ENABLE_TOKEN_INFERENCE,
       allowRasterFallback: variables.RECONSTRUCTION_ALLOW_RASTER_FALLBACK,
+    },
+    mcp: {
+      host: variables.MCP_SERVER_HOST,
+      port: variables.PORT ?? variables.MCP_SERVER_PORT,
+      authMode: variables.MCP_AUTH_MODE,
+      allowedOrigins: variables.MCP_ALLOWED_ORIGINS.split(",")
+        .map((origin) => origin.trim())
+        .filter(Boolean),
+      requestTimeoutMs: variables.MCP_REQUEST_TIMEOUT_MS,
+      toolTimeoutMs: variables.MCP_TOOL_TIMEOUT_MS,
+      databaseTimeoutMs: variables.MCP_DATABASE_TIMEOUT_MS,
+      authenticationTimeoutMs: variables.MCP_AUTH_TIMEOUT_MS,
+      shutdownGraceMs: variables.MCP_SHUTDOWN_GRACE_MS,
+      limits: {
+        requestBodyBytes: variables.MCP_MAX_PAYLOAD_BYTES,
+        responseBytes: variables.MCP_MAX_RESPONSE_BYTES,
+        toolInputBytes: variables.MCP_MAX_TOOL_INPUT_BYTES,
+        metadataBytes: 16_384,
+        nodePayloadBytes: variables.MCP_MAX_NODE_PAYLOAD_BYTES,
+        auditPayloadBytes: variables.MCP_MAX_AUDIT_PAYLOAD_BYTES,
+        batchSize: variables.MCP_MAX_BATCH_SIZE,
+      },
+      features: {
+        auditLogs: variables.MCP_ENABLE_AUDIT_LOGS,
+        dryRun: variables.MCP_ENABLE_DRY_RUN,
+        transactions: variables.MCP_ENABLE_TRANSACTIONS,
+        idempotency: variables.MCP_ENABLE_IDEMPOTENCY,
+      },
+      rateLimit: {
+        enabled: variables.MCP_RATE_LIMIT_ENABLED,
+        readPerMinute: variables.MCP_RATE_LIMIT_READ_PER_MINUTE,
+        writePerMinute: variables.MCP_RATE_LIMIT_WRITE_PER_MINUTE,
+      },
+      idempotencyTtlSeconds: variables.MCP_IDEMPOTENCY_TTL_SECONDS,
+      auditRetentionDays: variables.MCP_AUDIT_RETENTION_DAYS,
+      deploymentVersion: variables.MCP_DEPLOYMENT_VERSION,
+      trustProxy: variables.MCP_TRUST_PROXY,
     },
     docker: {
       composeProjectName: variables.COMPOSE_PROJECT_NAME,

@@ -1,0 +1,11 @@
+[build]
+builder = "RAILPACK"
+buildCommand = "pnpm --filter @aevum/mcp-server... build"
+watchPatterns = ["apps/mcp-server/**", "packages/mcp-protocol/**", "packages/project-store/**", "packages/command-engine/**", "packages/document-model/**", "packages/shared/**", "pnpm-lock.yaml"]
+
+[deploy]
+startCommand = "pnpm --filter @aevum/mcp-server start"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3

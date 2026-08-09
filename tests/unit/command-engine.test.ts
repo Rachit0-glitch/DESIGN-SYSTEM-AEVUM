@@ -182,6 +182,54 @@ describe("Command Engine", () => {
     expect(document.nodes[text.id]).toBe(text);
   });
 
+  it("rejects create, update, and delete operations that would modify locked nodes", () => {
+    const document = structuredClone(fixtures.landingPage());
+    const text = Object.values(document.nodes).find((node) => node.type === "TEXT");
+    if (!text?.parentId) throw new Error("Landing fixture requires nested text.");
+    const parent = document.nodes[text.parentId];
+    if (!parent) throw new Error("Landing fixture requires the text parent.");
+    parent.locked = true;
+    text.locked = true;
+
+    expectCommandError(
+      () =>
+        executeCommand(document, {
+          ...base(document),
+          type: "node.create",
+          payload: { node: createFrame(parent.id, "Blocked child") },
+        }),
+      "LOCKED_ENTITY",
+    );
+    expectCommandError(
+      () =>
+        executeCommand(document, {
+          ...base(document),
+          type: "node.delete",
+          payload: { nodeId: text.id },
+        }),
+      "LOCKED_ENTITY",
+    );
+
+    expectCommandError(
+      () =>
+        executeCommand(document, {
+          ...base(document),
+          type: "node.update",
+          payload: { nodeId: text.id, changes: { name: "Blocked rename" } },
+        }),
+      "LOCKED_ENTITY",
+    );
+    expectCommandError(
+      () =>
+        executeCommand(document, {
+          ...base(document),
+          type: "node.delete",
+          payload: { nodeId: parent.id },
+        }),
+      "LOCKED_ENTITY",
+    );
+  });
+
   it("produces identical documents for identical command sequences", () => {
     const document = fixtures.landingPage();
     const command: Command = { ...base(document), type: "document.rename", payload: { name: "Deterministic" } };

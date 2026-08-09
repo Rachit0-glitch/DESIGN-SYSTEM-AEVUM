@@ -34,6 +34,8 @@
     "@aevum/correction": "workspace:*",
     "@aevum/correction-worker": "workspace:*",
     "@aevum/document-model": "workspace:*",
+    "@aevum/mcp-protocol": "workspace:*",
+    "@aevum/mcp-server": "workspace:*",
     "@aevum/motion-reconstruction": "workspace:*",
     "@aevum/motion-reconstruction-worker": "workspace:*",
     "@aevum/exporters": "workspace:*",

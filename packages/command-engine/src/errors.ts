@@ -9,6 +9,7 @@ export type CommandErrorCode =
   | "TRANSACTION_ERROR"
   | "DOCUMENT_REQUIRED"
   | "DOCUMENT_ALREADY_EXISTS"
+  | "LOCKED_ENTITY"
   | "INVALID_RESULT";
 
 export interface SerializedCommandError {

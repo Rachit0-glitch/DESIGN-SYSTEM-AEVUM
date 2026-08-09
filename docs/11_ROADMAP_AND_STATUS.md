@@ -841,7 +841,7 @@ Measure 2D reconstruction fidelity and produce correction-ready reports.
 ### Status
 
 ```text
-IN_PROGRESS
+VALIDATED
 ```
 
 ### Scope
@@ -1334,7 +1334,7 @@ Expose core project, document, asset, design, render, and validation capabilitie
 ### Status
 
 ```text
-PLANNED
+IN_PROGRESS
 ```
 
 ### Scope
@@ -1379,6 +1379,85 @@ packages/mcp-protocol
 - Permissions are enforced
 - Writes generate audit records
 - MCP never bypasses the Command Engine
+
+### Current Phase 12 Evidence
+
+Status update:
+
+- Date: 2026-08-09
+- Owner: Codex
+- Previous status: IN_PROGRESS
+- New status: VALIDATED
+- Evidence: `packages/mcp-protocol` now owns protocol `1.0.0`, strict request/response envelopes, structured errors,
+  actor/role/permission schemas, dedicated schemas for twelve initial tools, audit/idempotency records, and transaction,
+  job-progress, and cancellation foundations. `apps/mcp-server` now owns signed Supabase JWT verification, database-backed
+  membership authorization, a transport-independent registry/executor, Command Engine-backed writes, dry runs,
+  optimistic concurrency, persistent idempotency, audit logging, bounded HTTP JSON transport, explicit CORS, security
+  headers, timeouts, replaceable rate limiting, health/readiness/version routes, graceful shutdown, and Railway build
+  configuration. `packages/project-store` provides a production Supabase adapter and atomic document/version/audit/
+  idempotency commit function. No MCP write directly mutates canonical state.
+- Validation results:
+  - Focused MCP validation: PASS, 7 files and 38 tests covering protocol, JWT security, environment profiles, migration
+    controls, Command Engine locks, registry behavior, read/write integration, dry runs, idempotency, concurrency,
+    workspace isolation, rate limits, timeouts, HTTP hardening, health, and readiness
+  - `pnpm validate:docs`: PASS for 12 canonical files
+  - `pnpm validate:deps`: PASS for 52 workspace packages
+  - `pnpm format:check`: PASS for 366 files
+  - `pnpm lint`: PASS for 367 files with no warnings
+  - `pnpm typecheck`: PASS, 66 Turbo tasks
+  - `pnpm test`: PASS, 32 test files and 188 tests
+  - `pnpm build`: PASS, 52 Turbo tasks
+  - `pnpm validate`: PASS
+  - `pnpm validate:docker`: PASS; resolved Compose model is valid
+  - Supabase linked migration lint: PASS with no schema errors
+  - Supabase migrations `20260802000100_create_mcp_foundation.sql` and
+    `20260809000100_enable_mcp_audit_retention.sql`: APPLIED and confirmed in remote migration history
+  - Production `mcp-server` environment profile: PASS without exposing values
+  - Real Supabase-backed local `/health`, `/ready`, and `/version`: PASS with HTTP 200 for all three
+  - Exact local `node apps/mcp-server/dist/production-smoke.js` flow: PASS with ephemeral Auth creation, sign-in,
+    authenticated read, dry run, committed Command Engine write, persisted document/version/audit/idempotency records,
+    idempotent replay, workspace denial, and verified cleanup
+  - Railway service `mcp-server`: ACTIVE at `https://mcp-server-production-ead2.up.railway.app`; deployment
+    `5cb3cf1f-0494-4a7c-bfcd-35ad9db8a60a` built all MCP dependencies and passed its `/health` gate
+  - Deployed `/health`, `/ready`, and `/version`: PASS with HTTP 200; authenticated `POST /mcp` read, dry run, write,
+    persistence, replay, workspace isolation, and permission denial: PASS
+  - Deployed malformed, invalid-signature, expired, wrong-issuer, and wrong-audience JWT rejection: PASS; payload limit,
+    CORS denial, security headers, structured error envelope, and live rate-limit checks: PASS
+  - Railway restart validation: PASS; readiness recovered, the original JWT remained valid, the committed document
+    remained intact, and the pre-restart idempotency key replayed the original transaction before verified cleanup
+  - Secret and residual-data review: PASS; Railway deployment-log scan found zero credential patterns, ignored environment
+    files remain untracked, and the final sweep found zero ephemeral smoke users or workspaces
+  - `git diff --check`: PASS
+- Remaining warnings:
+  - The included rate limiter is in-process and appropriate for one replica. A Redis provider is required before strict
+    shared quotas across multiple replicas.
+  - Multi-command transaction lifecycle tools, persistent job queues, broad MCP domain coverage, WebSockets, and
+    resource discovery are deferred; versioned foundation contracts exist where required.
+  - Railway CLI snapshot deployment requires a temporary root mirror of the package config because CLI 5.30 does not
+    discover nested config files. The canonical config remains `apps/mcp-server/railway.toml`; Git deployment requires
+    Railway's Config File setting `/apps/mcp-server/railway.toml`, as recorded in `docs/MCP_DEPLOYMENT.md`.
+  - Railway's free-plan three-service quota required removing the stopped, failed, volume-free `@aevum/asset-worker`
+    cloud placeholder to provision `mcp-server`. The asset-worker package remains in the repository and stays inactive.
+- Blockers:
+  - None.
+- Decisions:
+  - The production-smoke Auth failure was caused by a generated 77-character password exceeding Supabase Auth's 72-byte
+    limit. The runner now generates a bounded strong password and reports only sanitized code/status diagnostics.
+  - Production authorization is resolved from signed Supabase identity plus database membership; token metadata never
+    grants workspace or project access.
+  - Production MCP persistence uses the Supabase data API and service role after authorization. Direct database URLs
+    remain required for the full platform profile, but are not falsely required by `AEVUM_SERVICE=mcp-server`.
+  - Every initial write requires an expected document version and idempotency key, compiles to one Command Engine
+    transaction, and persists the canonical document, immutable version, audit, and idempotency result atomically.
+  - Audit scope identifiers are intentionally not foreign-keyed so denied probes against nonexistent workspaces remain
+    recordable without allowing access.
+  - Authenticated denials retain the verified Supabase actor identity in audit records even when membership resolution
+    fails; only unauthenticated failures use the `anonymous` actor.
+  - The MCP and API services remain separate deployments.
+- Next action:
+  - Begin Phase 13 by defining canonical 3D import inspection, format-adapter, normalization, coordinate-system,
+    hierarchy, mesh/material/texture/animation inventory, diagnostic, and Command Engine proposal contracts. Do not
+    begin Phase 13 automatically.
 
 ---
 
