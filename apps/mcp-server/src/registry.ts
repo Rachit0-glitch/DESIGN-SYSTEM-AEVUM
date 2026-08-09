@@ -38,6 +38,17 @@ export interface ToolHandlerResult {
   readonly mutation?: ToolMutationResult;
 }
 
+export interface BlenderToolAdapter {
+  execute(input: {
+    readonly tool: Extract<McpToolName, `blender.${string}`>;
+    readonly payload: unknown;
+    readonly document: CanonicalDesignDocument;
+    readonly actor: McpActor;
+    readonly request: McpRequestEnvelope;
+    readonly timestamp: string;
+  }): Promise<ToolHandlerResult>;
+}
+
 export interface ToolExecutionContext {
   readonly actor: McpActor;
   readonly request: McpRequestEnvelope;

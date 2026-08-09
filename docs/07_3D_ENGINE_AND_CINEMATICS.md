@@ -2202,3 +2202,29 @@ retopology; UV editing; texture generation; advanced material authoring; rig or 
 physics; particles; simulations; HDRI execution; Blender automation; production WebGL/R3F rendering; image or
 multi-view 3D reconstruction; AI cinematography; high-end rendering; or 3D visual comparison. Those remain future
 phases and must not be inferred from the canonical records or diagnostics.
+
+---
+
+## 101. Phase 15 Implemented Blender Runtime
+
+Blender Bridge protocol `1.0.0` is tested with Blender `5.1.2` and embedded Python `3.13.9`. Blender `5.1.x` is
+`SUPPORTED`, other Blender 5 releases are `UNTESTED`, and other major releases are `UNSUPPORTED`. Readiness requires a
+real successful background launch and writable isolated workspace.
+
+The finite dispatcher implements scene import/inspection/validation/GLB export; object inspection, local/world
+transform, duplication, and deletion; mesh inspection; bounded Principled PBR updates; camera inspection, transform,
+look-at, lens/FOV, clipping, and activation; and point/spot/sun light inspection and bounded updates. AEVUM uses
+right-handed Y-up, negative-Z-forward meters; bridge matrices convert to Blender's Z-up space and back. Quaternions
+are converted through basis matrices, not component swapping.
+
+Jobs enforce input/output size, object, mesh, material, duration, and concurrency budgets. Every process starts from
+factory settings with autoexec disabled and receives an allowlisted environment. Workspaces reject hash mismatches,
+path escape, and unsafe cleanup. Output artifacts have SHA-256 identity, provenance, and non-sensitive job-local
+logical paths.
+
+Determinism is semantic: identical input, runtime, manifest, and configuration must reconcile to identical canonical
+hierarchy, transforms, material values, camera/light state, and proposal fingerprint. Blender GLB bytes may differ and
+are never falsely claimed byte-deterministic.
+
+Phase 15 does not implement advanced modelling, retopology, UV work, texture painting, procedural shader authoring,
+rigging, physics, simulation, high-end rendering, AI 3D generation, or visual 3D correction.

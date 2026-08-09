@@ -1691,30 +1691,22 @@ Integrate Blender as a controlled professional 3D execution backend.
 ### Status
 
 ```text
-PLANNED
+VALIDATED
 ```
 
 ### Scope
 
-- Blender version pinning
-- Operation manifests
-- Input manifests
-- Output manifests
-- Isolated workspaces
-- Script templates
-- Import
-- Modelling operations
-- Retopology
-- UV unwrap
-- Baking
-- Rigging
-- Weight correction
-- Simulation
-- Rendering
-- Export
-- Crash recovery
-- Result inspection
-- Asset registration
+- Blender 5.1 runtime compatibility and executable fingerprinting
+- Versioned, finite operation, input, output, artifact, and lifecycle contracts
+- Isolated per-job workspaces, process execution, budgets, timeout, cancellation, and cleanup
+- Content-verified GLB/GLTF import with external-resource rejection
+- Deterministic scene, object, mesh, material, camera, and light inspection
+- Controlled object transforms, duplication, deletion, PBR updates, camera/light updates, and active-camera selection
+- Deterministic GLB export with identity metadata and artifact provenance
+- Renderer 3D proposal recovery and canonical identity reconciliation
+- Atomic Command Engine handoff for all canonical writes
+- Permissioned MCP tools and deterministic Agent planning
+- Liveness, executable-backed readiness, diagnostics, and local real-binary smoke validation
 
 ### Acceptance Gate
 
@@ -1725,6 +1717,70 @@ PLANNED
 - Generated outputs are validated
 - Resource limits are enforced
 - Operation history is auditable
+
+### Current Phase 15 Evidence
+
+Status update:
+
+- Date: 2026-08-09
+- Owner: Codex
+- Previous status: PLANNED
+- New status: VALIDATED
+- Evidence:
+  - `@aevum/blender-bridge` owns protocol `1.0.0`, a finite semantic operation registry, strict manifests, isolated
+    workspaces, a shell-free process runner, bounded output, timeout/cancellation, artifact hashing, cleanup, runtime
+    probing, liveness, readiness, and canonical reconciliation.
+  - Blender executes only bridge-owned `probe.py` and `bootstrap.py` under `--background`, `--factory-startup`,
+    `--disable-autoexec`, and `--python`; arbitrary Python, shell commands, Blender expressions, and caller script paths
+    are not accepted by the protocol or MCP schemas.
+  - Real Blender 5.1.2 with embedded Python 3.13.9 passed import, inspection, transform, duplication, deletion, PBR,
+    camera, light, validation, GLB export, failure, timeout, cancellation, and complete Agent-to-MCP execution tests.
+  - Exported identity metadata is recovered by `@aevum/renderer-3d`, compared with Canonical Design Document bindings,
+    converted into Phase 14 proposals, and committed atomically through new whole-record material, camera, and light
+    commands plus existing canonical node commands.
+  - MCP tool version `1.2.0` exposes 14 disabled-by-default Blender tools with read, write, destructive, and export
+    permissions. Existing production MCP remains healthy without a Blender adapter, and Railway Blender remains off.
+  - The preferred ignored local variable is `BLENDER_EXECUTABLE_PATH`; the centralized Zod environment exposes typed
+    Blender configuration, bounded resources, safe defaults, and a compatibility alias without committing the path.
+- Validation results:
+  - Production binary smoke: PASS; protocol `1.0.0`, Blender `5.1.2`, Python `3.13.9`, `win32`, headless, `SUPPORTED`
+  - Real Blender integration suite: PASS, 1 file and 8 tests
+  - Portable repository suite: PASS, 40 files and 226 tests
+  - `pnpm validate:docs`: PASS for 12 canonical files
+  - `pnpm validate:deps`: PASS for 57 workspace packages
+  - `pnpm format:check`: PASS for 438 files before this evidence-only roadmap update
+  - `pnpm lint`: PASS for 439 files with no warnings
+  - `pnpm typecheck`: PASS for all 57 workspace packages
+  - `pnpm build`: PASS for all 57 workspace packages
+  - `pnpm validate`: PASS
+  - `pnpm validate:docker`: PASS; Compose remains valid and Docker was not required for Blender execution
+  - Supabase linked migrations: synchronized through `20260809000100`; no Phase 15 migration was required or created
+  - Railway `@aevum/api`: ONLINE; deployed `/health` returned HTTP 200
+  - Railway `mcp-server`: ONLINE; deployed `/health`, `/ready`, and `/version` returned HTTP 200
+  - Vercel `design-system-aevum`: READY; production alias returned HTTP 200
+  - Railway `@aevum/blender-bridge`: intentionally OFFLINE
+- Remaining warnings:
+  - Phase 15 supports registered GLB/GLTF input and GLB derivative output only; external resources and network loading
+    are rejected. FBX, OBJ, STL, USD, USDZ, BLEND, and remote adapters remain deferred.
+  - Professional mesh editing, retopology, UV workflows, baking, advanced materials, rigging, simulation, rendering,
+    and visual 3D validation remain Phase 16 or later work.
+  - Local process isolation uses strict manifests, controlled scripts, environment allowlisting, filesystem containment,
+    and budgets. It is not an operating-system container or remote multi-tenant sandbox.
+  - The MCP server registers Blender schemas but enables them only when an explicit bridge adapter is supplied.
+- Blockers:
+  - None.
+- Decisions:
+  - Blender is an execution backend and artifact producer; it never owns canonical project state.
+  - Validation-only dry runs do not launch Blender or mutate state. Execution always reconciles through an atomic
+    Command Engine transaction, and failures leave the Canonical Design Document unchanged.
+  - Input assets and output artifacts are content verified. Original assets are never overwritten; GLB outputs are
+    derivative asset proposals with provenance.
+  - Existing Railway, Vercel, Supabase, and GitHub infrastructure was inspected but not recreated or reconfigured.
+  - Railway Blender remains inactive by design; local real-binary validation is the Phase 15 deployment boundary.
+- Next action:
+  - Begin Phase 16 by defining professional mesh/material semantic operation contracts and topology, UV, and PBR
+    validation reports on top of the Phase 15 bridge. Preserve finite bridge-owned execution, identity reconciliation,
+    immutable derivatives, and Command Engine-only writes before implementing advanced Blender operations.
 
 ---
 
@@ -2996,14 +3052,14 @@ Major scope changes shall also update:
 The next repository action should be:
 
 ```text
-Begin Phase 7.
+Begin Phase 16.
 ```
 
-The exact Phase 7 starting task is to define versioned validation-task, threshold-profile, region-measurement,
-attributed-issue, and visual-validation-report contracts in `packages/validation`. Prove deterministic bounding-box,
-layout, spacing, typography-metadata, and color comparisons can consume Phase 6 source regions and the Phase 5 Render
-Graph without mutating canonical state. Keep raster capture, pixel/perceptual comparison, and heatmap generation behind
-a replaceable adapter so HTML, Canvas, SVG, and future render targets can share the same validation contracts.
+The exact Phase 16 starting task is to define versioned professional mesh and material operation contracts plus
+topology, UV, and PBR validation reports that execute through the finite Phase 15 Blender Bridge. Start with
+non-destructive mesh diagnostics and deterministic fixture evidence, keep all outputs as immutable derivatives, and
+reconcile accepted changes through canonical identity and Command Engine transactions. Do not introduce arbitrary
+Python, direct Blender-owned state, rendering, rigging, simulation, or automatic destructive repair.
 
 ---
 

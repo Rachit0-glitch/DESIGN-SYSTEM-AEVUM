@@ -18,7 +18,13 @@ import {
 } from "@aevum/mcp-protocol";
 import { create3DRenderPlan } from "@aevum/renderer-3d";
 import { createRuntimeViewport, project3DScene, projectScene, type RuntimeViewport } from "@aevum/scene-runtime";
-import type { McpServerRuntimeConfig, McpToolDefinition, McpToolRegistry, ToolExecutionContext } from "./registry.js";
+import type {
+  BlenderToolAdapter,
+  McpServerRuntimeConfig,
+  McpToolDefinition,
+  McpToolRegistry,
+  ToolExecutionContext,
+} from "./registry.js";
 
 function fail(context: ToolExecutionContext, code: McpErrorCode, message: string, suggestedAction?: string): never {
   throw new McpProtocolError({
@@ -202,6 +208,7 @@ function definition(
   classification: "READ" | "WRITE",
   execute: McpToolDefinition["execute"],
   config: McpServerRuntimeConfig,
+  enabled = true,
 ): McpToolDefinition {
   return {
     descriptor: {
@@ -216,7 +223,7 @@ function definition(
       timeoutMs: config.toolTimeoutMs,
       payloadLimitBytes: config.limits.toolInputBytes,
       auditPolicy: "ALWAYS",
-      enabled: true,
+      enabled,
     },
     inputSchema: TOOL_SCHEMAS[name].input,
     outputSchema: TOOL_SCHEMAS[name].output,
@@ -224,7 +231,11 @@ function definition(
   };
 }
 
-export function registerInitialTools(registry: McpToolRegistry, config: McpServerRuntimeConfig): void {
+export function registerInitialTools(
+  registry: McpToolRegistry,
+  config: McpServerRuntimeConfig,
+  adapters: { readonly blender?: BlenderToolAdapter } = {},
+): void {
   registry.registerTool(
     definition(
       "system.get_capabilities",
@@ -596,4 +607,103 @@ export function registerInitialTools(registry: McpToolRegistry, config: McpServe
       config,
     ),
   );
+
+  const blenderTools = [
+    ["blender.runtime_info", "Inspect the configured Blender runtime and compatibility.", ["blender.read"], "READ"],
+    [
+      "blender.inspect_scene",
+      "Inspect a registered 3D asset through the real Blender runtime.",
+      ["asset.read", "blender.read"],
+      "READ",
+    ],
+    [
+      "blender.inspect_object",
+      "Inspect one canonical object through the real Blender runtime.",
+      ["asset.read", "blender.read"],
+      "READ",
+    ],
+    [
+      "blender.inspect_mesh",
+      "Inspect bounded mesh topology metadata through Blender.",
+      ["asset.read", "blender.read"],
+      "READ",
+    ],
+    [
+      "blender.inspect_material",
+      "Inspect one canonical material through Blender.",
+      ["asset.read", "blender.read"],
+      "READ",
+    ],
+    ["blender.inspect_camera", "Inspect one canonical camera through Blender.", ["asset.read", "blender.read"], "READ"],
+    ["blender.inspect_light", "Inspect one canonical light through Blender.", ["asset.read", "blender.read"], "READ"],
+    [
+      "blender.update_object_transform",
+      "Apply one bounded object transform and reconcile it canonically.",
+      ["document.write", "blender.write"],
+      "WRITE",
+    ],
+    [
+      "blender.update_material",
+      "Apply bounded PBR material values and reconcile them canonically.",
+      ["document.write", "blender.write"],
+      "WRITE",
+    ],
+    [
+      "blender.update_camera",
+      "Apply bounded camera values and reconcile them canonically.",
+      ["document.write", "blender.write"],
+      "WRITE",
+    ],
+    [
+      "blender.update_light",
+      "Apply bounded light values and reconcile them canonically.",
+      ["document.write", "blender.write"],
+      "WRITE",
+    ],
+    [
+      "blender.duplicate_object",
+      "Duplicate one canonical object through Blender and reconciliation.",
+      ["document.write", "blender.write"],
+      "WRITE",
+    ],
+    [
+      "blender.delete_object",
+      "Delete one canonical object through an explicitly destructive Blender operation.",
+      ["document.write", "blender.write", "blender.destructive"],
+      "WRITE",
+    ],
+    [
+      "blender.export_scene",
+      "Export and register a controlled Blender GLB derivative.",
+      ["document.write", "blender.export"],
+      "WRITE",
+    ],
+  ] as const satisfies readonly (readonly [McpToolName, string, readonly McpPermission[], "READ" | "WRITE"])[];
+
+  for (const [name, description, permissions, classification] of blenderTools) {
+    registry.registerTool(
+      definition(
+        name,
+        description,
+        permissions,
+        classification,
+        async (payload, context) => {
+          if (!adapters.blender) {
+            fail(context, "MCP_TOOL_DISABLED", "The local Blender Bridge adapter is not configured.");
+          }
+          const document = await currentDocument(context);
+          return adapters.blender.execute({
+            tool: name,
+            payload,
+            document,
+            actor: context.actor,
+            request: context.request,
+            timestamp: context.timestamp,
+          });
+        },
+        config,
+        Boolean(adapters.blender),
+      ),
+    );
+  }
 }

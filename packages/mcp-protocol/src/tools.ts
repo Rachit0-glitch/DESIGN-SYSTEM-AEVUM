@@ -16,7 +16,7 @@ import { z } from "zod";
 import { McpPermissionSchema } from "./permissions.js";
 import { MCP_PROTOCOL_VERSION } from "./version.js";
 
-export const MCP_TOOL_VERSION = "1.1.0" as const;
+export const MCP_TOOL_VERSION = "1.2.0" as const;
 export const McpAuthModeSchema = z.enum(["development", "supabase", "disabled"]);
 export const McpToolNameSchema = z.enum([
   "system.get_capabilities",
@@ -30,6 +30,20 @@ export const McpToolNameSchema = z.enum([
   "three.inspect_asset",
   "three.inspect_scene",
   "three.update_node_transform",
+  "blender.runtime_info",
+  "blender.inspect_scene",
+  "blender.inspect_object",
+  "blender.inspect_mesh",
+  "blender.inspect_material",
+  "blender.inspect_camera",
+  "blender.inspect_light",
+  "blender.update_object_transform",
+  "blender.update_material",
+  "blender.update_camera",
+  "blender.update_light",
+  "blender.duplicate_object",
+  "blender.delete_object",
+  "blender.export_scene",
   "document.rename",
   "node.create",
   "node.update",
@@ -222,6 +236,123 @@ export const ThreeUpdateNodeTransformInputSchema = WriteBaseSchema.extend({
   unit: z.literal("M"),
 });
 
+const BlenderAssetInputSchema = z.strictObject({ assetId: EntityIdSchema });
+const BlenderTargetInputSchema = BlenderAssetInputSchema.extend({ targetId: EntityIdSchema });
+const BlenderWriteBaseSchema = WriteBaseSchema.extend({ assetId: EntityIdSchema });
+const BlenderVector3Schema = z.strictObject({
+  x: z.number().finite(),
+  y: z.number().finite(),
+  z: z.number().finite(),
+});
+const BlenderQuaternionSchema = z.strictObject({
+  x: z.number().finite(),
+  y: z.number().finite(),
+  z: z.number().finite(),
+  w: z.number().finite(),
+});
+const BlenderColor4Schema = z.tuple([
+  z.number().finite(),
+  z.number().finite(),
+  z.number().finite(),
+  z.number().finite(),
+]);
+
+export const BlenderRuntimeInfoInputSchema = z.strictObject({});
+export const BlenderInspectSceneInputSchema = BlenderAssetInputSchema;
+export const BlenderInspectObjectInputSchema = BlenderTargetInputSchema;
+export const BlenderInspectMeshInputSchema = BlenderTargetInputSchema;
+export const BlenderInspectMaterialInputSchema = BlenderTargetInputSchema;
+export const BlenderInspectCameraInputSchema = BlenderTargetInputSchema;
+export const BlenderInspectLightInputSchema = BlenderTargetInputSchema;
+export const BlenderUpdateObjectTransformInputSchema = BlenderWriteBaseSchema.extend({
+  targetId: EntityIdSchema,
+  mode: z.enum(["SET", "DELTA"]),
+  coordinateSpace: z.enum(["LOCAL", "WORLD"]),
+  unit: z.literal("M"),
+  translation: BlenderVector3Schema.optional(),
+  rotation: BlenderQuaternionSchema.optional(),
+  scale: BlenderVector3Schema.optional(),
+});
+export const BlenderUpdateMaterialInputSchema = BlenderWriteBaseSchema.extend({
+  targetId: EntityIdSchema,
+  baseColor: BlenderColor4Schema.optional(),
+  metallic: z.number().finite().min(0).max(1).optional(),
+  roughness: z.number().finite().min(0).max(1).optional(),
+  alpha: z.number().finite().min(0).max(1).optional(),
+  emission: BlenderColor4Schema.optional(),
+});
+export const BlenderUpdateCameraInputSchema = BlenderWriteBaseSchema.extend({
+  targetId: EntityIdSchema,
+  position: BlenderVector3Schema.optional(),
+  rotation: BlenderQuaternionSchema.optional(),
+  target: BlenderVector3Schema.optional(),
+  focalLength: z.number().finite().positive().max(10_000).optional(),
+  fieldOfView: z.number().finite().positive().max(Math.PI).optional(),
+  nearClip: z.number().finite().positive().optional(),
+  farClip: z.number().finite().positive().optional(),
+  activate: z.boolean().default(false),
+});
+export const BlenderUpdateLightInputSchema = BlenderWriteBaseSchema.extend({
+  targetId: EntityIdSchema,
+  position: BlenderVector3Schema.optional(),
+  rotation: BlenderQuaternionSchema.optional(),
+  color: z.tuple([z.number().finite(), z.number().finite(), z.number().finite()]).optional(),
+  intensity: z.number().finite().nonnegative().max(1_000_000_000).optional(),
+  range: z.number().finite().positive().optional(),
+  spotSize: z.number().finite().positive().max(Math.PI).optional(),
+  spotBlend: z.number().finite().min(0).max(1).optional(),
+});
+export const BlenderDuplicateObjectInputSchema = BlenderWriteBaseSchema.extend({
+  targetId: EntityIdSchema,
+  newEntityId: EntityIdSchema,
+  parentPolicy: z.enum(["SAME_PARENT", "SCENE_ROOT"]),
+});
+export const BlenderDeleteObjectInputSchema = BlenderWriteBaseSchema.extend({
+  targetId: EntityIdSchema,
+  childPolicy: z.enum(["KEEP_WORLD", "DELETE_CHILDREN"]),
+});
+export const BlenderExportSceneInputSchema = BlenderWriteBaseSchema;
+
+const BlenderDiagnosticOutputSchema = z.strictObject({
+  code: z.string().min(1).max(128),
+  severity: z.enum(["INFO", "WARNING", "ERROR", "BLOCKING"]),
+  message: z.string().min(1).max(2_000),
+  recoverable: z.boolean(),
+  operation: z.string().min(1).max(128).optional(),
+  targetId: z.string().min(1).max(255).optional(),
+  details: z.record(z.string(), JsonValueSchema).optional(),
+});
+export const BlenderRuntimeInfoOutputSchema = z.strictObject({
+  protocolVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
+  blenderVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
+  pythonVersion: z.string().regex(/^\d+\.\d+\.\d+/),
+  platform: z.string().min(1).max(128),
+  compatibility: z.enum(["SUPPORTED", "UNSUPPORTED", "UNTESTED"]),
+  headless: z.boolean(),
+  executableFingerprint: z.string().regex(/^sha256:[0-9a-f]{64}$/i),
+  durationMs: z.number().int().nonnegative(),
+});
+export const BlenderExecutionOutputSchema = z.strictObject({
+  stage: z.enum(["VALIDATED", "EXECUTED"]),
+  operation: z.string().min(1).max(128),
+  jobId: z
+    .string()
+    .regex(/^blender-job:[0-9a-f]{32}$/)
+    .optional(),
+  state: z.enum(["SUCCEEDED", "FAILED", "CANCELLED", "TIMED_OUT"]).optional(),
+  data: JsonValueSchema.optional(),
+  artifacts: z.array(
+    z.strictObject({
+      id: z.string().min(1).max(128),
+      type: z.enum(["GLB", "INSPECTION_JSON", "DIAGNOSTIC_LOG"]),
+      hash: z.string().regex(/^sha256:[0-9a-f]{64}$/i),
+      byteSize: z.number().int().nonnegative(),
+      mimeType: z.string().min(1).max(255),
+      logicalPath: z.string().min(1).max(255),
+    }),
+  ),
+  diagnostics: z.array(BlenderDiagnosticOutputSchema),
+});
 const ChangeSetSchema: z.ZodType<ChangeSet> = z.strictObject({
   added: z.array(z.string()),
   removed: z.array(z.string()),
@@ -242,6 +373,26 @@ export const WriteToolOutputSchema = z.strictObject({
   transactionId: z.string().min(1).max(128),
   commandIds: z.array(z.string().min(1).max(128)),
   changeSet: ChangeSetSchema,
+});
+export const BlenderWriteOutputSchema = z.strictObject({
+  dryRun: z.boolean(),
+  stage: z.enum(["VALIDATED", "EXECUTED"]),
+  baseVersion: z.number().int().positive(),
+  operation: z.string().min(1).max(128),
+  manifestFingerprint: z.string().regex(/^sha256:[0-9a-f]{64}$/i),
+  preview: JsonValueSchema.optional(),
+  execution: BlenderExecutionOutputSchema.optional(),
+  canonical: WriteToolOutputSchema.optional(),
+  reconciliation: z
+    .strictObject({
+      unchangedEntityIds: z.array(EntityIdSchema),
+      modifiedEntityIds: z.array(EntityIdSchema),
+      newEntityIds: z.array(EntityIdSchema),
+      deletedEntityIds: z.array(EntityIdSchema),
+      outputAssetId: EntityIdSchema,
+      outputAssetHash: z.string().regex(/^sha256:[0-9a-f]{64}$/i),
+    })
+    .optional(),
 });
 
 export const TOOL_SCHEMAS = Object.freeze({
@@ -266,6 +417,23 @@ export const TOOL_SCHEMAS = Object.freeze({
     input: ThreeUpdateNodeTransformInputSchema,
     output: WriteToolOutputSchema,
   },
+  "blender.runtime_info": { input: BlenderRuntimeInfoInputSchema, output: BlenderRuntimeInfoOutputSchema },
+  "blender.inspect_scene": { input: BlenderInspectSceneInputSchema, output: BlenderExecutionOutputSchema },
+  "blender.inspect_object": { input: BlenderInspectObjectInputSchema, output: BlenderExecutionOutputSchema },
+  "blender.inspect_mesh": { input: BlenderInspectMeshInputSchema, output: BlenderExecutionOutputSchema },
+  "blender.inspect_material": { input: BlenderInspectMaterialInputSchema, output: BlenderExecutionOutputSchema },
+  "blender.inspect_camera": { input: BlenderInspectCameraInputSchema, output: BlenderExecutionOutputSchema },
+  "blender.inspect_light": { input: BlenderInspectLightInputSchema, output: BlenderExecutionOutputSchema },
+  "blender.update_object_transform": {
+    input: BlenderUpdateObjectTransformInputSchema,
+    output: BlenderWriteOutputSchema,
+  },
+  "blender.update_material": { input: BlenderUpdateMaterialInputSchema, output: BlenderWriteOutputSchema },
+  "blender.update_camera": { input: BlenderUpdateCameraInputSchema, output: BlenderWriteOutputSchema },
+  "blender.update_light": { input: BlenderUpdateLightInputSchema, output: BlenderWriteOutputSchema },
+  "blender.duplicate_object": { input: BlenderDuplicateObjectInputSchema, output: BlenderWriteOutputSchema },
+  "blender.delete_object": { input: BlenderDeleteObjectInputSchema, output: BlenderWriteOutputSchema },
+  "blender.export_scene": { input: BlenderExportSceneInputSchema, output: BlenderWriteOutputSchema },
 });
 
 export type McpAuthMode = z.infer<typeof McpAuthModeSchema>;

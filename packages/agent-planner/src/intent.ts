@@ -8,6 +8,9 @@ function initialCapabilities(session: AgentSession): string[] {
   if (goal.parameters.operation === "three_transform") {
     return ["three.inspect_asset", "three.inspect_scene", "document.get", "three.update_node_transform"];
   }
+  if (goal.parameters.operation === "blender_transform") {
+    return ["blender.inspect_scene", "blender.inspect_object", "document.get", "blender.update_object_transform"];
+  }
   switch (goal.category) {
     case "INSPECT":
       return ["project.get", "document.inspect_hierarchy"];
@@ -56,6 +59,14 @@ function requiredPermissions(capabilities: readonly string[]): AgentIntent["requ
     if (capability.startsWith("three.")) {
       permissions.add(capability === "three.update_node_transform" ? "three.write" : "three.read");
       if (capability === "three.update_node_transform") permissions.add("document.write");
+    }
+    if (capability.startsWith("blender.")) {
+      const write = capability.startsWith("blender.update_") || capability === "blender.duplicate_object";
+      permissions.add(
+        write ? "blender.write" : capability === "blender.export_scene" ? "blender.export" : "blender.read",
+      );
+      if (write || capability === "blender.export_scene") permissions.add("document.write");
+      if (capability === "blender.delete_object") permissions.add("blender.destructive");
     }
     if (capability.startsWith("validation.")) permissions.add("validation.read");
     if (capability.startsWith("correction.")) permissions.add("correction.read");

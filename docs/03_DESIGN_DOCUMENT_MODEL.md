@@ -2296,3 +2296,20 @@ state.
 
 The `1.3.0` to `1.4.0` migration adds explicit coordinate conventions and conservative legacy geometry metadata.
 It does not infer unavailable source indexes, bounds, normals, tangents, UVs, or topology quality.
+
+---
+
+## 93. Phase 15 Blender Reconciliation
+
+Blender runtime scenes, objects, data blocks, process state, temporary paths, and Python values remain prohibited
+canonical state. A Blender edit produces a derivative GLB asset with source asset hash, job ID, Blender version,
+operation fingerprint, output hash, actor, correlation, and document-version provenance.
+
+Canonical entity identity is carried through glTF extras using `aevum.entity_id`; object names are metadata only.
+Reconciliation classifies unchanged, modified, new, and deleted entities, then emits versioned Command Engine
+commands. Phase 15 adds canonical whole-record update commands for materials, cameras, and lights because generic node
+updates cannot own those registries. Object changes continue through existing node commands. Deletion updates model
+mesh references before removing a subtree and rejects animated targets.
+
+GLB stores transforms as float32. Reconciled transform scalars are normalized to six decimal places before canonical
+validation. This defines semantic transform tolerance without claiming byte-identical Blender exports.

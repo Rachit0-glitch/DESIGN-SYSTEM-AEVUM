@@ -11,6 +11,7 @@ import {
   createMcpRequestId,
   createToolRegistry,
   registerInitialTools,
+  type BlenderToolAdapter,
   type McpServerRuntimeConfig,
 } from "@aevum/mcp-server";
 import { createLogger } from "@aevum/shared";
@@ -44,6 +45,7 @@ export function createMcpTestFixture(
     readonly rateLimit?: { readonly enabled: boolean; readonly readPerMinute: number; readonly writePerMinute: number };
     readonly projectReadDelayMs?: number;
     readonly toolTimeoutMs?: number;
+    readonly blenderAdapter?: BlenderToolAdapter;
   } = {},
 ) {
   const document = options.document ?? fixtures.assetDemo();
@@ -97,7 +99,7 @@ export function createMcpTestFixture(
     toolTimeoutMs: options.toolTimeoutMs ?? mcpTestConfig.toolTimeoutMs,
   };
   const registry = createToolRegistry();
-  registerInitialTools(registry, config);
+  registerInitialTools(registry, config, options.blenderAdapter ? { blender: options.blenderAdapter } : {});
   const executor = createMcpExecutor({
     config,
     authVerifier: createDevelopmentAuthVerifier({ nodeEnv: "test", subject: actorSubject }),

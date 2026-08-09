@@ -24,7 +24,11 @@ const validEnvironment = {
   QUEUE_URL: "redis://localhost:6379/1",
   LOCAL_FILE_WORKSPACE: "./.aevum-workspace",
   SANDBOX_ROOT: "./.aevum-sandbox",
+  BLENDER_EXECUTABLE_PATH: "C:/Program Files/Blender Foundation/Blender 5.1/blender.exe",
   BLENDER_EXECUTABLE: "",
+  BLENDER_MAX_JOB_SECONDS: "120",
+  BLENDER_MAX_FILE_MB: "64",
+  BLENDER_MAX_OUTPUT_MB: "128",
   SANDBOX_NETWORK_MODE: "restricted",
   RENDER_WORKER_CONCURRENCY: "2",
   RENDER_WORKER_MAX_PIXELS: "4096",
@@ -71,7 +75,8 @@ describe("environment validation", () => {
     });
     expect(environment.storage).toMatchObject({ provider: "SUPABASE", bucket: "aevum-assets" });
     expect(environment.database.poolMax).toBe(10);
-    expect(environment.paths.blenderExecutable).toBeUndefined();
+    expect(environment.paths.blenderExecutable).toContain("Blender 5.1");
+    expect(environment.blender).toMatchObject({ maxJobSeconds: 120, maxFileBytes: 67_108_864 });
     expect(environment.services.mcpPort).toBe(3010);
     expect(environment.services.platformPort).toBe(8080);
     expect(environment.sceneRuntime).toEqual({

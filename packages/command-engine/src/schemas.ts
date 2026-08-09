@@ -148,6 +148,21 @@ export const ImportScene3DCommandSchema = z.strictObject({
     lights: z.array(LightSchema),
   }),
 });
+export const UpdateMaterialCommandSchema = z.strictObject({
+  ...BaseCommandShape,
+  type: z.literal("material.update"),
+  payload: z.strictObject({ material: MaterialSchema }),
+});
+export const UpdateCameraCommandSchema = z.strictObject({
+  ...BaseCommandShape,
+  type: z.literal("camera.update"),
+  payload: z.strictObject({ camera: CameraSchema }),
+});
+export const UpdateLightCommandSchema = z.strictObject({
+  ...BaseCommandShape,
+  type: z.literal("light.update"),
+  payload: z.strictObject({ light: LightSchema }),
+});
 
 export type CreateDocumentCommand = z.infer<typeof CreateDocumentCommandSchema>;
 export type RenameDocumentCommand = z.infer<typeof RenameDocumentCommandSchema>;
@@ -167,6 +182,9 @@ export type CreateTimelineCommand = z.infer<typeof CreateTimelineCommandSchema>;
 export type UpdateTimelineCommand = z.infer<typeof UpdateTimelineCommandSchema>;
 export type DeleteTimelineCommand = z.infer<typeof DeleteTimelineCommandSchema>;
 export type ImportScene3DCommand = z.infer<typeof ImportScene3DCommandSchema>;
+export type UpdateMaterialCommand = z.infer<typeof UpdateMaterialCommandSchema>;
+export type UpdateCameraCommand = z.infer<typeof UpdateCameraCommandSchema>;
+export type UpdateLightCommand = z.infer<typeof UpdateLightCommandSchema>;
 export type Command =
   | CreateDocumentCommand
   | RenameDocumentCommand
@@ -185,7 +203,10 @@ export type Command =
   | CreateTimelineCommand
   | UpdateTimelineCommand
   | DeleteTimelineCommand
-  | ImportScene3DCommand;
+  | ImportScene3DCommand
+  | UpdateMaterialCommand
+  | UpdateCameraCommand
+  | UpdateLightCommand;
 
 export const CommandSchema: z.ZodType<Command> = z.discriminatedUnion("type", [
   CreateDocumentCommandSchema,
@@ -206,6 +227,9 @@ export const CommandSchema: z.ZodType<Command> = z.discriminatedUnion("type", [
   UpdateTimelineCommandSchema,
   DeleteTimelineCommandSchema,
   ImportScene3DCommandSchema,
+  UpdateMaterialCommandSchema,
+  UpdateCameraCommandSchema,
+  UpdateLightCommandSchema,
 ]);
 
 export type CommandType = Command["type"];

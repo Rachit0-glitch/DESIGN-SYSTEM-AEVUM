@@ -2070,3 +2070,29 @@ The tools use `three.read` and `three.write` permissions together with asset/doc
 authentication, workspace/project isolation, payload bounds, rate limits, audit, optimistic version checks, locked-node
 handling, idempotency, and atomic persistence remain mandatory. MCP never receives arbitrary filesystem paths, owns
 raw 3D state, writes renderer objects, or calls Blender.
+
+---
+
+## 94. Phase 15 Blender MCP Capability Surface
+
+MCP tool version `1.2.0` adds disabled-by-default bridge capabilities:
+
+- Reads: `blender.runtime_info`, `blender.inspect_scene`, `blender.inspect_object`, `blender.inspect_mesh`,
+  `blender.inspect_material`, `blender.inspect_camera`, and `blender.inspect_light`.
+- Writes: `blender.update_object_transform`, `blender.update_material`, `blender.update_camera`,
+  `blender.update_light`, `blender.duplicate_object`, and `blender.delete_object`.
+- Workflow: `blender.export_scene`.
+
+The permission domains are `blender.read`, `blender.write`, `blender.destructive`, and `blender.export`. Viewers may
+read; editors and agents may perform bounded non-destructive writes and exports; destructive deletion remains outside
+the Agent role and requires explicit actor authority. Existing authentication, actor-less-than-or-equal permission,
+workspace isolation, optimistic versions, rate limits, payload limits, idempotency, timeout, audit, and atomic commit
+requirements apply unchanged.
+
+Write dry runs validate ownership, target, lock state, resource budget, and the complete operation manifest but do not
+launch Blender. Execution occurs only on the committed call. The adapter materializes registered asset bytes after
+authorization, executes a finite bridge-owned operation, exports a derivative, reconciles through the Command Engine,
+and returns structured execution and canonical transaction metadata.
+
+All Blender input schemas are strict. Unknown `python`, `script`, `shell`, `eval`, `exec`, filesystem-path, add-on,
+operator, and arbitrary-export fields are rejected before dispatch. No general job-manifest MCP tool exists.

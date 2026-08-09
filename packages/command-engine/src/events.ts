@@ -1,5 +1,8 @@
 export type CommandEventType =
   | "Scene3DImported"
+  | "MaterialUpdated"
+  | "CameraUpdated"
+  | "LightUpdated"
   | "DocumentCreated"
   | "DocumentRenamed"
   | "PageCreated"

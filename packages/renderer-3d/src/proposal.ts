@@ -4,6 +4,7 @@ import {
   CANONICAL_3D_COORDINATE_SYSTEM,
   CameraSchema,
   DesignNodeSchema,
+  EntityIdSchema,
   LightSchema,
   MaterialSchema,
   createTransform,
@@ -65,7 +66,13 @@ function transformFor(node: Node, world = false) {
   };
 }
 
-function nodeBase(id: string, name: string, parentId: string | null, source: ImportProvenance) {
+function nodeBase(
+  id: string,
+  name: string,
+  parentId: string | null,
+  source: ImportProvenance,
+  canonicalIdentity?: string,
+) {
   return {
     id,
     name,
@@ -75,7 +82,10 @@ function nodeBase(id: string, name: string, parentId: string | null, source: Imp
     locked: false,
     transform: createTransform(),
     sourceLinks: [],
-    metadata: { tags: ["gltf-import"], customData: {} },
+    metadata: {
+      tags: ["gltf-import"],
+      customData: canonicalIdentity ? { "aevum.entity_id": canonicalIdentity } : {},
+    },
     importProvenance: source,
   };
 }
@@ -328,6 +338,9 @@ export async function create3DImportProposal(input: Create3DImportProposalInput)
       const sourceNodeIndex = nodeIndexes.get(sourceNode);
       if (sourceNodeIndex === undefined) throw new Error("glTF node is missing from the root index.");
       const groupId = deterministicEntityId("group", { asset: parsed.input.asset.hash, sceneIndex, sourceNodeIndex });
+      const extrasIdentity = sourceNode.getExtras()["aevum.entity_id"];
+      const parsedIdentity = EntityIdSchema.safeParse(extrasIdentity);
+      const canonicalIdentity = parsedIdentity.success ? parsedIdentity.data : undefined;
       canonicalBySource.set(sourceNode, groupId);
       const childIds: string[] = [];
       const mesh = sourceNode.getMesh();
@@ -457,6 +470,7 @@ export async function create3DImportProposal(input: Create3DImportProposalInput)
             sourceNode.getName() || `Node ${sourceNodeIndex}`,
             parentId,
             provenance(parsed, { sourceSceneIndex: sceneIndex, sourceNodeIndex }),
+            canonicalIdentity,
           ),
           type: "GROUP_3D",
           childIds,

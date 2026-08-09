@@ -52,8 +52,11 @@ describe("Command Engine", () => {
     expect(listCommands()).toEqual([
       "asset.register",
       "asset.remove",
+      "camera.update",
       "document.create",
       "document.rename",
+      "light.update",
+      "material.update",
       "node.create",
       "node.delete",
       "node.duplicate",

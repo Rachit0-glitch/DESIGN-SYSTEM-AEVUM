@@ -1997,3 +1997,23 @@ The architecture shall be considered ready for implementation when:
 The AEVUM AI Reconstruction Engine shall be implemented as a modular, command-driven, MCP-controlled production platform centered on one renderer-independent Canonical Design Document.
 
 Its architecture shall allow professional 2D reconstruction, professional 3D production, animation, cinematography, visual validation, autonomous correction, and Multi-Stack Export to operate as parts of one consistent system rather than disconnected tools.
+
+---
+
+## 44. Phase 15 Blender Execution Boundary
+
+Phase 15 implements Blender Bridge protocol `1.0.0` as a local, version-aware execution boundary. MCP accepts only
+strict semantic `blender.*` operations and delegates to an optional bridge adapter. The adapter resolves a registered
+asset inside the authenticated workspace, verifies document version and ownership, and creates a deterministic job
+manifest. It never accepts a filesystem path, Python source, shell command, operator name, or exporter argument from
+an AI client.
+
+Each job uses a fresh temporary workspace and Blender process. Blender launches with factory settings, background
+mode, embedded-script autorun disabled, an allowlisted child environment, bounded output capture, timeout,
+cancellation, and conservative concurrency. The bridge-owned Python module dispatches a finite operation registry and
+exits after producing a structured result. Liveness and executable-backed readiness are separate checks.
+
+Successful writes produce an immutable GLB derivative and inspection/diagnostic artifacts. The derivative is parsed
+through the Phase 14 pipeline, compared to canonical identity metadata, and converted into one atomic Command Engine
+transaction. If execution or reconciliation fails, the Canonical Design Document is unchanged. No new database or
+Blender-owned canonical state is introduced. Railway Blender execution remains inactive.

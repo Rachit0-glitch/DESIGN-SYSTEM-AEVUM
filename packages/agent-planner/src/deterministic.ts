@@ -500,6 +500,142 @@ function threeTransformPlan(
   ];
 }
 
+function blenderTransformPlan(
+  intent: AgentIntent,
+  capabilities: AgentCapabilities,
+  policy: AgentApprovalPolicy,
+): AgentPlanStep[] {
+  const assetId = String(intent.parameters.assetId ?? "missing-asset");
+  const nodeId = intent.targetNodeIds[0] ?? String(intent.parameters.nodeId ?? "missing-node");
+  const deltaX = Number(intent.parameters.deltaX ?? 0);
+  const inspectScene = step({
+    goalId: intent.goalId,
+    index: 0,
+    type: "INSPECT",
+    label: "Inspect registered scene through Blender",
+    tool: "blender.inspect_scene",
+    descriptor: findDescriptor(capabilities, "blender.inspect_scene"),
+    data: { assetId },
+    approvalPolicy: policy,
+  });
+  const inspectObject = step({
+    goalId: intent.goalId,
+    index: 1,
+    type: "INSPECT",
+    label: "Inspect target object through Blender",
+    tool: "blender.inspect_object",
+    descriptor: findDescriptor(capabilities, "blender.inspect_object"),
+    dependencies: [inspectScene.id],
+    data: { assetId, targetId: nodeId },
+    approvalPolicy: policy,
+  });
+  const read = step({
+    goalId: intent.goalId,
+    index: 2,
+    type: "READ",
+    label: "Read canonical Blender target",
+    tool: "document.get",
+    descriptor: findDescriptor(capabilities, "document.get"),
+    dependencies: [inspectObject.id],
+    data: { projection: "node-subtree", nodeId },
+    approvalPolicy: policy,
+  });
+  const analyze = step({
+    goalId: intent.goalId,
+    index: 3,
+    type: "ANALYZE",
+    label: "Calculate bounded Blender transform",
+    dependencies: [read.id],
+    data: { operation: "BLENDER_OFFSET_X", nodeId, deltaX },
+    bindings: [{ targetPath: "source", sourceStepId: read.id, sourcePath: "data" }],
+    approvalPolicy: policy,
+  });
+  const descriptor = findDescriptor(capabilities, "blender.update_object_transform");
+  const data = {
+    assetId,
+    targetId: nodeId,
+    expectedDocumentVersion: 1,
+    mode: "DELTA",
+    coordinateSpace: "LOCAL",
+    unit: "M",
+    translation: { x: deltaX, y: 0, z: 0 },
+  };
+  const bindings: AgentPlanStep["inputBindings"] = [
+    { targetPath: "expectedDocumentVersion", sourceStepId: read.id, sourcePath: "data.document.documentVersion" },
+  ];
+  const dryRun = step({
+    goalId: intent.goalId,
+    index: 4,
+    type: "DRY_RUN",
+    label: "Validate Blender transform manifest",
+    tool: "blender.update_object_transform",
+    descriptor,
+    dependencies: [analyze.id],
+    data,
+    bindings,
+    approvalPolicy: policy,
+  });
+  const write = step({
+    goalId: intent.goalId,
+    index: 5,
+    type: "WRITE",
+    label: "Execute and reconcile Blender transform",
+    tool: "blender.update_object_transform",
+    descriptor,
+    dependencies: [dryRun.id],
+    data,
+    bindings,
+    failurePolicy: "REPLAN",
+    approvalPolicy: policy,
+  });
+  const verifyRead = step({
+    goalId: intent.goalId,
+    index: 6,
+    type: "READ",
+    label: "Read reconciled canonical Blender target",
+    tool: "document.get",
+    descriptor: findDescriptor(capabilities, "document.get"),
+    dependencies: [write.id],
+    data: { projection: "node-subtree", nodeId },
+    approvalPolicy: policy,
+  });
+  const assertion = {
+    sourceStepId: verifyRead.id,
+    path: "data.nodes.0.transform.position.x",
+    expectedSourceStepId: analyze.id,
+    expectedSourcePath: "expectedX",
+    operator: "EQUALS" as const,
+  };
+  const verify = step({
+    goalId: intent.goalId,
+    index: 7,
+    type: "VERIFY",
+    label: "Verify reconciled Blender transform",
+    dependencies: [verifyRead.id],
+    expected: assertion,
+    verification: { required: true, strategy: "STATE_ASSERTION", assertions: [assertion] },
+    approvalPolicy: policy,
+  });
+  return [
+    inspectScene,
+    inspectObject,
+    read,
+    analyze,
+    dryRun,
+    write,
+    verifyRead,
+    verify,
+    step({
+      goalId: intent.goalId,
+      index: 8,
+      type: "COMPLETE",
+      label: "Complete Blender transform",
+      dependencies: [verify.id],
+      approvalPolicy: policy,
+    }),
+  ];
+}
+
 function nodeCreatePlan(
   intent: AgentIntent,
   capabilities: AgentCapabilities,
@@ -689,6 +825,8 @@ export function generateDeterministicPlan(input: {
     ];
   } else if (operation === "three_transform") {
     steps = threeTransformPlan(input.intent, input.capabilities, policy);
+  } else if (operation === "blender_transform") {
+    steps = blenderTransformPlan(input.intent, input.capabilities, policy);
   } else if (input.intent.category === "INSPECT" || input.intent.category === "PROJECT") {
     steps = inspectPlan(input.intent, input.capabilities, policy);
   } else if (operation === "delete" || input.intent.requiredCapabilities.includes("node.delete")) {

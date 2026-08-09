@@ -29,10 +29,40 @@ describe("MCP protocol", () => {
     registerInitialTools(registry, mcpTestConfig);
     const tools = registry.listTools();
 
-    expect(tools).toHaveLength(15);
+    expect(tools).toHaveLength(29);
     expect(tools.every((tool) => tool.version === MCP_TOOL_VERSION)).toBe(true);
     expect(tools.map((tool) => tool.name)).toEqual(Object.keys(TOOL_SCHEMAS).sort());
     expect(() => registerInitialTools(registry, mcpTestConfig)).toThrow(/already registered/);
+  });
+
+  it("rejects arbitrary Python, shell, and script fields from every Blender capability", () => {
+    const attemptedPayloads = [
+      ["blender.inspect_scene", { assetId: "asset_11111111-1111-4111-8111-111111111111", python: "import bpy" }],
+      [
+        "blender.update_object_transform",
+        {
+          assetId: "asset_11111111-1111-4111-8111-111111111111",
+          targetId: "group_11111111-1111-4111-8111-111111111111",
+          expectedDocumentVersion: 1,
+          mode: "DELTA",
+          coordinateSpace: "LOCAL",
+          unit: "M",
+          translation: { x: 0.02, y: 0, z: 0 },
+          shell: "whoami",
+        },
+      ],
+      [
+        "blender.export_scene",
+        {
+          assetId: "asset_11111111-1111-4111-8111-111111111111",
+          expectedDocumentVersion: 1,
+          script: "bpy.ops.wm.quit_blender()",
+        },
+      ],
+    ] as const;
+    for (const [tool, payload] of attemptedPayloads) {
+      expect(TOOL_SCHEMAS[tool].input.safeParse(payload).success).toBe(false);
+    }
   });
 
   it("rejects unknown and structurally invalid write payloads before command execution", () => {

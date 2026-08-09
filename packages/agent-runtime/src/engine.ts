@@ -141,6 +141,15 @@ function analyzeStep(input: Record<string, unknown>): Record<string, unknown> {
     transform.position.x += input.deltaX;
     return { transform, expectedX: transform.position.x };
   }
+  if (input.operation === "BLENDER_OFFSET_X") {
+    const source = input.source as { nodes?: Array<Record<string, unknown>> } | undefined;
+    const node = source?.nodes?.find((entry) => entry.id === input.nodeId) ?? source?.nodes?.[0];
+    const position = (node?.transform as { position?: { x?: number } } | undefined)?.position;
+    if (!position || typeof position.x !== "number" || typeof input.deltaX !== "number") {
+      throw new Error("Target Blender object transform is unavailable for offset analysis.");
+    }
+    return { expectedX: Math.round((position.x + input.deltaX) * 1_000_000) / 1_000_000 };
+  }
   return { analysis: "NO_OP" };
 }
 
@@ -149,10 +158,16 @@ function protectedViolation(
   step: AgentPlanStep,
   input: Record<string, unknown>,
 ): string | undefined {
-  if (step.tool !== "node.update" && step.tool !== "three.update_node_transform") return undefined;
-  const nodeId = typeof input.nodeId === "string" ? input.nodeId : undefined;
+  if (
+    step.tool !== "node.update" &&
+    step.tool !== "three.update_node_transform" &&
+    step.tool !== "blender.update_object_transform"
+  )
+    return undefined;
+  const nodeId =
+    typeof input.nodeId === "string" ? input.nodeId : typeof input.targetId === "string" ? input.targetId : undefined;
   const changes =
-    step.tool === "three.update_node_transform"
+    step.tool === "three.update_node_transform" || step.tool === "blender.update_object_transform"
       ? ["transform"]
       : input.changes && typeof input.changes === "object"
         ? Object.keys(input.changes as object)

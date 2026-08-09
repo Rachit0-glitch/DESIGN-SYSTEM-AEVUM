@@ -67,7 +67,18 @@ export const aevumEnvironmentVariablesSchema = z
 
     LOCAL_FILE_WORKSPACE: z.string().min(1).default("./.aevum-workspace"),
     SANDBOX_ROOT: z.string().min(1).default("./.aevum-sandbox"),
+    BLENDER_EXECUTABLE_PATH: optionalString,
     BLENDER_EXECUTABLE: optionalString,
+    BLENDER_BRIDGE_HOST: z.string().min(1).default("127.0.0.1"),
+    BLENDER_HEADLESS: booleanFromString.default(true),
+    BLENDER_MAX_JOB_SECONDS: positiveIntegerFromString.default(600),
+    BLENDER_MAX_FILE_MB: positiveIntegerFromString.default(500),
+    BLENDER_MAX_OUTPUT_MB: positiveIntegerFromString.default(1_000),
+    BLENDER_MAX_OBJECTS: positiveIntegerFromString.default(100_000),
+    BLENDER_MAX_MESHES: positiveIntegerFromString.default(50_000),
+    BLENDER_MAX_MATERIALS: positiveIntegerFromString.default(10_000),
+    BLENDER_MAX_CONCURRENT_JOBS: positiveIntegerFromString.default(1),
+    BLENDER_TEMP_DIR: optionalString,
     SANDBOX_NETWORK_MODE: z.enum(["disabled", "restricted", "enabled"]).default("restricted"),
 
     RENDER_WORKER_CONCURRENCY: positiveIntegerFromString.default(1),
@@ -156,6 +167,24 @@ export const aevumEnvironmentVariablesSchema = z
     MINIO_ROOT_PASSWORD: optionalString,
   })
   .superRefine((variables, context) => {
+    if (!variables.BLENDER_HEADLESS) {
+      context.addIssue({
+        code: "custom",
+        path: ["BLENDER_HEADLESS"],
+        message: "Phase 15 requires BLENDER_HEADLESS=true.",
+      });
+    }
+    if (
+      variables.BLENDER_EXECUTABLE_PATH &&
+      variables.BLENDER_EXECUTABLE &&
+      variables.BLENDER_EXECUTABLE_PATH !== variables.BLENDER_EXECUTABLE
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["BLENDER_EXECUTABLE_PATH"],
+        message: "BLENDER_EXECUTABLE_PATH and the legacy BLENDER_EXECUTABLE alias must match when both are set.",
+      });
+    }
     if (variables.DATABASE_POOL_MIN > variables.DATABASE_POOL_MAX) {
       context.addIssue({
         code: "custom",
@@ -267,6 +296,20 @@ export interface AevumEnvironment {
     readonly sandbox: string;
     readonly blenderExecutable?: string;
   };
+  readonly blender: {
+    readonly executablePath?: string;
+    readonly host: string;
+    readonly port: number;
+    readonly headless: boolean;
+    readonly maxJobSeconds: number;
+    readonly maxFileBytes: number;
+    readonly maxOutputBytes: number;
+    readonly maxObjects: number;
+    readonly maxMeshes: number;
+    readonly maxMaterials: number;
+    readonly maxConcurrentJobs: number;
+    readonly tempDir?: string;
+  };
   readonly cache: { readonly url?: string; readonly queueUrl?: string; readonly redisPort: number };
   readonly services: {
     readonly apiPort: number;
@@ -371,6 +414,7 @@ function toEnvironment(variables: AevumEnvironmentVariables): AevumEnvironment {
   const featureFlags = variables.AEVUM_FEATURE_FLAGS.split(",")
     .map((flag) => flag.trim())
     .filter(Boolean);
+  const blenderExecutable = variables.BLENDER_EXECUTABLE_PATH ?? variables.BLENDER_EXECUTABLE;
 
   return {
     nodeEnv: variables.NODE_ENV,
@@ -407,7 +451,21 @@ function toEnvironment(variables: AevumEnvironmentVariables): AevumEnvironment {
     paths: {
       workspace: variables.LOCAL_FILE_WORKSPACE,
       sandbox: variables.SANDBOX_ROOT,
-      ...(variables.BLENDER_EXECUTABLE ? { blenderExecutable: variables.BLENDER_EXECUTABLE } : {}),
+      ...(blenderExecutable ? { blenderExecutable } : {}),
+    },
+    blender: {
+      ...(blenderExecutable ? { executablePath: blenderExecutable } : {}),
+      host: variables.BLENDER_BRIDGE_HOST,
+      port: variables.BLENDER_BRIDGE_PORT,
+      headless: variables.BLENDER_HEADLESS,
+      maxJobSeconds: variables.BLENDER_MAX_JOB_SECONDS,
+      maxFileBytes: variables.BLENDER_MAX_FILE_MB * 1024 * 1024,
+      maxOutputBytes: variables.BLENDER_MAX_OUTPUT_MB * 1024 * 1024,
+      maxObjects: variables.BLENDER_MAX_OBJECTS,
+      maxMeshes: variables.BLENDER_MAX_MESHES,
+      maxMaterials: variables.BLENDER_MAX_MATERIALS,
+      maxConcurrentJobs: variables.BLENDER_MAX_CONCURRENT_JOBS,
+      ...(variables.BLENDER_TEMP_DIR ? { tempDir: variables.BLENDER_TEMP_DIR } : {}),
     },
     cache: {
       ...(variables.CACHE_URL ? { url: variables.CACHE_URL } : {}),
