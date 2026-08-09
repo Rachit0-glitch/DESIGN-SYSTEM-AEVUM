@@ -2228,3 +2228,29 @@ are never falsely claimed byte-deterministic.
 
 Phase 15 does not implement advanced modelling, retopology, UV work, texture painting, procedural shader authoring,
 rigging, physics, simulation, high-end rendering, AI 3D generation, or visual 3D correction.
+
+---
+
+## 102. Phase 16 Professional Modeling Foundation
+
+The Blender Bridge professional protocol supplies deterministic explicit selectors for vertices, edges, faces,
+boundary loops, material slots, connected components, normal direction, and position ranges. Bounded semantic
+operations cover extrusion, inset, bevel, loop cut, subdivision, solidify, mirror, join/separate, merge/delete,
+normals, shading, origin/pivot, decimation/remesh/cleanup, UV layers/seams/unwrap/pack/transform, PBR validation, web
+quality analysis, and simple decimation-based LOD generation.
+
+Production proof covers topology inspection, extrusion, inset, bevel, applied subdivision, solidify, mirror, join,
+material separation, normal repair, duplicate-position repair, UV creation/unwrap/pack and GLB round trip, PBR
+inspection/update and canonical recovery, web metrics, and lower-triangle LOD output with material retention. Loop-cut
+edge-ring handling, non-destructive modifier retention, voxel remesh, advanced repairs, selected-face separation,
+texel-density estimates, and UDIM inspection remain experimental until broader fixtures validate them.
+
+Topology reports include counts, triangle/quad/ngon mix, boundaries, non-manifold edges, loose and degenerate geometry,
+duplicate-position candidates, connected components, Euler characteristic, quality profile, diagnostics, and a
+deterministic fingerprint. UV reports include layers, active map, islands, seams, missing/zero-area faces,
+out-of-bounds loops, approximate overlap/packing metrics, optional density, UDIM tiles, and diagnostics. Approximate
+metrics are labeled and are not represented as exact geometric proofs.
+
+Professional automatic retopology, character topology, sculpting, texture baking/painting/generation, arbitrary shader
+graphs, rigging, simulation, production rendering, visual 3D comparison, and multi-view reconstruction remain
+deferred. Phase 16 establishes safe local contracts; it does not claim those later capabilities.

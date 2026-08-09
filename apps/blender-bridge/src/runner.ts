@@ -177,6 +177,7 @@ export function createBlenderJobRunner(config: BlenderBridgeConfig): BlenderJobR
             maxObjects: job.resourceBudget.maxObjects,
             maxMeshes: job.resourceBudget.maxMeshes,
             maxMaterials: job.resourceBudget.maxMaterials,
+            professional: job.resourceBudget.professional,
           },
           expectedOutputs: job.expectedOutputs,
         });

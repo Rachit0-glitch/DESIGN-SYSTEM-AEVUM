@@ -18,6 +18,27 @@ const adapter: BlenderToolAdapter = {
         },
       };
     }
+    if (
+      [
+        "three.inspect_topology",
+        "three.inspect_uv",
+        "three.validate_mesh",
+        "three.validate_material",
+        "three.analyze_web_quality",
+      ].includes(tool)
+    ) {
+      return {
+        data: {
+          stage: "EXECUTED",
+          operation: tool,
+          jobId: "blender-job:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          state: "SUCCEEDED",
+          data: { valid: true },
+          artifacts: [],
+          diagnostics: [],
+        },
+      };
+    }
     return {
       data: {
         dryRun: true,
@@ -75,5 +96,43 @@ describe("MCP Blender authorization boundary", () => {
     );
     expect(response).toMatchObject({ success: false, errors: [{ code: "MCP_WORKSPACE_ACCESS_DENIED" }] });
     expect(vi.mocked(adapter.execute).mock.calls.length).toBe(before);
+  });
+
+  it("allows professional reads but denies topology-changing writes to Viewers", async () => {
+    const fixture = createMcpTestFixture({ role: "VIEWER", blenderAdapter: adapter });
+    const read = await fixture.execute("three.inspect_topology", {
+      assetId: "asset_11111111-1111-4111-8111-111111111111",
+      targetId: "group_11111111-1111-4111-8111-111111111111",
+      profile: "WEB_STATIC",
+    });
+    expect(read).toMatchObject({ success: true, data: { stage: "EXECUTED" } });
+    const write = await fixture.execute(
+      "three.bevel_mesh",
+      {
+        assetId: "asset_11111111-1111-4111-8111-111111111111",
+        targetId: "group_11111111-1111-4111-8111-111111111111",
+        expectedDocumentVersion: fixture.document.documentVersion,
+        selection: { kind: "ALL", domain: "EDGE" },
+        width: 0.01,
+        segments: 2,
+      },
+      { dryRun: true, idempotencyKey: "phase16-viewer-denied" },
+    );
+    expect(write).toMatchObject({ success: false, errors: [{ code: "MCP_AUTHORIZATION_DENIED" }] });
+  });
+
+  it("rejects arbitrary code fields from every professional write schema", () => {
+    const fixture = createMcpTestFixture({ blenderAdapter: adapter });
+    expect(
+      fixture.registry.getTool("three.bevel_mesh")?.inputSchema.safeParse({
+        assetId: "asset_11111111-1111-4111-8111-111111111111",
+        targetId: "group_11111111-1111-4111-8111-111111111111",
+        expectedDocumentVersion: 1,
+        selection: { kind: "ALL", domain: "EDGE" },
+        width: 0.01,
+        segments: 2,
+        python: "import bpy",
+      }).success,
+    ).toBe(false);
   });
 });

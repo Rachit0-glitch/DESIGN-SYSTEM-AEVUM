@@ -2017,3 +2017,22 @@ Successful writes produce an immutable GLB derivative and inspection/diagnostic 
 through the Phase 14 pipeline, compared to canonical identity metadata, and converted into one atomic Command Engine
 transaction. If execution or reconciliation fails, the Canonical Design Document is unchanged. No new database or
 Blender-owned canonical state is introduced. Railway Blender execution remains inactive.
+
+---
+
+## 45. Phase 16 Professional 3D Editing Boundary
+
+Phase 16 adds a finite professional-operation layer inside the existing Blender execution boundary. Versioned strict
+contracts cover explicit mesh selectors, modeling, topology repair, normal handling, UV operations, canonical PBR
+inspection/update, and web-quality analysis. No Agent or MCP client can submit Python, operator names, file paths,
+modifier names, shell commands, or arbitrary Blender arguments.
+
+Topology-changing work is content-addressed. Blender writes a new GLB derivative, Phase 14 reinspects it, and one
+Command Engine transaction registers the derivative and updates canonical geometry metadata. Originals are immutable;
+heavy topology and UV arrays stay in assets. Element mappings report `PRESERVED`, `PARTIAL`, or `DESTROYED` rather
+than promising stable vertex identity across destructive operations.
+
+Professional resource limits bound selected elements, output vertices/faces, topology growth, subdivision levels,
+bevel segments, loop cuts, UV islands, and modifiers. Dry runs validate the semantic manifest and deterministic growth
+estimate without launching Blender. The local Blender 5.1.2 process remains the execution boundary, and Railway
+Blender remains inactive.

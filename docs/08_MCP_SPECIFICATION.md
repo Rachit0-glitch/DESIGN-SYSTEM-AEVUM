@@ -2096,3 +2096,26 @@ and returns structured execution and canonical transaction metadata.
 
 All Blender input schemas are strict. Unknown `python`, `script`, `shell`, `eval`, `exec`, filesystem-path, add-on,
 operator, and arbitrary-export fields are rejected before dispatch. No general job-manifest MCP tool exists.
+
+---
+
+## 95. Phase 16 Professional 3D MCP Surface
+
+MCP tool version `1.3.0` adds five safe reads:
+
+- `three.inspect_topology`
+- `three.inspect_uv`
+- `three.validate_mesh`
+- `three.validate_material`
+- `three.analyze_web_quality`
+
+It adds three bounded writes: `three.bevel_mesh`, `three.unwrap_uv`, and `three.update_pbr_material`. These tools expose
+task-specific strict payloads rather than the internal Blender operation union. Existing `blender.read`,
+`blender.write`, `three.read`, `three.write`, asset, and document permissions provide sufficient granularity; Phase 16
+does not add permission domains.
+
+Writes reject locked targets, stale versions, unowned assets, non-derivative lineage, unsafe growth, and malformed or
+unknown fields before launch where possible. Dry runs do not execute Blender. Successful execution persists the GLB
+artifact before returning, atomically reconciles through the Command Engine, preserves audit/idempotency behavior,
+and returns bounded execution, derivative, reconciliation, and report metadata. The Agent can therefore inspect,
+plan, dry-run, execute, reinspect the persisted derivative, and verify without an arbitrary-code route.

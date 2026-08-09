@@ -40,7 +40,18 @@ export interface ToolHandlerResult {
 
 export interface BlenderToolAdapter {
   execute(input: {
-    readonly tool: Extract<McpToolName, `blender.${string}`>;
+    readonly tool: Extract<
+      McpToolName,
+      | `blender.${string}`
+      | "three.inspect_topology"
+      | "three.inspect_uv"
+      | "three.validate_mesh"
+      | "three.validate_material"
+      | "three.analyze_web_quality"
+      | "three.bevel_mesh"
+      | "three.unwrap_uv"
+      | "three.update_pbr_material"
+    >;
     readonly payload: unknown;
     readonly document: CanonicalDesignDocument;
     readonly actor: McpActor;

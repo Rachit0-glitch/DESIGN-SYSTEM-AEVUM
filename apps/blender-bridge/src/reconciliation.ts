@@ -95,6 +95,42 @@ function normalizeTransform(transform: DesignNode["transform"]): DesignNode["tra
   return normalize(transform) as DesignNode["transform"];
 }
 
+const GEOMETRY_OPERATION_KINDS = new Set<BlenderOperation["kind"]>([
+  "mesh.extrude",
+  "mesh.inset",
+  "mesh.bevel",
+  "mesh.loop_cut",
+  "mesh.subdivide",
+  "mesh.solidify",
+  "mesh.mirror",
+  "mesh.merge_vertices",
+  "mesh.delete_vertices",
+  "mesh.delete_edges",
+  "mesh.delete_faces",
+  "mesh.recalculate_normals",
+  "mesh.flip_normals",
+  "topology.decimate",
+  "topology.remesh",
+  "topology.delete_loose",
+  "topology.fill_holes",
+  "topology.triangulate",
+  "topology.tris_to_quads",
+  "uv.create_layer",
+  "uv.delete_layer",
+  "uv.set_active_layer",
+  "uv.mark_seam",
+  "uv.clear_seams",
+  "uv.unwrap",
+  "uv.pack",
+  "uv.transform",
+]);
+
+function directMeshChildren(document: CanonicalDesignDocument, objectId: string): DesignNode[] {
+  return (document.nodes[objectId]?.childIds ?? [])
+    .map((id) => document.nodes[id])
+    .filter((node): node is DesignNode => node?.type === "MESH_3D");
+}
+
 export async function createBlenderReconciliationProposal(
   input: CreateBlenderReconciliationInput,
 ): Promise<BlenderReconciliationProposal> {
@@ -172,6 +208,36 @@ export async function createBlenderReconciliationProposal(
       ...commandBase(input, transactionId, commands.length),
       type: "material.update",
       payload: { material },
+    });
+  } else if (GEOMETRY_OPERATION_KINDS.has(operation.kind) && "objectId" in operation) {
+    const currentObject = input.document.nodes[operation.objectId];
+    const candidateObject = imported.nodes.find((node) => identity(node) === operation.objectId);
+    if (!currentObject || !candidateObject) throw new Error("Blender mesh identity could not be reconciled.");
+    const currentMeshes = directMeshChildren(input.document, currentObject.id);
+    const candidateMeshes = candidateObject.childIds
+      .map((id) => imported.nodes.find((node) => node.id === id))
+      .filter((node): node is DesignNode => node?.type === "MESH_3D");
+    if (currentMeshes.length !== 1 || candidateMeshes.length !== 1) {
+      throw new Error("Phase 16 topology reconciliation requires one canonical primitive on the edited object.");
+    }
+    const currentMesh = currentMeshes[0];
+    const candidateMesh = candidateMeshes[0];
+    if (currentMesh?.type !== "MESH_3D" || candidateMesh?.type !== "MESH_3D") {
+      throw new Error("Blender mesh reconciliation candidate is invalid.");
+    }
+    modified.add(currentObject.id);
+    modified.add(currentMesh.id);
+    commands.push({
+      ...commandBase(input, transactionId, commands.length),
+      type: "node.update",
+      payload: {
+        nodeId: currentMesh.id,
+        changes: {
+          geometryAssetId: outputAsset.id,
+          geometry: candidateMesh.geometry,
+          topology: candidateMesh.topology,
+        },
+      },
     });
   } else if (operation.kind === "camera.update") {
     const current = input.document.cameras[operation.cameraId];

@@ -11,6 +11,12 @@ function initialCapabilities(session: AgentSession): string[] {
   if (goal.parameters.operation === "blender_transform") {
     return ["blender.inspect_scene", "blender.inspect_object", "document.get", "blender.update_object_transform"];
   }
+  if (goal.parameters.operation === "blender_bevel") {
+    return ["blender.inspect_scene", "three.inspect_topology", "document.get", "three.bevel_mesh"];
+  }
+  if (goal.parameters.operation === "blender_uv_repair") {
+    return ["blender.inspect_scene", "three.inspect_uv", "document.get", "three.unwrap_uv"];
+  }
   switch (goal.category) {
     case "INSPECT":
       return ["project.get", "document.inspect_hierarchy"];
@@ -57,8 +63,20 @@ function requiredPermissions(capabilities: readonly string[]): AgentIntent["requ
     if (capability.startsWith("timeline."))
       permissions.add(capability === "timeline.get" ? "timeline.read" : "timeline.write");
     if (capability.startsWith("three.")) {
-      permissions.add(capability === "three.update_node_transform" ? "three.write" : "three.read");
-      if (capability === "three.update_node_transform") permissions.add("document.write");
+      const write = [
+        "three.update_node_transform",
+        "three.bevel_mesh",
+        "three.unwrap_uv",
+        "three.update_pbr_material",
+      ].includes(capability);
+      permissions.add(write ? "three.write" : "three.read");
+      if (write) permissions.add("document.write");
+      if (capability.startsWith("three.inspect_") || capability.startsWith("three.validate_")) {
+        permissions.add("blender.read");
+      }
+      if (["three.bevel_mesh", "three.unwrap_uv", "three.update_pbr_material"].includes(capability)) {
+        permissions.add("blender.write");
+      }
     }
     if (capability.startsWith("blender.")) {
       const write = capability.startsWith("blender.update_") || capability === "blender.duplicate_object";

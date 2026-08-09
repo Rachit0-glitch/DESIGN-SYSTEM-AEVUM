@@ -37,6 +37,17 @@ const input = {
     maxMeshes: 100,
     maxMaterials: 100,
     timeoutMs: 10_000,
+    professional: {
+      maxSelectedElements: 100_000,
+      maxOutputVertices: 2_000_000,
+      maxOutputFaces: 2_000_000,
+      maxTopologyGrowthRatio: 8,
+      maxSubdivisionLevel: 3,
+      maxBevelSegments: 8,
+      maxLoopCuts: 16,
+      maxUvIslands: 10_000,
+      maxModifiers: 64,
+    },
   },
   expectedOutputs: { inspection: true, glb: true },
 };

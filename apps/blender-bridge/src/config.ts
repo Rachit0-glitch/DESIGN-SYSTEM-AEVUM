@@ -10,6 +10,7 @@ export interface BlenderBridgeConfig {
   readonly maxMeshes: number;
   readonly maxMaterials: number;
   readonly maxConcurrentJobs: number;
+  readonly professional: AevumEnvironment["blender"]["professional"];
   readonly retainFailedWorkspaces: boolean;
 }
 
@@ -24,6 +25,7 @@ export function blenderBridgeConfig(environment: AevumEnvironment): BlenderBridg
     maxMeshes: environment.blender.maxMeshes,
     maxMaterials: environment.blender.maxMaterials,
     maxConcurrentJobs: environment.blender.maxConcurrentJobs,
+    professional: environment.blender.professional,
     retainFailedWorkspaces: false,
   };
 }

@@ -678,6 +678,54 @@ export function registerInitialTools(
       ["document.write", "blender.export"],
       "WRITE",
     ],
+    [
+      "three.inspect_topology",
+      "Inspect professional topology metrics through the controlled Blender runtime.",
+      ["asset.read", "blender.read"],
+      "READ",
+    ],
+    [
+      "three.inspect_uv",
+      "Inspect UV layers, islands, bounds, and packing diagnostics through Blender.",
+      ["asset.read", "blender.read"],
+      "READ",
+    ],
+    [
+      "three.validate_mesh",
+      "Validate topology, UV, and material readiness for one canonical mesh object.",
+      ["asset.read", "blender.read"],
+      "READ",
+    ],
+    [
+      "three.validate_material",
+      "Validate one canonical Principled PBR material and its texture-channel semantics.",
+      ["asset.read", "blender.read"],
+      "READ",
+    ],
+    [
+      "three.analyze_web_quality",
+      "Analyze scene geometry, materials, textures, and draw calls against a web profile.",
+      ["asset.read", "blender.read"],
+      "READ",
+    ],
+    [
+      "three.bevel_mesh",
+      "Apply one bounded semantic bevel and reconcile its derivative geometry canonically.",
+      ["document.write", "blender.write"],
+      "WRITE",
+    ],
+    [
+      "three.unwrap_uv",
+      "Apply one bounded unwrap and pack workflow and reconcile the geometry derivative.",
+      ["document.write", "blender.write"],
+      "WRITE",
+    ],
+    [
+      "three.update_pbr_material",
+      "Apply canonically supported PBR values and reconcile the material transaction.",
+      ["document.write", "blender.write"],
+      "WRITE",
+    ],
   ] as const satisfies readonly (readonly [McpToolName, string, readonly McpPermission[], "READ" | "WRITE"])[];
 
   for (const [name, description, permissions, classification] of blenderTools) {

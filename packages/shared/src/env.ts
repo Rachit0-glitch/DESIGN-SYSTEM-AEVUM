@@ -78,6 +78,15 @@ export const aevumEnvironmentVariablesSchema = z
     BLENDER_MAX_MESHES: positiveIntegerFromString.default(50_000),
     BLENDER_MAX_MATERIALS: positiveIntegerFromString.default(10_000),
     BLENDER_MAX_CONCURRENT_JOBS: positiveIntegerFromString.default(1),
+    MESH_MAX_SELECTED_ELEMENTS: positiveIntegerFromString.default(100_000),
+    MESH_MAX_OUTPUT_VERTICES: positiveIntegerFromString.default(2_000_000),
+    MESH_MAX_OUTPUT_FACES: positiveIntegerFromString.default(2_000_000),
+    MESH_MAX_TOPOLOGY_GROWTH: positiveIntegerFromString.default(8),
+    BEVEL_MAX_SEGMENTS: positiveIntegerFromString.default(8),
+    SUBDIVISION_MAX_LEVEL: positiveIntegerFromString.default(3),
+    LOOP_CUT_MAX_CUTS: positiveIntegerFromString.default(16),
+    UV_MAX_ISLANDS: positiveIntegerFromString.default(10_000),
+    MESH_MAX_MODIFIERS: positiveIntegerFromString.default(64),
     BLENDER_TEMP_DIR: optionalString,
     SANDBOX_NETWORK_MODE: z.enum(["disabled", "restricted", "enabled"]).default("restricted"),
 
@@ -308,6 +317,17 @@ export interface AevumEnvironment {
     readonly maxMeshes: number;
     readonly maxMaterials: number;
     readonly maxConcurrentJobs: number;
+    readonly professional: {
+      readonly maxSelectedElements: number;
+      readonly maxOutputVertices: number;
+      readonly maxOutputFaces: number;
+      readonly maxTopologyGrowthRatio: number;
+      readonly maxSubdivisionLevel: number;
+      readonly maxBevelSegments: number;
+      readonly maxLoopCuts: number;
+      readonly maxUvIslands: number;
+      readonly maxModifiers: number;
+    };
     readonly tempDir?: string;
   };
   readonly cache: { readonly url?: string; readonly queueUrl?: string; readonly redisPort: number };
@@ -465,6 +485,17 @@ function toEnvironment(variables: AevumEnvironmentVariables): AevumEnvironment {
       maxMeshes: variables.BLENDER_MAX_MESHES,
       maxMaterials: variables.BLENDER_MAX_MATERIALS,
       maxConcurrentJobs: variables.BLENDER_MAX_CONCURRENT_JOBS,
+      professional: {
+        maxSelectedElements: variables.MESH_MAX_SELECTED_ELEMENTS,
+        maxOutputVertices: variables.MESH_MAX_OUTPUT_VERTICES,
+        maxOutputFaces: variables.MESH_MAX_OUTPUT_FACES,
+        maxTopologyGrowthRatio: variables.MESH_MAX_TOPOLOGY_GROWTH,
+        maxSubdivisionLevel: variables.SUBDIVISION_MAX_LEVEL,
+        maxBevelSegments: variables.BEVEL_MAX_SEGMENTS,
+        maxLoopCuts: variables.LOOP_CUT_MAX_CUTS,
+        maxUvIslands: variables.UV_MAX_ISLANDS,
+        maxModifiers: variables.MESH_MAX_MODIFIERS,
+      },
       ...(variables.BLENDER_TEMP_DIR ? { tempDir: variables.BLENDER_TEMP_DIR } : {}),
     },
     cache: {

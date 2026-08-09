@@ -6,6 +6,9 @@ import os
 import sys
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from professional import ProfessionalFailure, SUPPORTED_PROFESSIONAL, execute_professional
+
 PROTOCOL_VERSION = "1.0.0"
 IDENTITY_KEY = "aevum.entity_id"
 SUPPORTED = {
@@ -14,7 +17,7 @@ SUPPORTED = {
     "mesh.inspect", "material.inspect", "material.update_pbr",
     "camera.inspect", "camera.update", "camera.activate",
     "light.inspect", "light.update", "bridge.test_delay",
-}
+} | SUPPORTED_PROFESSIONAL
 C = Matrix(((1.0, 0.0, 0.0), (0.0, 0.0, -1.0), (0.0, 1.0, 0.0)))
 C_INV = C.inverted()
 
@@ -289,6 +292,11 @@ def validate_scene(require_camera, budget):
             issues.append({"code": "BLENDER_SCENE_INVALID", "message": "Object has a non-finite transform.", "object": obj.name})
         if obj.type == "MESH" and obj.data is None:
             issues.append({"code": "BLENDER_SCENE_INVALID", "message": "Mesh object has no mesh data.", "object": obj.name})
+        if obj.type == "MESH" and obj.data is not None:
+            if len(obj.data.vertices) > budget["professional"]["maxOutputVertices"]:
+                issues.append({"code": "MESH_LIMIT_EXCEEDED", "message": "Mesh vertex count exceeds the professional budget.", "object": obj.name})
+            if len(obj.data.polygons) > budget["professional"]["maxOutputFaces"]:
+                issues.append({"code": "MESH_LIMIT_EXCEEDED", "message": "Mesh face count exceeds the professional budget.", "object": obj.name})
     if require_camera and bpy.context.scene.camera is None:
         issues.append({"code": "BLENDER_SCENE_INVALID", "message": "Scene has no active camera."})
     return {"valid": len(issues) == 0, "issues": issues, "scene": scene_record()}
@@ -336,6 +344,8 @@ def look_at(obj, target):
 
 def execute(operation, budget):
     kind = operation["kind"]
+    if kind in SUPPORTED_PROFESSIONAL:
+        return execute_professional(operation, budget)
     if kind in ("scene.inspect", "scene.import_gltf"):
         return scene_record()
     if kind == "scene.validate":
@@ -386,6 +396,10 @@ def execute(operation, budget):
             socket = node.inputs.get("Emission Color") or node.inputs.get("Emission")
             if socket is not None:
                 socket.default_value = operation["emission"]
+        if "normalStrength" in operation:
+            normal_socket = node.inputs.get("Normal")
+            if normal_socket and normal_socket.is_linked and normal_socket.links[0].from_node.type == "NORMAL_MAP":
+                normal_socket.links[0].from_node.inputs["Strength"].default_value = operation["normalStrength"]
         return material_record(material)
     if kind == "camera.inspect":
         return camera_record(camera_object(operation["cameraId"]))
@@ -486,7 +500,7 @@ def main():
             "diagnostics": [],
             "durationMs": int((time.time() - started) * 1000),
         }
-    except BridgeFailure as error:
+    except (BridgeFailure, ProfessionalFailure) as error:
         result = {
             "protocolVersion": PROTOCOL_VERSION,
             "jobId": job_id,

@@ -16,7 +16,7 @@ import { z } from "zod";
 import { McpPermissionSchema } from "./permissions.js";
 import { MCP_PROTOCOL_VERSION } from "./version.js";
 
-export const MCP_TOOL_VERSION = "1.2.0" as const;
+export const MCP_TOOL_VERSION = "1.3.0" as const;
 export const McpAuthModeSchema = z.enum(["development", "supabase", "disabled"]);
 export const McpToolNameSchema = z.enum([
   "system.get_capabilities",
@@ -30,6 +30,14 @@ export const McpToolNameSchema = z.enum([
   "three.inspect_asset",
   "three.inspect_scene",
   "three.update_node_transform",
+  "three.inspect_topology",
+  "three.inspect_uv",
+  "three.validate_mesh",
+  "three.validate_material",
+  "three.analyze_web_quality",
+  "three.bevel_mesh",
+  "three.unwrap_uv",
+  "three.update_pbr_material",
   "blender.runtime_info",
   "blender.inspect_scene",
   "blender.inspect_object",
@@ -256,6 +264,32 @@ const BlenderColor4Schema = z.tuple([
   z.number().finite(),
   z.number().finite(),
 ]);
+const MeshIndexListSchema = z.array(z.number().int().nonnegative()).min(1).max(100_000);
+const MeshSelectionInputSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("VERTEX_IDS"), indices: MeshIndexListSchema }),
+  z.strictObject({ kind: z.literal("EDGE_IDS"), indices: MeshIndexListSchema }),
+  z.strictObject({ kind: z.literal("FACE_IDS"), indices: MeshIndexListSchema }),
+  z.strictObject({ kind: z.literal("BOUNDARY_LOOP"), seedEdgeIndex: z.number().int().nonnegative() }),
+  z.strictObject({ kind: z.literal("MATERIAL_SLOT"), materialSlot: z.number().int().nonnegative() }),
+  z.strictObject({
+    kind: z.literal("CONNECTED_COMPONENT"),
+    domain: z.enum(["VERTEX", "EDGE", "FACE"]),
+    seedIndex: z.number().int().nonnegative(),
+  }),
+  z.strictObject({ kind: z.literal("ALL"), domain: z.enum(["VERTEX", "EDGE", "FACE"]) }),
+  z.strictObject({
+    kind: z.literal("BY_NORMAL_DIRECTION"),
+    direction: BlenderVector3Schema,
+    minimumDot: z.number().finite().min(-1).max(1),
+  }),
+  z.strictObject({
+    kind: z.literal("BY_POSITION_RANGE"),
+    domain: z.enum(["VERTEX", "EDGE", "FACE"]),
+    minimum: BlenderVector3Schema,
+    maximum: BlenderVector3Schema,
+  }),
+]);
+const TopologyProfileInputSchema = z.enum(["WEB_STATIC", "WEB_ANIMATED", "CHARACTER", "HIGH_RES_REFERENCE"]);
 
 export const BlenderRuntimeInfoInputSchema = z.strictObject({});
 export const BlenderInspectSceneInputSchema = BlenderAssetInputSchema;
@@ -280,6 +314,7 @@ export const BlenderUpdateMaterialInputSchema = BlenderWriteBaseSchema.extend({
   roughness: z.number().finite().min(0).max(1).optional(),
   alpha: z.number().finite().min(0).max(1).optional(),
   emission: BlenderColor4Schema.optional(),
+  normalStrength: z.number().finite().nonnegative().max(100).optional(),
 });
 export const BlenderUpdateCameraInputSchema = BlenderWriteBaseSchema.extend({
   targetId: EntityIdSchema,
@@ -312,6 +347,38 @@ export const BlenderDeleteObjectInputSchema = BlenderWriteBaseSchema.extend({
   childPolicy: z.enum(["KEEP_WORLD", "DELETE_CHILDREN"]),
 });
 export const BlenderExportSceneInputSchema = BlenderWriteBaseSchema;
+
+export const ThreeInspectTopologyInputSchema = BlenderTargetInputSchema.extend({
+  profile: TopologyProfileInputSchema.default("WEB_STATIC"),
+});
+export const ThreeInspectUvInputSchema = BlenderTargetInputSchema;
+export const ThreeValidateMeshInputSchema = BlenderTargetInputSchema.extend({
+  profile: TopologyProfileInputSchema.default("WEB_STATIC"),
+  requireUv: z.boolean().default(false),
+  requireMaterial: z.boolean().default(false),
+});
+export const ThreeValidateMaterialInputSchema = BlenderTargetInputSchema;
+export const ThreeAnalyzeWebQualityInputSchema = BlenderAssetInputSchema.extend({
+  profile: z.enum(["WEB_HERO_HIGH", "WEB_STANDARD", "WEB_MOBILE", "ARCHIVE_HIGH"]),
+});
+export const ThreeBevelMeshInputSchema = BlenderWriteBaseSchema.extend({
+  targetId: EntityIdSchema,
+  selection: MeshSelectionInputSchema,
+  width: z.number().finite().positive().max(100),
+  segments: z.number().int().min(1).max(32),
+  profile: z.number().finite().min(0).max(1).default(0.5),
+  affect: z.enum(["VERTICES", "EDGES"]).default("EDGES"),
+});
+export const ThreeUnwrapUvInputSchema = BlenderWriteBaseSchema.extend({
+  targetId: EntityIdSchema,
+  selection: MeshSelectionInputSchema,
+  method: z.enum(["ANGLE_BASED", "CONFORMAL", "SMART_PROJECT"]),
+  margin: z.number().finite().min(0).max(0.25).default(0.02),
+  packAfter: z.boolean().default(true),
+  rotate: z.boolean().default(true),
+  scaleToFit: z.boolean().default(true),
+});
+export const ThreeUpdatePbrMaterialInputSchema = BlenderUpdateMaterialInputSchema;
 
 const BlenderDiagnosticOutputSchema = z.strictObject({
   code: z.string().min(1).max(128),
@@ -417,6 +484,14 @@ export const TOOL_SCHEMAS = Object.freeze({
     input: ThreeUpdateNodeTransformInputSchema,
     output: WriteToolOutputSchema,
   },
+  "three.inspect_topology": { input: ThreeInspectTopologyInputSchema, output: BlenderExecutionOutputSchema },
+  "three.inspect_uv": { input: ThreeInspectUvInputSchema, output: BlenderExecutionOutputSchema },
+  "three.validate_mesh": { input: ThreeValidateMeshInputSchema, output: BlenderExecutionOutputSchema },
+  "three.validate_material": { input: ThreeValidateMaterialInputSchema, output: BlenderExecutionOutputSchema },
+  "three.analyze_web_quality": { input: ThreeAnalyzeWebQualityInputSchema, output: BlenderExecutionOutputSchema },
+  "three.bevel_mesh": { input: ThreeBevelMeshInputSchema, output: BlenderWriteOutputSchema },
+  "three.unwrap_uv": { input: ThreeUnwrapUvInputSchema, output: BlenderWriteOutputSchema },
+  "three.update_pbr_material": { input: ThreeUpdatePbrMaterialInputSchema, output: BlenderWriteOutputSchema },
   "blender.runtime_info": { input: BlenderRuntimeInfoInputSchema, output: BlenderRuntimeInfoOutputSchema },
   "blender.inspect_scene": { input: BlenderInspectSceneInputSchema, output: BlenderExecutionOutputSchema },
   "blender.inspect_object": { input: BlenderInspectObjectInputSchema, output: BlenderExecutionOutputSchema },

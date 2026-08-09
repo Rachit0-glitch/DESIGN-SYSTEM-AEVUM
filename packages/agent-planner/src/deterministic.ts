@@ -636,6 +636,164 @@ function blenderTransformPlan(
   ];
 }
 
+function professionalMeshPlan(
+  intent: AgentIntent,
+  capabilities: AgentCapabilities,
+  policy: AgentApprovalPolicy,
+  workflow: "BEVEL" | "UV_REPAIR",
+): AgentPlanStep[] {
+  const assetId = String(intent.parameters.assetId ?? "missing-asset");
+  const nodeId = intent.targetNodeIds[0] ?? String(intent.parameters.nodeId ?? "missing-node");
+  const inspectScene = step({
+    goalId: intent.goalId,
+    index: 0,
+    type: "INSPECT",
+    label: "Inspect registered scene through Blender",
+    tool: "blender.inspect_scene",
+    descriptor: findDescriptor(capabilities, "blender.inspect_scene"),
+    data: { assetId },
+    approvalPolicy: policy,
+  });
+  const inspectTool = workflow === "BEVEL" ? "three.inspect_topology" : "three.inspect_uv";
+  const inspectBefore = step({
+    goalId: intent.goalId,
+    index: 1,
+    type: "INSPECT",
+    label: workflow === "BEVEL" ? "Inspect target topology" : "Inspect target UV layout",
+    tool: inspectTool,
+    descriptor: findDescriptor(capabilities, inspectTool),
+    dependencies: [inspectScene.id],
+    data: workflow === "BEVEL" ? { assetId, targetId: nodeId, profile: "WEB_STATIC" } : { assetId, targetId: nodeId },
+    approvalPolicy: policy,
+  });
+  const read = step({
+    goalId: intent.goalId,
+    index: 2,
+    type: "READ",
+    label: "Read canonical mesh document version",
+    tool: "document.get",
+    descriptor: findDescriptor(capabilities, "document.get"),
+    dependencies: [inspectBefore.id],
+    data: { projection: "summary" },
+    approvalPolicy: policy,
+  });
+  const analyze = step({
+    goalId: intent.goalId,
+    index: 3,
+    type: "ANALYZE",
+    label: workflow === "BEVEL" ? "Analyze bounded bevel intent" : "Select deterministic UV repair strategy",
+    dependencies: [inspectBefore.id, read.id],
+    data: { operation: workflow === "BEVEL" ? "BLENDER_BEVEL" : "BLENDER_UV_REPAIR", nodeId },
+    bindings: [{ targetPath: "inspection", sourceStepId: inspectBefore.id, sourcePath: "data.data" }],
+    approvalPolicy: policy,
+  });
+  const tool = workflow === "BEVEL" ? "three.bevel_mesh" : "three.unwrap_uv";
+  const descriptor = findDescriptor(capabilities, tool);
+  const data =
+    workflow === "BEVEL"
+      ? {
+          assetId,
+          targetId: nodeId,
+          expectedDocumentVersion: 1,
+          selection: intent.parameters.selection ?? { kind: "ALL", domain: "EDGE" },
+          width: Number(intent.parameters.width ?? 0.002),
+          segments: Number(intent.parameters.segments ?? 2),
+          profile: Number(intent.parameters.profile ?? 0.5),
+          affect: "EDGES",
+        }
+      : {
+          assetId,
+          targetId: nodeId,
+          expectedDocumentVersion: 1,
+          selection: intent.parameters.selection ?? { kind: "ALL", domain: "FACE" },
+          method: String(intent.parameters.method ?? "ANGLE_BASED"),
+          margin: Number(intent.parameters.margin ?? 0.02),
+          packAfter: true,
+          rotate: true,
+          scaleToFit: true,
+        };
+  const versionBinding: AgentPlanStep["inputBindings"] = [
+    { targetPath: "expectedDocumentVersion", sourceStepId: read.id, sourcePath: "data.documentVersion" },
+  ];
+  const dryRun = step({
+    goalId: intent.goalId,
+    index: 4,
+    type: "DRY_RUN",
+    label: workflow === "BEVEL" ? "Validate bevel operation and growth budget" : "Validate unwrap and pack operation",
+    tool,
+    descriptor,
+    dependencies: [analyze.id],
+    data,
+    bindings: versionBinding,
+    approvalPolicy: policy,
+  });
+  const write = step({
+    goalId: intent.goalId,
+    index: 5,
+    type: "WRITE",
+    label: workflow === "BEVEL" ? "Execute and reconcile bevel derivative" : "Execute and reconcile UV derivative",
+    tool,
+    descriptor,
+    dependencies: [dryRun.id],
+    data,
+    bindings: versionBinding,
+    failurePolicy: "REPLAN",
+    approvalPolicy: policy,
+  });
+  const afterData =
+    workflow === "BEVEL" ? { assetId, targetId: nodeId, profile: "WEB_STATIC" } : { assetId, targetId: nodeId };
+  const inspectAfter = step({
+    goalId: intent.goalId,
+    index: 6,
+    type: "INSPECT",
+    label: workflow === "BEVEL" ? "Reinspect beveled topology" : "Reinspect repaired UV layout",
+    tool: inspectTool,
+    descriptor: findDescriptor(capabilities, inspectTool),
+    dependencies: [write.id],
+    data: afterData,
+    bindings: [{ targetPath: "assetId", sourceStepId: write.id, sourcePath: "data.reconciliation.outputAssetId" }],
+    approvalPolicy: policy,
+  });
+  const assertion =
+    workflow === "BEVEL"
+      ? {
+          sourceStepId: inspectAfter.id,
+          path: "data.data.faceCount",
+          expectedSourceStepId: inspectBefore.id,
+          expectedSourcePath: "data.data.faceCount",
+          operator: "GREATER_THAN" as const,
+        }
+      : { sourceStepId: inspectAfter.id, path: "data.data.layerCount", operator: "GREATER_THAN" as const, value: 0 };
+  const verify = step({
+    goalId: intent.goalId,
+    index: 7,
+    type: "VERIFY",
+    label: workflow === "BEVEL" ? "Verify topology increased safely" : "Verify UV layer survived round trip",
+    dependencies: [inspectAfter.id],
+    expected: assertion,
+    verification: { required: true, strategy: "STATE_ASSERTION", assertions: [assertion] },
+    approvalPolicy: policy,
+  });
+  return [
+    inspectScene,
+    inspectBefore,
+    read,
+    analyze,
+    dryRun,
+    write,
+    inspectAfter,
+    verify,
+    step({
+      goalId: intent.goalId,
+      index: 8,
+      type: "COMPLETE",
+      label: workflow === "BEVEL" ? "Complete professional bevel workflow" : "Complete professional UV workflow",
+      dependencies: [verify.id],
+      approvalPolicy: policy,
+    }),
+  ];
+}
+
 function nodeCreatePlan(
   intent: AgentIntent,
   capabilities: AgentCapabilities,
@@ -827,6 +985,10 @@ export function generateDeterministicPlan(input: {
     steps = threeTransformPlan(input.intent, input.capabilities, policy);
   } else if (operation === "blender_transform") {
     steps = blenderTransformPlan(input.intent, input.capabilities, policy);
+  } else if (operation === "blender_bevel") {
+    steps = professionalMeshPlan(input.intent, input.capabilities, policy, "BEVEL");
+  } else if (operation === "blender_uv_repair") {
+    steps = professionalMeshPlan(input.intent, input.capabilities, policy, "UV_REPAIR");
   } else if (input.intent.category === "INSPECT" || input.intent.category === "PROJECT") {
     steps = inspectPlan(input.intent, input.capabilities, policy);
   } else if (operation === "delete" || input.intent.requiredCapabilities.includes("node.delete")) {

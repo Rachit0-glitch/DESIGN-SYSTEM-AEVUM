@@ -146,6 +146,47 @@ export async function createSimpleCubeFixture(): Promise<ThreeFixture> {
   return serialize(document);
 }
 
+export async function createProfessionalModelingFixture(): Promise<ThreeFixture> {
+  return createThreeFixture();
+}
+
+export async function createInvalidTopologyFixture(): Promise<ThreeFixture> {
+  const document = new Document();
+  const buffer = document.createBuffer("repair-buffer");
+  const positions = document
+    .createAccessor("repair-positions")
+    .setType("VEC3")
+    .setArray(new Float32Array([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0, -1, -1, 0]))
+    .setBuffer(buffer);
+  const texcoords = document
+    .createAccessor("repair-texcoords")
+    .setType("VEC2")
+    .setArray(new Float32Array([0, 0, 1, 0, 1, 1, 0, 1, 0, 0]))
+    .setBuffer(buffer);
+  const indices = document
+    .createAccessor("repair-indices")
+    .setType("SCALAR")
+    .setArray(new Uint16Array([0, 1, 2, 4, 2, 3]))
+    .setBuffer(buffer);
+  const material = document
+    .createMaterial("repair-material")
+    .setBaseColorFactor([0.4, 0.6, 0.8, 1])
+    .setMetallicFactor(0.1)
+    .setRoughnessFactor(0.7);
+  const primitive = document
+    .createPrimitive()
+    .setAttribute("POSITION", positions)
+    .setAttribute("TEXCOORD_0", texcoords)
+    .setIndices(indices)
+    .setMaterial(material);
+  const node = document
+    .createNode("repair-mesh")
+    .setMesh(document.createMesh("repair-mesh-data").addPrimitive(primitive));
+  const scene = document.createScene("repair-scene").addChild(node);
+  document.getRoot().setDefaultScene(scene);
+  return serialize(document);
+}
+
 export async function createThreeFixtureSet(): Promise<ThreeFixtureSet> {
   const [simpleCube, comprehensive] = await Promise.all([createSimpleCubeFixture(), createThreeFixture()]);
   return Object.freeze({

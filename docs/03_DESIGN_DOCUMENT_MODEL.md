@@ -2313,3 +2313,20 @@ mesh references before removing a subtree and rejects animated targets.
 
 GLB stores transforms as float32. Reconciled transform scalars are normalized to six decimal places before canonical
 validation. This defines semantic transform tolerance without claiming byte-identical Blender exports.
+
+---
+
+## 94. Phase 16 Geometry Derivatives And Mesh Identity
+
+Phase 16 does not add raw Blender mesh arrays to the Canonical Design Document and does not require a schema change.
+Professional edits produce immutable GLB derivative assets whose provenance records the source asset, operation,
+operation fingerprint, Blender runtime, output hash, actor, correlation ID, and document version.
+
+For an unambiguous edited object with one directly owned canonical primitive, reconciliation updates the primitive's
+`geometryAssetId`, normalized geometry metadata, and topology metadata in the same atomic transaction that registers
+the derivative. Canonical node and material identities remain stable. Vertex, edge, and face mappings are execution
+and validation artifacts with explicit preserved/partial/destroyed status; they are not asserted as durable canonical
+IDs after remesh or destructive topology work.
+
+Materials continue to use canonical PBR values and asset-backed texture bindings. Blender shader nodes, local texture
+paths, process state, selection state, modifiers, and temporary files are not canonical truth.

@@ -150,6 +150,28 @@ function analyzeStep(input: Record<string, unknown>): Record<string, unknown> {
     }
     return { expectedX: Math.round((position.x + input.deltaX) * 1_000_000) / 1_000_000 };
   }
+  if (input.operation === "BLENDER_BEVEL") {
+    const inspection = input.inspection as { faceCount?: number; edgeCount?: number } | undefined;
+    if (!inspection || typeof inspection.faceCount !== "number" || typeof inspection.edgeCount !== "number") {
+      throw new Error("Target topology is unavailable for bevel analysis.");
+    }
+    return {
+      currentFaces: inspection.faceCount,
+      currentEdges: inspection.edgeCount,
+      expectedImpact: "TOPOLOGY_CHANGING",
+    };
+  }
+  if (input.operation === "BLENDER_UV_REPAIR") {
+    const inspection = input.inspection as { layerCount?: number; diagnostics?: unknown[] } | undefined;
+    if (!inspection || typeof inspection.layerCount !== "number") {
+      throw new Error("Target UV report is unavailable for repair analysis.");
+    }
+    return {
+      currentLayers: inspection.layerCount,
+      issueCount: inspection.diagnostics?.length ?? 0,
+      strategy: "UNWRAP_AND_PACK",
+    };
+  }
   return { analysis: "NO_OP" };
 }
 
@@ -161,7 +183,10 @@ function protectedViolation(
   if (
     step.tool !== "node.update" &&
     step.tool !== "three.update_node_transform" &&
-    step.tool !== "blender.update_object_transform"
+    step.tool !== "blender.update_object_transform" &&
+    step.tool !== "three.bevel_mesh" &&
+    step.tool !== "three.unwrap_uv" &&
+    step.tool !== "three.update_pbr_material"
   )
     return undefined;
   const nodeId =
@@ -169,9 +194,15 @@ function protectedViolation(
   const changes =
     step.tool === "three.update_node_transform" || step.tool === "blender.update_object_transform"
       ? ["transform"]
-      : input.changes && typeof input.changes === "object"
-        ? Object.keys(input.changes as object)
-        : [];
+      : step.tool === "three.bevel_mesh"
+        ? ["geometry", "topology"]
+        : step.tool === "three.unwrap_uv"
+          ? ["geometry", "uv"]
+          : step.tool === "three.update_pbr_material"
+            ? ["material"]
+            : input.changes && typeof input.changes === "object"
+              ? Object.keys(input.changes as object)
+              : [];
   return session.constraints.protectedProperties.find((property) => {
     if (property.nodeId && property.nodeId !== nodeId) return false;
     return changes.some((changed) => property.property === changed || property.property.startsWith(`${changed}.`));

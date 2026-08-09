@@ -1793,7 +1793,7 @@ Implement professional geometry, topology, UV, texture, material, and optimizati
 ### Status
 
 ```text
-PLANNED
+VALIDATED
 ```
 
 ### Scope
@@ -1823,6 +1823,66 @@ PLANNED
 - Materials remain canonical
 - High-resolution and delivery assets remain separate
 - Web derivatives meet budgets
+
+### Current Phase 16 Evidence
+
+Status update:
+
+- Date: 2026-08-09
+- Owner: Codex
+- Previous status: IN_PROGRESS
+- New status: VALIDATED
+- Evidence:
+  - Professional protocol `1.0.0` adds strict deterministic selectors, operation safety classification, topology/UV/PBR
+    reports, web-quality profiles, element mappings, structured diagnostics, and bounded growth estimation.
+  - The bridge-owned Blender dispatcher implements finite mesh, topology, normal, UV, PBR, optimization, and LOD
+    operations without exposing Python, shell, operator names, arbitrary modifiers, paths, add-ons, or network access.
+  - Real Blender 5.1.2 tests prove extrusion, inset, bevel, applied subdivision, solidify, mirror, join, material
+    separation, normal repair, duplicate-position repair, UV creation/unwrap/pack, PBR round trip, GLB export and
+    Phase 14 reinspection, canonical geometry reconciliation, and decimation-based LOD generation.
+  - MCP tool version `1.3.0` exposes five professional 3D reads and three bounded writes using existing asset,
+    document, three, and Blender permissions. Unknown code fields are rejected, writes honor locks/version checks,
+    dry runs avoid Blender, and output artifacts are persisted before post-write verification.
+  - The deterministic Agent discovers professional capabilities and proves inspect, topology analysis, dry run, real
+    bevel execution, derivative persistence, canonical reconciliation, reinspection, and measurable verification.
+  - Topology edits preserve stable canonical object/primitive identities where unambiguous, register immutable GLB
+    derivatives, and report partial or destroyed element identity honestly. Heavy topology remains outside the CDD.
+- Validation results:
+  - Real Blender suite: PASS, 1 file and 16 tests in 131.24 seconds; Blender 5.1.2, Python 3.13.9
+  - Focused portable Phase 16 suite: PASS, 6 files and 33 tests
+  - Full portable repository suite: PASS, 41 files and 233 tests
+  - `pnpm validate:docs`: PASS for 12 canonical files
+  - `pnpm validate:deps`: PASS for 57 workspace packages
+  - `pnpm format:check`: PASS for 440 files before this evidence-only update
+  - `pnpm lint`: PASS for 441 files with no warnings
+  - `pnpm typecheck`: PASS, 76 tasks across 57 packages
+  - `pnpm build`: PASS for all 57 workspace packages
+  - `pnpm validate`: PASS
+  - `pnpm validate:docker`: PASS; Compose resolves Redis and `aevum-network`
+  - Supabase linked migrations: synchronized through `20260809000100`; no Phase 16 migration was required
+  - Railway `@aevum/api`: RUNNING and `/health` HTTP 200
+  - Railway `mcp-server`: RUNNING and `/health`, `/ready`, `/version` HTTP 200
+  - Vercel `design-system-aevum`: READY and production alias HTTP 200
+  - Railway `@aevum/blender-bridge`: intentionally OFFLINE with no deployment
+- Remaining warnings:
+  - Loop cuts on complex rings, non-destructive modifier retention, selected-face/loose-part separation, voxel remesh,
+    advanced cleanup, seam authoring, UV transform, texel-density estimates, and UDIM inspection remain EXPERIMENTAL.
+  - Professional automatic/character retopology, sculpting, texture baking/painting/generation, arbitrary shader
+    graphs, rigging, simulation, production rendering, and visual 3D comparison remain DEFERRED.
+  - Geometry reconciliation currently requires exactly one directly owned canonical primitive for the edited object;
+    ambiguous multi-primitive geometry updates are rejected instead of flattening or guessing.
+- Blockers:
+  - None.
+- Decisions:
+  - Existing `blender.read`, `blender.write`, `three.read`, and `three.write` permissions are sufficient; no permission
+    sprawl or raw operation-manifest MCP endpoint was introduced.
+  - No CDD schema or database migration was needed. Edited geometry is an asset derivative with canonical references,
+    metadata, and provenance rather than raw production topology in document state.
+  - Railway Blender remains inactive; Phase 16 production capability is validated against the configured local binary.
+- Next action:
+  - Begin Phase 17 with immutable multi-view reference-set, view-role, camera-estimate, landmark, and cross-view
+    validation contracts before implementing any model generation. Reuse Phase 16 topology, UV, PBR, derivative,
+    Command Engine, MCP, and Agent boundaries; do not introduce direct AI-to-Blender execution.
 
 ---
 

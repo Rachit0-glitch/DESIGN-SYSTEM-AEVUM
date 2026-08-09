@@ -15,7 +15,7 @@ import { createAsset, fixtures, type CanonicalDesignDocument } from "@aevum/docu
 import { apply3DImportProposal, create3DImportProposal } from "@aevum/renderer-3d";
 import { createRuntimeViewport, project3DScene, projectScene } from "@aevum/scene-runtime";
 import { env } from "@aevum/shared";
-import { createThreeFixture } from "@aevum/test-fixtures";
+import { createInvalidTopologyFixture, createProfessionalModelingFixture } from "@aevum/test-fixtures";
 import { beforeAll, describe, expect, it } from "vitest";
 import { createAgentTestFixture } from "../helpers/agent-fixture.js";
 
@@ -28,19 +28,18 @@ interface Foundation {
   readonly sourceAssetId: string;
 }
 
-async function createFoundation(): Promise<Foundation> {
-  const fixture = await createThreeFixture();
+async function createFoundationFromBytes(bytes: Uint8Array, name = "Phase 16 fixture.glb"): Promise<Foundation> {
   const source = createAsset({
     type: "GLB",
-    name: "Phase 15 fixture.glb",
-    hash: computeSha256(fixture.glb),
-    uri: "fixture://phase15.glb",
+    name,
+    hash: computeSha256(bytes),
+    uri: `fixture://${name.toLowerCase().replaceAll(" ", "-")}`,
     mimeType: "model/gltf-binary",
-    byteSize: fixture.glb.byteLength,
+    byteSize: bytes.byteLength,
   });
   const empty = fixtures.empty();
   empty.assets[source.id] = source;
-  const proposal = await create3DImportProposal({ canonicalDocument: empty, asset: source, bytes: fixture.glb });
+  const proposal = await create3DImportProposal({ canonicalDocument: empty, asset: source, bytes });
   const document = apply3DImportProposal({
     document: empty,
     proposal,
@@ -48,7 +47,12 @@ async function createFoundation(): Promise<Foundation> {
     timestamp,
     correlationId: "phase15-real-foundation",
   }).newDocument;
-  return { bytes: fixture.glb, document, sourceAssetId: source.id };
+  return { bytes, document, sourceAssetId: source.id };
+}
+
+async function createFoundation(): Promise<Foundation> {
+  const fixture = await createProfessionalModelingFixture();
+  return createFoundationFromBytes(fixture.glb);
 }
 
 function jobFor(foundation: Foundation, operation: BlenderOperation, expectedGlb = true, timeoutMs = 60_000) {
@@ -74,6 +78,17 @@ function jobFor(foundation: Foundation, operation: BlenderOperation, expectedGlb
       maxMeshes: 1_000,
       maxMaterials: 1_000,
       timeoutMs,
+      professional: {
+        maxSelectedElements: 100_000,
+        maxOutputVertices: 2_000_000,
+        maxOutputFaces: 2_000_000,
+        maxTopologyGrowthRatio: 8,
+        maxSubdivisionLevel: 3,
+        maxBevelSegments: 8,
+        maxLoopCuts: 16,
+        maxUvIslands: 10_000,
+        maxModifiers: 64,
+      },
     },
     expectedOutputs: { inspection: true, glb: expectedGlb },
   });
@@ -88,6 +103,25 @@ function requireRoundTrip(execution: BlenderExecution): asserts execution is Ble
   if (!execution.outputGlb || !execution.result.runtime) {
     throw new Error("Successful Blender write requires runtime metadata and GLB output.");
   }
+}
+
+async function reconcileExecution(
+  foundation: Foundation,
+  operation: BlenderOperation,
+  execution: BlenderExecution,
+): Promise<Foundation> {
+  requireRoundTrip(execution);
+  const job = jobFor(foundation, operation);
+  const proposal = await createBlenderReconciliationProposal({
+    document: foundation.document,
+    job,
+    runtime: execution.result.runtime,
+    outputGlb: execution.outputGlb,
+    actor,
+    timestamp,
+  });
+  const document = applyBlenderReconciliation(foundation.document, proposal).newDocument;
+  return { bytes: execution.outputGlb, document, sourceAssetId: proposal.outputAsset.id };
 }
 
 describe.sequential("Phase 15 real Blender 5.1 execution", () => {
@@ -368,7 +402,7 @@ describe.sequential("Phase 15 real Blender 5.1 execution", () => {
     const result = await fixture.run();
     const current = await fixture.mcp.repository.getCurrentDocument(fixture.mcp.workspaceId, fixture.mcp.projectId);
 
-    expect(result.run.status).toBe("SUCCEEDED");
+    expect(result.run.status, JSON.stringify(result.run.outcome?.diagnostics ?? [])).toBe("SUCCEEDED");
     expect(fixture.calls.map((entry) => entry.request.tool)).toEqual([
       "system.get_capabilities",
       "blender.inspect_scene",
@@ -385,5 +419,333 @@ describe.sequential("Phase 15 real Blender 5.1 execution", () => {
     ).toEqual([true, false]);
     expect(current?.nodes[target.id]?.transform.position.x).toBeCloseTo(originalX + 0.02, 4);
     expect(result.run.outcome?.verification?.success).toBe(true);
+  });
+
+  it("executes the Agent to MCP professional bevel workflow with persisted derivative verification", async () => {
+    const target = Object.values(foundation.document.nodes).find(
+      (node) => node.type === "GROUP_3D" && node.name === "detail-mesh",
+    );
+    if (!target) throw new Error("Expected Agent bevel target is missing.");
+    const bytesByAsset = new Map<string, Uint8Array>([[foundation.sourceAssetId, foundation.bytes]]);
+    const adapter = createBlenderMcpAdapter({
+      runner,
+      config: blenderBridgeConfig(env),
+      resolveAsset: async (asset) => {
+        const bytes = bytesByAsset.get(asset.id);
+        if (!bytes) throw new Error("Agent requested an unpersisted Blender artifact.");
+        return bytes;
+      },
+      persistArtifact: async (asset, bytes) => {
+        bytesByAsset.set(asset.id, bytes);
+      },
+    });
+    const fixture = createAgentTestFixture({
+      document: foundation.document,
+      category: "EDIT",
+      request: "Add a small bevel to the watch case.",
+      requestedOutcome: "Apply a two-segment bounded bevel and verify topology growth.",
+      targetNodeIds: [target.id],
+      parameters: {
+        operation: "blender_bevel",
+        assetId: foundation.sourceAssetId,
+        nodeId: target.id,
+        width: 0.05,
+        segments: 2,
+        selection: { kind: "ALL", domain: "EDGE" },
+      },
+      blenderAdapter: adapter,
+      clientTimeoutMs: 60_000,
+      mcpToolTimeoutMs: 60_000,
+    });
+    const result = await fixture.run();
+    expect(result.run.status, JSON.stringify(result.run.outcome?.diagnostics ?? [])).toBe("SUCCEEDED");
+    expect(fixture.calls.map((entry) => entry.request.tool)).toEqual([
+      "system.get_capabilities",
+      "blender.inspect_scene",
+      "three.inspect_topology",
+      "document.get",
+      "three.bevel_mesh",
+      "three.bevel_mesh",
+      "three.inspect_topology",
+    ]);
+    expect(
+      fixture.calls.filter((entry) => entry.request.tool === "three.bevel_mesh").map((entry) => entry.request.dryRun),
+    ).toEqual([true, false]);
+    expect(result.run.outcome?.verification?.success).toBe(true);
+    expect(bytesByAsset.size).toBe(2);
+  });
+
+  it("executes real topology inspection and controlled face extrusion", async () => {
+    const target = Object.values(foundation.document.nodes).find(
+      (node) => node.type === "GROUP_3D" && node.name === "detail-mesh",
+    );
+    if (!target) throw new Error("Expected professional mesh target is missing.");
+    const inspect = await runner.execute(
+      jobFor(
+        foundation,
+        { operationVersion: "1.0.0", kind: "mesh.topology_inspect", objectId: target.id, profile: "WEB_STATIC" },
+        false,
+      ),
+      foundation.bytes,
+    );
+    const before = inspect.result.data as { vertexCount: number; faceCount: number };
+    expect(inspect.result.state).toBe("SUCCEEDED");
+    expect(before.faceCount).toBeGreaterThan(0);
+
+    const operation: BlenderOperation = {
+      operationVersion: "1.0.0",
+      kind: "mesh.extrude",
+      objectId: target.id,
+      selection: { kind: "FACE_IDS", indices: [0] },
+      direction: { x: 0, y: 0, z: 1 },
+      distance: 0.2,
+      coordinateSpace: "LOCAL",
+    };
+    const execution = await runner.execute(jobFor(foundation, operation), foundation.bytes);
+    const result = execution.result.data as { before: { faces: number }; after: { faces: number }; mapping: unknown };
+    expect(execution.result.state).toBe("SUCCEEDED");
+    expect(result.after.faces).toBeGreaterThan(result.before.faces);
+    expect(result.mapping).toBeDefined();
+    expect(execution.result.artifacts.some((artifact) => artifact.type === "GLB")).toBe(true);
+  });
+
+  it("bevels a real mesh and reconciles derivative geometry without disturbing hierarchy or materials", async () => {
+    const target = Object.values(foundation.document.nodes).find(
+      (node) => node.type === "GROUP_3D" && node.name === "detail-mesh",
+    );
+    if (!target) throw new Error("Expected bevel target is missing.");
+    const parentId = target.parentId;
+    const siblingIds = parentId ? [...(foundation.document.nodes[parentId]?.childIds ?? [])] : [];
+    const materialIds = target.childIds.flatMap((id) => {
+      const node = foundation.document.nodes[id];
+      return node?.type === "MESH_3D" ? node.materialIds : [];
+    });
+    const operation: BlenderOperation = {
+      operationVersion: "1.0.0",
+      kind: "mesh.bevel",
+      objectId: target.id,
+      selection: { kind: "ALL", domain: "EDGE" },
+      width: 0.05,
+      segments: 2,
+      profile: 0.5,
+      affect: "EDGES",
+    };
+    const execution = await runner.execute(jobFor(foundation, operation), foundation.bytes);
+    const result = execution.result.data as { before: { faces: number }; after: { faces: number } };
+    expect(execution.result.state).toBe("SUCCEEDED");
+    expect(result.after.faces).toBeGreaterThan(result.before.faces);
+    const reconciled = await reconcileExecution(foundation, operation, execution);
+    const currentTarget = reconciled.document.nodes[target.id];
+    expect(currentTarget?.parentId).toBe(parentId);
+    expect(parentId ? reconciled.document.nodes[parentId]?.childIds : []).toEqual(siblingIds);
+    const currentMaterials = currentTarget?.childIds.flatMap((id) => {
+      const node = reconciled.document.nodes[id];
+      return node?.type === "MESH_3D" ? node.materialIds : [];
+    });
+    expect(currentMaterials).toEqual(materialIds);
+    expect(currentTarget?.childIds.some((id) => reconciled.document.nodes[id]?.type === "MESH_3D")).toBe(true);
+  });
+
+  it("creates, unwraps, packs, exports, and reinspects UVs through canonical reconciliation", async () => {
+    const target = Object.values(foundation.document.nodes).find(
+      (node) => node.type === "GROUP_3D" && node.name === "detail-mesh",
+    );
+    if (!target) throw new Error("Expected UV target is missing.");
+    const operation: BlenderOperation = {
+      operationVersion: "1.0.0",
+      kind: "uv.unwrap",
+      objectId: target.id,
+      selection: { kind: "ALL", domain: "FACE" },
+      method: "ANGLE_BASED",
+      margin: 0.02,
+      packAfter: true,
+      rotate: true,
+      scaleToFit: true,
+    };
+    const execution = await runner.execute(jobFor(foundation, operation), foundation.bytes);
+    expect(execution.result.state).toBe("SUCCEEDED");
+    const reconciled = await reconcileExecution(foundation, operation, execution);
+    const inspect = await runner.execute(
+      jobFor(reconciled, { operationVersion: "1.0.0", kind: "uv.inspect", objectId: target.id }, false),
+      reconciled.bytes,
+    );
+    const report = inspect.result.data as {
+      layerCount: number;
+      islandCount: number;
+      outOfBoundsLoopCount: number;
+      diagnostics: unknown[];
+    };
+    expect(inspect.result.state).toBe("SUCCEEDED");
+    expect(report.layerCount).toBeGreaterThan(0);
+    expect(report.islandCount).toBeGreaterThan(0);
+    expect(report.outOfBoundsLoopCount).toBe(0);
+    const mesh = target.childIds.map((id) => reconciled.document.nodes[id]).find((node) => node?.type === "MESH_3D");
+    expect(mesh?.type === "MESH_3D" ? mesh.geometry.texCoordSets : 0).toBeGreaterThan(0);
+  });
+
+  it("validates canonical PBR semantics through the real Principled material graph", async () => {
+    const material = Object.values(foundation.document.materials)[0];
+    if (!material) throw new Error("Expected PBR material is missing.");
+    const validation = await runner.execute(
+      jobFor(foundation, { operationVersion: "1.0.0", kind: "material.validate_pbr", materialId: material.id }, false),
+      foundation.bytes,
+    );
+    const report = validation.result.data as { graphSupport: string; metallic: number; roughness: number };
+    expect(validation.result.state).toBe("SUCCEEDED");
+    expect(["LOSSLESS_SUPPORTED", "PARTIAL"]).toContain(report.graphSupport);
+    expect(report.metallic).toBeGreaterThanOrEqual(0);
+    expect(report.roughness).toBeLessThanOrEqual(1);
+  });
+
+  it("detects and repairs controlled loose topology without changing the retained surface", async () => {
+    const fixture = await createInvalidTopologyFixture();
+    const invalid = await createFoundationFromBytes(fixture.glb, "Phase 16 invalid topology.glb");
+    const target = Object.values(invalid.document.nodes).find(
+      (node) => node.type === "GROUP_3D" && node.name === "repair-mesh",
+    );
+    if (!target) throw new Error("Expected repair target is missing.");
+    const inspectOperation: BlenderOperation = {
+      operationVersion: "1.0.0",
+      kind: "mesh.topology_inspect",
+      objectId: target.id,
+      profile: "WEB_STATIC",
+    };
+    const beforeExecution = await runner.execute(jobFor(invalid, inspectOperation, false), invalid.bytes);
+    const before = beforeExecution.result.data as { duplicatePositionCandidateCount: number; faceCount: number };
+    expect(before.duplicatePositionCandidateCount).toBeGreaterThan(0);
+    const repairOperation: BlenderOperation = {
+      operationVersion: "1.0.0",
+      kind: "mesh.merge_vertices",
+      objectId: target.id,
+      selection: { kind: "ALL", domain: "VERTEX" },
+      strategy: "BY_DISTANCE",
+      distance: 0.000001,
+    };
+    const repairedExecution = await runner.execute(jobFor(invalid, repairOperation), invalid.bytes);
+    expect(repairedExecution.result.state).toBe("SUCCEEDED");
+    const repaired = await reconcileExecution(invalid, repairOperation, repairedExecution);
+    const afterExecution = await runner.execute(jobFor(repaired, inspectOperation, false), repaired.bytes);
+    const after = afterExecution.result.data as { duplicatePositionCandidateCount: number; faceCount: number };
+    expect(after.duplicatePositionCandidateCount).toBe(0);
+    expect(after.faceCount).toBe(before.faceCount);
+  });
+
+  it("executes the bounded modeling, modifier, normal, UV-layer, join, and separate operation matrix", async () => {
+    const detail = Object.values(foundation.document.nodes).find(
+      (node) => node.type === "GROUP_3D" && node.name === "detail-mesh",
+    );
+    const nested = Object.values(foundation.document.nodes).find(
+      (node) => node.type === "GROUP_3D" && node.name === "nested-mesh",
+    );
+    if (!detail || !nested) throw new Error("Expected professional operation targets are missing.");
+    const newSeparatedId = "group_55555555-5555-4555-8555-555555555555";
+    const operations: BlenderOperation[] = [
+      {
+        operationVersion: "1.0.0",
+        kind: "mesh.inset",
+        objectId: detail.id,
+        selection: { kind: "FACE_IDS", indices: [0] },
+        amount: 0.05,
+        depth: 0,
+        mode: "REGION",
+      },
+      {
+        operationVersion: "1.0.0",
+        kind: "mesh.subdivide",
+        objectId: detail.id,
+        selection: { kind: "ALL", domain: "FACE" },
+        level: 1,
+        mode: "APPLIED_TOPOLOGY",
+      },
+      {
+        operationVersion: "1.0.0",
+        kind: "mesh.solidify",
+        objectId: detail.id,
+        thickness: 0.05,
+        offset: 0,
+        evenThickness: true,
+        apply: true,
+      },
+      {
+        operationVersion: "1.0.0",
+        kind: "mesh.mirror",
+        objectId: detail.id,
+        axis: "X",
+        merge: true,
+        mergeThreshold: 0.001,
+        apply: true,
+      },
+      {
+        operationVersion: "1.0.0",
+        kind: "mesh.recalculate_normals",
+        objectId: detail.id,
+        selection: { kind: "ALL", domain: "FACE" },
+        direction: "OUTSIDE",
+      },
+      {
+        operationVersion: "1.0.0",
+        kind: "uv.create_layer",
+        objectId: detail.id,
+        name: "AEVUM_Phase16",
+        setActive: true,
+      },
+      {
+        operationVersion: "1.0.0",
+        kind: "uv.pack",
+        objectId: nested.id,
+        margin: 0.02,
+        rotate: true,
+        scaleToFit: true,
+      },
+      {
+        operationVersion: "1.0.0",
+        kind: "mesh.join",
+        objectId: detail.id,
+        sourceObjectIds: [nested.id],
+      },
+      {
+        operationVersion: "1.0.0",
+        kind: "mesh.separate",
+        objectId: nested.id,
+        selection: { kind: "ALL", domain: "FACE" },
+        policy: "BY_MATERIAL",
+        newEntityIds: [newSeparatedId],
+      },
+    ];
+    for (const operation of operations) {
+      const execution = await runner.execute(jobFor(foundation, operation), foundation.bytes);
+      expect(execution.result.state, `${operation.kind}: ${JSON.stringify(execution.result.diagnostics)}`).toBe(
+        "SUCCEEDED",
+      );
+      expect(execution.outputGlb).toBeDefined();
+    }
+  });
+
+  it("creates an explicit decimation LOD derivative with lower geometry and preserved materials", async () => {
+    const target = Object.values(foundation.document.nodes).find(
+      (node) => node.type === "GROUP_3D" && node.name === "nested-mesh",
+    );
+    if (!target) throw new Error("Expected LOD target is missing.");
+    const operation: BlenderOperation = {
+      operationVersion: "1.0.0",
+      kind: "optimization.generate_lod",
+      objectId: target.id,
+      level: "LOD1",
+      ratio: 0.5,
+      newEntityId: "group_66666666-6666-4666-8666-666666666666",
+    };
+    const execution = await runner.execute(jobFor(foundation, operation), foundation.bytes);
+    const result = execution.result.data as {
+      sourceMetrics: { triangles: number };
+      metrics: { triangles: number };
+      sourceMaterials: string[];
+      materials: string[];
+    };
+    expect(execution.result.state).toBe("SUCCEEDED");
+    expect(result.metrics.triangles).toBeLessThan(result.sourceMetrics.triangles);
+    expect(result.materials).toEqual(result.sourceMaterials);
+    expect(
+      execution.result.artifacts.some((artifact) => artifact.type === "GLB" && artifact.hash.startsWith("sha256:")),
+    ).toBe(true);
   });
 });

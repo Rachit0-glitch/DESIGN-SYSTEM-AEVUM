@@ -11,11 +11,23 @@ import {
 import type { BlenderBridgeConfig } from "./config.js";
 import { blenderError } from "./errors.js";
 import { createBlenderIdentityBindings } from "./identity.js";
+import { estimateTopologyGrowth, validateGrowthEstimate } from "./professional.js";
 import { BlenderOperationSchema, createBlenderJob, type BlenderJob, type BlenderOperation } from "./protocol.js";
 import { applyBlenderReconciliation, createBlenderReconciliationProposal } from "./reconciliation.js";
 import type { BlenderExecution, BlenderJobRunner } from "./runner.js";
 
-type BlenderToolName = Extract<McpToolName, `blender.${string}`>;
+type BlenderToolName = Extract<
+  McpToolName,
+  | `blender.${string}`
+  | "three.inspect_topology"
+  | "three.inspect_uv"
+  | "three.validate_mesh"
+  | "three.validate_material"
+  | "three.analyze_web_quality"
+  | "three.bevel_mesh"
+  | "three.unwrap_uv"
+  | "three.update_pbr_material"
+>;
 
 export interface BlenderAssetResolverContext {
   readonly workspaceId: string;
@@ -28,6 +40,7 @@ export interface BlenderMcpAdapterOptions {
   readonly runner: BlenderJobRunner;
   readonly config: BlenderBridgeConfig;
   resolveAsset(asset: AssetRecord, context: BlenderAssetResolverContext): Promise<Uint8Array>;
+  persistArtifact?(asset: AssetRecord, bytes: Uint8Array, context: BlenderAssetResolverContext): Promise<void>;
 }
 
 export interface BlenderMcpToolAdapter {
@@ -72,6 +85,28 @@ function operationFor(tool: BlenderToolName, payload: Record<string, unknown>): 
       return BlenderOperationSchema.parse({ ...base, kind: "object.inspect", objectId: payload.targetId });
     case "blender.inspect_mesh":
       return BlenderOperationSchema.parse({ ...base, kind: "mesh.inspect", objectId: payload.targetId });
+    case "three.inspect_topology":
+      return BlenderOperationSchema.parse({
+        ...base,
+        kind: "mesh.topology_inspect",
+        objectId: payload.targetId,
+        profile: payload.profile,
+      });
+    case "three.inspect_uv":
+      return BlenderOperationSchema.parse({ ...base, kind: "uv.inspect", objectId: payload.targetId });
+    case "three.validate_mesh":
+      return BlenderOperationSchema.parse({
+        ...base,
+        kind: "mesh.validate",
+        objectId: payload.targetId,
+        profile: payload.profile,
+        requireUv: payload.requireUv,
+        requireMaterial: payload.requireMaterial,
+      });
+    case "three.validate_material":
+      return BlenderOperationSchema.parse({ ...base, kind: "material.validate_pbr", materialId: payload.targetId });
+    case "three.analyze_web_quality":
+      return BlenderOperationSchema.parse({ ...base, kind: "optimization.analyze", profile: payload.profile });
     case "blender.inspect_material":
       return BlenderOperationSchema.parse({ ...base, kind: "material.inspect", materialId: payload.targetId });
     case "blender.inspect_camera":
@@ -91,6 +126,7 @@ function operationFor(tool: BlenderToolName, payload: Record<string, unknown>): 
         ...(payload.scale ? { scale: payload.scale } : {}),
       });
     case "blender.update_material":
+    case "three.update_pbr_material":
       return BlenderOperationSchema.parse({
         ...base,
         kind: "material.update_pbr",
@@ -100,6 +136,30 @@ function operationFor(tool: BlenderToolName, payload: Record<string, unknown>): 
         ...(payload.roughness !== undefined ? { roughness: payload.roughness } : {}),
         ...(payload.alpha !== undefined ? { alpha: payload.alpha } : {}),
         ...(payload.emission ? { emission: payload.emission } : {}),
+        ...(payload.normalStrength !== undefined ? { normalStrength: payload.normalStrength } : {}),
+      });
+    case "three.bevel_mesh":
+      return BlenderOperationSchema.parse({
+        ...base,
+        kind: "mesh.bevel",
+        objectId: payload.targetId,
+        selection: payload.selection,
+        width: payload.width,
+        segments: payload.segments,
+        profile: payload.profile,
+        affect: payload.affect,
+      });
+    case "three.unwrap_uv":
+      return BlenderOperationSchema.parse({
+        ...base,
+        kind: "uv.unwrap",
+        objectId: payload.targetId,
+        selection: payload.selection,
+        method: payload.method,
+        margin: payload.margin,
+        packAfter: payload.packAfter,
+        rotate: payload.rotate,
+        scaleToFit: payload.scaleToFit,
       });
     case "blender.update_camera": {
       const changes = ["position", "rotation", "target", "focalLength", "fieldOfView", "nearClip", "farClip"].filter(
@@ -152,13 +212,86 @@ function operationFor(tool: BlenderToolName, payload: Record<string, unknown>): 
   }
 }
 
+const READ_OPERATION_KINDS = new Set<BlenderOperation["kind"]>([
+  "scene.inspect",
+  "object.inspect",
+  "mesh.inspect",
+  "mesh.topology_inspect",
+  "mesh.validate",
+  "uv.inspect",
+  "uv.texel_density",
+  "uv.udim_inspect",
+  "material.inspect",
+  "material.validate_pbr",
+  "camera.inspect",
+  "light.inspect",
+  "optimization.analyze",
+]);
+
+function selectionCount(operation: BlenderOperation, vertices: number, faces: number): number {
+  if (!("selection" in operation)) return faces;
+  const selection = operation.selection;
+  if ("indices" in selection) return selection.indices.length;
+  if (selection.kind === "ALL") return selection.domain === "VERTEX" ? vertices : faces;
+  return Math.min(faces, 1_000);
+}
+
+function assertProfessionalBudget(
+  document: CanonicalDesignDocument,
+  operation: BlenderOperation,
+  config: BlenderBridgeConfig,
+): void {
+  if (!("objectId" in operation) || !operation.kind.startsWith("mesh.")) return;
+  const object = document.nodes[operation.objectId];
+  const mesh = object?.childIds.map((id) => document.nodes[id]).find((node) => node?.type === "MESH_3D");
+  if (mesh?.type !== "MESH_3D") return;
+  const selectedCount = selectionCount(operation, mesh.topology.vertices, mesh.topology.faces);
+  if (selectedCount > config.professional.maxSelectedElements) {
+    throw blenderError("MESH_LIMIT_EXCEEDED", "Mesh selection exceeds the configured resource budget.");
+  }
+  if (operation.kind === "mesh.bevel" && operation.segments > config.professional.maxBevelSegments) {
+    throw blenderError("BEVEL_GROWTH_EXCEEDED", "Bevel segments exceed the configured resource budget.");
+  }
+  if (operation.kind === "mesh.subdivide" && operation.level > config.professional.maxSubdivisionLevel) {
+    throw blenderError("SUBDIVISION_GROWTH_EXCEEDED", "Subdivision level exceeds the configured resource budget.");
+  }
+  if (operation.kind === "mesh.loop_cut" && operation.cutCount > config.professional.maxLoopCuts) {
+    throw blenderError("MESH_LIMIT_EXCEEDED", "Loop-cut count exceeds the configured resource budget.");
+  }
+  const estimate = estimateTopologyGrowth({
+    kind: operation.kind,
+    vertexCount: mesh.topology.vertices,
+    faceCount: mesh.topology.faces,
+    selectedCount,
+    ...(operation.kind === "mesh.subdivide" ? { subdivisionLevel: operation.level } : {}),
+    ...(operation.kind === "mesh.bevel" ? { bevelSegments: operation.segments } : {}),
+    ...(operation.kind === "mesh.loop_cut" ? { loopCuts: operation.cutCount } : {}),
+  });
+  try {
+    validateGrowthEstimate(estimate, config.professional);
+  } catch {
+    throw blenderError("MESH_OPERATION_BUDGET_EXCEEDED", "Predicted topology growth exceeds the job budget.");
+  }
+}
+
+function assetLineage(document: CanonicalDesignDocument, assetId: string): ReadonlySet<string> {
+  const ids = new Set<string>();
+  let current: string | undefined = assetId;
+  while (current && !ids.has(current)) {
+    ids.add(current);
+    current = document.assets[current]?.source.originalAssetId;
+  }
+  return ids;
+}
+
 function assertOperationTarget(document: CanonicalDesignDocument, assetId: string, operation: BlenderOperation): void {
+  const lineage = assetLineage(document, assetId);
   if ("objectId" in operation) {
     const node = document.nodes[operation.objectId];
-    if (!node || node.importProvenance?.sourceAssetId !== assetId) {
+    if (!node || !lineage.has(node.importProvenance?.sourceAssetId ?? "")) {
       throw blenderError("BLENDER_OBJECT_NOT_FOUND", "The Blender object is not owned by the requested source asset.");
     }
-    if (["object.transform", "object.duplicate", "object.delete"].includes(operation.kind) && node.locked) {
+    if (!READ_OPERATION_KINDS.has(operation.kind) && node.locked) {
       throw blenderError("BLENDER_INPUT_INVALID", "Locked canonical objects cannot be modified through Blender.");
     }
     if (operation.kind === "object.duplicate" && document.nodes[operation.newEntityId]) {
@@ -167,17 +300,23 @@ function assertOperationTarget(document: CanonicalDesignDocument, assetId: strin
   }
   if (
     "materialId" in operation &&
-    document.materials[operation.materialId]?.importProvenance?.sourceAssetId !== assetId
+    !lineage.has(document.materials[operation.materialId]?.importProvenance?.sourceAssetId ?? "")
   ) {
     throw blenderError(
       "BLENDER_MATERIAL_NOT_FOUND",
       "The Blender material is not owned by the requested source asset.",
     );
   }
-  if ("cameraId" in operation && document.cameras[operation.cameraId]?.importProvenance?.sourceAssetId !== assetId) {
+  if (
+    "cameraId" in operation &&
+    !lineage.has(document.cameras[operation.cameraId]?.importProvenance?.sourceAssetId ?? "")
+  ) {
     throw blenderError("BLENDER_CAMERA_NOT_FOUND", "The Blender camera is not owned by the requested source asset.");
   }
-  if ("lightId" in operation && document.lights[operation.lightId]?.importProvenance?.sourceAssetId !== assetId) {
+  if (
+    "lightId" in operation &&
+    !lineage.has(document.lights[operation.lightId]?.importProvenance?.sourceAssetId ?? "")
+  ) {
     throw blenderError("BLENDER_LIGHT_NOT_FOUND", "The Blender light is not owned by the requested source asset.");
   }
   if (operation.kind === "object.transform" && !operation.translation && !operation.rotation && !operation.scale) {
@@ -189,7 +328,8 @@ function assertOperationTarget(document: CanonicalDesignDocument, assetId: strin
     operation.metallic === undefined &&
     operation.roughness === undefined &&
     operation.alpha === undefined &&
-    !operation.emission
+    !operation.emission &&
+    operation.normalStrength === undefined
   ) {
     throw blenderError("BLENDER_INPUT_INVALID", "Material update requires at least one bounded PBR value.");
   }
@@ -246,10 +386,11 @@ function jobFor(
       maxMeshes: config.maxMeshes,
       maxMaterials: config.maxMaterials,
       timeoutMs: config.maxJobSeconds * 1_000,
+      professional: config.professional,
     },
     expectedOutputs: {
       inspection: true,
-      glb: !operation.kind.endsWith(".inspect") && operation.kind !== "scene.validate",
+      glb: !READ_OPERATION_KINDS.has(operation.kind),
     },
   });
 }
@@ -309,6 +450,7 @@ export function createBlenderMcpAdapter(options: BlenderMcpAdapterOptions): Blen
       if (!operation)
         throw blenderError("BLENDER_OPERATION_UNSUPPORTED", "The requested Blender operation is unsupported.");
       assertOperationTarget(input.document, asset.id, operation);
+      assertProfessionalBudget(input.document, operation, options.config);
       if ("expectedDocumentVersion" in payload && payload.expectedDocumentVersion !== input.document.documentVersion) {
         throw new McpProtocolError({
           code: "MCP_DOCUMENT_VERSION_CONFLICT",
@@ -324,7 +466,7 @@ export function createBlenderMcpAdapter(options: BlenderMcpAdapterOptions): Blen
         });
       }
       const job = jobFor(input.document, asset, operation, input, options.config);
-      const classification = input.tool.startsWith("blender.inspect_") ? "READ" : "WRITE";
+      const classification = READ_OPERATION_KINDS.has(operation.kind) ? "READ" : "WRITE";
       if (input.request.dryRun && classification === "WRITE") {
         return {
           data: {
@@ -382,6 +524,14 @@ export function createBlenderMcpAdapter(options: BlenderMcpAdapterOptions): Blen
         timestamp: input.timestamp,
       });
       const commit = applyBlenderReconciliation(input.document, proposal);
+      if (options.persistArtifact) {
+        await options.persistArtifact(proposal.outputAsset, execution.outputGlb, {
+          workspaceId,
+          projectId,
+          documentId: input.document.metadata.id,
+          actorId: input.actor.id,
+        });
+      }
       return {
         data: {
           dryRun: false,

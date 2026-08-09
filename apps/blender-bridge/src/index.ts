@@ -6,6 +6,7 @@ export * from "./identity.js";
 export * from "./health.js";
 export * from "./mcp-adapter.js";
 export * from "./process.js";
+export * from "./professional.js";
 export * from "./protocol.js";
 export * from "./reconciliation.js";
 export * from "./runner.js";

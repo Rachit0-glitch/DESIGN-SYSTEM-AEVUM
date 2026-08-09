@@ -23,6 +23,12 @@ records. Original source assets are immutable. Embedded images become hashed and
 source-asset and source-index provenance. One canonical `MESH_3D` is created per glTF primitive so each draw unit is
 independently addressable.
 
+Phase 16 Blender topology and UV edits remain derivative geometry assets. Reinspection recovers primitive metadata,
+then one atomic Command Engine reconciliation updates the existing canonical primitive's geometry asset reference,
+geometry metrics, and topology metadata. Heavy vertex, edge, face, and UV arrays remain in the registered GLB
+artifact, not in the Canonical Design Document. Current geometry reconciliation intentionally requires one directly
+owned canonical primitive for the edited Blender object; ambiguous multi-primitive rewrites are rejected.
+
 ## Security And Determinism
 
 The parser never fetches network resources and rejects absolute, backslash, traversal, malformed, missing, or
@@ -31,9 +37,10 @@ depth. Stable IDs and fingerprints derive from registered source identity and no
 
 ## Boundaries
 
-This package does not implement GPU rendering, Three.js or R3F objects, browser playback, uploads, model editing,
-retopology, UV editing, rigging, physics, reconstruction, Blender execution, or visual comparison. Unsupported glTF
-features remain visible through structured diagnostics.
+This package does not execute GPU rendering, Three.js or R3F objects, browser playback, uploads, Blender modeling,
+retopology, UV operators, rigging, physics, reconstruction, or visual comparison. Blender Bridge owns execution;
+Renderer 3D owns format inspection and canonical recovery. Unsupported glTF features remain visible through
+structured diagnostics.
 
 ## Allowed Dependencies
 
