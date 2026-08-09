@@ -46,6 +46,11 @@ SUPABASE_STORAGE_BUCKET=<environment value>
 SUPABASE_JWT_SECRET=<secret environment value when HS256 is enabled>
 ```
 
+Projects using asymmetric Auth signing do not set `SUPABASE_JWT_SECRET`; the server verifies ES256 tokens through the
+Supabase JWKS endpoint. The production smoke still rejects malformed, invalid-signature, expired-claim,
+wrong-issuer, and wrong-audience probes without logging token material. Exact `MCP_TOKEN_EXPIRED` attribution for a
+synthetically signed probe is available only when a trusted HS256 test signer is configured.
+
 `DATABASE_URL` and `DATABASE_URL_DIRECT` are full-platform database settings. They are not required by the Phase 12
 MCP service because its persistence adapter uses the authenticated Supabase Data API and atomic RPC.
 

@@ -259,8 +259,8 @@ async function runProductionSmoke(): Promise<void> {
         });
         return { status: response.status, body: McpResponseEnvelopeSchema.parse(await response.json()) };
       };
-      const jwtSecret = required(env.supabase.jwtSecret, "SUPABASE_JWT_SECRET");
-      const signingKey = new TextEncoder().encode(jwtSecret);
+      const hasTrustedSyntheticSigner = Boolean(env.supabase.jwtSecret);
+      const signingKey = new TextEncoder().encode(env.supabase.jwtSecret ?? randomUUID());
       const issuer = `${supabaseUrl.replace(/\/$/, "")}/auth/v1`;
       const claims = { role: "authenticated", email };
       const signedToken = async (overrides: { issuer?: string; audience?: string; expiration?: number } = {}) =>
@@ -290,7 +290,8 @@ async function runProductionSmoke(): Promise<void> {
       const authenticationChecks = [malformed, invalid, wrongIssuer, wrongAudience].every(
         (result) => result.status === 401 && result.body.errors[0]?.code === "MCP_AUTHENTICATION_INVALID",
       );
-      if (!authenticationChecks || expired.status !== 401 || expired.body.errors[0]?.code !== "MCP_TOKEN_EXPIRED") {
+      const expiredErrorCode = hasTrustedSyntheticSigner ? "MCP_TOKEN_EXPIRED" : "MCP_AUTHENTICATION_INVALID";
+      if (!authenticationChecks || expired.status !== 401 || expired.body.errors[0]?.code !== expiredErrorCode) {
         throw new Error("Remote MCP JWT rejection verification failed.");
       }
       const health = await fetch(new URL("/health", baseUrl));

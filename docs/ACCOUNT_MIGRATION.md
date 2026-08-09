@@ -9,6 +9,57 @@ replacement stack is validated.
 The Canonical Design Document, project history, assets, audit records, and all future state must remain recoverable.
 Never commit provider tokens, Supabase keys, passwords, JWT secrets, database URLs, or downloaded environment files.
 
+## Target Cutover Evidence
+
+The replacement account stack was provisioned on 2026-08-09.
+
+### Target GitHub
+
+- Repository: `Rachit0-glitch/DESIGN-SYSTEM-AEVUM`
+- Default branch: `main`
+- The old repository remains available locally as the rollback remote `legacy-origin`.
+
+### Target Supabase
+
+- Project: `Design-System-Aevum`
+- Project reference: `jvfjymuxrxxjmfjuggrz`
+- Region: `ap-southeast-2`
+- Authentication signing: ES256 through the project JWKS
+- Applied migrations: `20260801174219`, `20260802000100`, `20260809000100`
+- Storage bucket: private `aevum-assets`
+- Restored migration data: 35 MCP audit records
+- Auth users, storage objects, canonical projects/documents, and idempotency records remained empty at cutover
+
+### Target Railway
+
+- Workspace: `rachit0-glitch's Projects`
+- Project: `DESIGN-SYSTEM-AEVUM`
+- Project ID: `6dece8e6-35ab-4067-96b2-3fad90e503fe`
+- API service: `0a9ab3a8-f1ce-45cd-addc-e571f14897e6`
+- API URL: `https://aevumapi-production-5fd5.up.railway.app`
+- MCP service: `2d8abfa5-f858-4379-8551-4558adff4512`
+- MCP URL: `https://mcp-server-production-209e.up.railway.app`
+- Blender Bridge service: `78a8a16b-40fe-435b-97ca-9d1428129352`, intentionally undeployed
+
+The active API and MCP services use validated Railway CLI snapshot deployments. Git sources remain disconnected because
+Railway CLI 5.30.3 does not apply nested monorepo manifests during automatic source builds. MCP deployments mirror
+`apps/mcp-server/railway.toml` at the upload root temporarily as documented in `MCP_DEPLOYMENT.md`; the mirror is never
+committed.
+
+### Target Vercel
+
+- Scope: `rachitsipariarx-6088s-projects`
+- Project: `design-system-aevum`
+- Project ID: `prj_LLGoVugXxIiFlUv09c4hZ52egGcY`
+- Production alias: `https://design-system-aevum-peach.vercel.app`
+- Deployment ID: `dpl_BH2gbxZBGGMdohzapQ1Yikt2z9MY`
+- Project-wide deployment protection: disabled
+- Build settings are versioned in root `vercel.json`
+- Git source: `Rachit0-glitch/DESIGN-SYSTEM-AEVUM`, branch `main`
+
+The production deployment was created through the authenticated Vercel CLI, and the Vercel GitHub App is authorized
+for automatic deployments from the target repository.
+
 ## Migration State
 
 Prepared on 2026-08-09 from Git commit `d08c380be34d8852f2e8b1564fa18de27d91b886`.
