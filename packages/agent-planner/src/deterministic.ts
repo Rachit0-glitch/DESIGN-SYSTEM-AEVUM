@@ -500,6 +500,60 @@ function threeTransformPlan(
   ];
 }
 
+function multiviewReconstructionPlan(
+  intent: AgentIntent,
+  capabilities: AgentCapabilities,
+  policy: AgentApprovalPolicy,
+): AgentPlanStep[] {
+  const analyze = step({
+    goalId: intent.goalId,
+    index: 0,
+    type: "INSPECT",
+    label: "Analyze multi-view reference set for 3D reconstruction readiness",
+    tool: "three.multiview_analyze",
+    descriptor: findDescriptor(capabilities, "three.multiview_analyze"),
+    data: {
+      ...(intent.parameters.subjectLabel !== undefined ? { subjectLabel: intent.parameters.subjectLabel } : {}),
+      ...(intent.parameters.subjectCategory !== undefined
+        ? { subjectCategory: intent.parameters.subjectCategory }
+        : {}),
+      views: intent.parameters.views ?? [],
+      landmarkHints: intent.parameters.landmarkHints ?? [],
+      partHints: intent.parameters.partHints ?? [],
+      scaleHints: intent.parameters.scaleHints ?? [],
+      ...(intent.parameters.targetQuality !== undefined ? { targetQuality: intent.parameters.targetQuality } : {}),
+    },
+    approvalPolicy: policy,
+  });
+  const assertion = {
+    sourceStepId: analyze.id,
+    path: "data.readiness.classification",
+    operator: "EXISTS" as const,
+  };
+  const verify = step({
+    goalId: intent.goalId,
+    index: 1,
+    type: "VERIFY",
+    label: "Verify a reconstruction readiness assessment was produced",
+    dependencies: [analyze.id],
+    expected: assertion,
+    verification: { required: true, strategy: "STATE_ASSERTION", assertions: [assertion] },
+    approvalPolicy: policy,
+  });
+  return [
+    analyze,
+    verify,
+    step({
+      goalId: intent.goalId,
+      index: 2,
+      type: "COMPLETE",
+      label: "Report multi-view reconstruction readiness",
+      dependencies: [verify.id],
+      approvalPolicy: policy,
+    }),
+  ];
+}
+
 function blenderTransformPlan(
   intent: AgentIntent,
   capabilities: AgentCapabilities,
@@ -989,6 +1043,8 @@ export function generateDeterministicPlan(input: {
     steps = professionalMeshPlan(input.intent, input.capabilities, policy, "BEVEL");
   } else if (operation === "blender_uv_repair") {
     steps = professionalMeshPlan(input.intent, input.capabilities, policy, "UV_REPAIR");
+  } else if (operation === "multiview_reconstruct") {
+    steps = multiviewReconstructionPlan(input.intent, input.capabilities, policy);
   } else if (input.intent.category === "INSPECT" || input.intent.category === "PROJECT") {
     steps = inspectPlan(input.intent, input.capabilities, policy);
   } else if (operation === "delete" || input.intent.requiredCapabilities.includes("node.delete")) {

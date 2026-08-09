@@ -66,6 +66,9 @@ importers:
       '@aevum/motion-reconstruction-worker':
         specifier: workspace:*
         version: link:apps/motion-reconstruction-worker
+      '@aevum/multiview-reconstruction':
+        specifier: workspace:*
+        version: link:packages/multiview-reconstruction
       '@aevum/project-store':
         specifier: workspace:*
         version: link:packages/project-store
@@ -237,6 +240,9 @@ importers:
       '@aevum/mcp-protocol':
         specifier: workspace:*
         version: link:../../packages/mcp-protocol
+      '@aevum/multiview-reconstruction':
+        specifier: workspace:*
+        version: link:../../packages/multiview-reconstruction
       '@aevum/project-store':
         specifier: workspace:*
         version: link:../../packages/project-store
@@ -612,6 +618,18 @@ importers:
       '@aevum/command-engine':
         specifier: workspace:*
         version: link:../command-engine
+      '@aevum/document-model':
+        specifier: workspace:*
+        version: link:../document-model
+      '@aevum/shared':
+        specifier: workspace:*
+        version: link:../shared
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
+
+  packages/multiview-reconstruction:
+    dependencies:
       '@aevum/document-model':
         specifier: workspace:*
         version: link:../document-model

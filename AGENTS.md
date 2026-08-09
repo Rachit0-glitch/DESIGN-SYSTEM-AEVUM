@@ -57,6 +57,7 @@ Use these terms consistently:
 - Multi-Stack Export
 - Canva Export
 - Command Engine
+- Agent Runtime
 
 Do not introduce alternate product names or abbreviations that weaken these meanings.
 

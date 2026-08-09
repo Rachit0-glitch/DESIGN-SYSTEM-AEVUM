@@ -1417,8 +1417,8 @@ animation.*
 three.*
 camera.*
 lighting.*
-materials.*
-rigging.*
+material.*
+rig.*
 simulation.*
 render.*
 compare.*

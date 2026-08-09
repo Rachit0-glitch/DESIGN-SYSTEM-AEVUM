@@ -94,4 +94,36 @@ describe("agent planner", () => {
     ]);
     expect(plan.steps.some((step) => step.tool === "reconstruction.execute")).toBe(false);
   });
+
+  it("plans a bounded read-only multi-view reconstruction analysis with no dry-run or write", () => {
+    const fixture = plannerFixture();
+    const goal = createAgentGoal({
+      category: "CUSTOM_3D",
+      request: "Prepare these views for 3D reconstruction.",
+      parameters: {
+        operation: "multiview_reconstruct",
+        views: [
+          { assetId: "asset_00000000-0000-4000-8000-000000000001", imageWidth: 1024, imageHeight: 1024, role: "FRONT" },
+        ],
+      },
+    });
+    const session = createAgentSession({
+      actorId: "actor",
+      workspaceId: "workspace",
+      projectId: "project",
+      documentId: "document",
+      goal,
+      createdAt: NOW,
+    });
+    const context = assembleAgentContext({ goal, records: [] });
+    const provider = createDeterministicReasoningProvider();
+    const intent = provider.analyzeIntent({ session, context });
+    const plan = provider.generatePlan({ session, context, intent, capabilities: fixture.capabilities });
+
+    expect(plan.capabilityGaps).toEqual([]);
+    expect(plan.steps.map((step) => step.type)).toEqual(["INSPECT", "VERIFY", "COMPLETE"]);
+    expect(plan.steps[0]?.tool).toBe("three.multiview_analyze");
+    expect(plan.steps.some((step) => step.type === "DRY_RUN" || step.type === "WRITE")).toBe(false);
+    expect(validatePlan(plan).valid).toBe(true);
+  });
 });

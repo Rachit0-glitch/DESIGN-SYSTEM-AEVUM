@@ -1650,6 +1650,20 @@ interface ValidationRecord {
 
 Validation records shall be immutable.
 
+**Implementation note (added during the Phase 17 documentation reconciliation):** the interface
+above is the target shape for this section's discussion of canonical persistence and is not
+identical to either the currently implemented canonical `ValidationRecordSchema` in
+`packages/document-model` (a deliberately slim persisted summary: `id`, `createdAt`, `status`,
+`scores`, `referenceIds`, `heatmapAssetIds`, `reportAssetId`, `metadata`) or the much richer
+in-memory `ValidationReportSchema` owned by `packages/validation` (Phase 7; region/typography/color
+comparisons, heatmaps, per-issue attribution, threshold profiles). This is an intentional
+canonical-summary-versus-domain-report split, not a schema bug: the full `ValidationReportSchema`
+is the working artifact validation actually produces, and only a compact summary of it is intended
+to be referenced from the Canonical Design Document. Treat `docs/09_VISUAL_VALIDATION.md` and
+`packages/validation/src/schemas.ts` as authoritative for the full report shape; treat this section
+as the aspirational canonical-summary contract, not yet reconciled field-for-field with the real
+`ValidationRecordSchema`.
+
 ---
 
 ## 62. Export Metadata
@@ -1706,6 +1720,17 @@ interface ExportCapabilityReport {
 ```
 
 Canva and code exporters shall use this report.
+
+**Implementation note (added during the Phase 17 documentation reconciliation):** neither
+`ExportRecord.capabilityReport` nor a standalone `ExportCapabilityReport` type currently exists in
+`packages/document-model`. The real, implemented `ExportRecordSchema` is simpler than shown above
+(`id`, `exporter`, `exporterVersion`, `createdAt`, `status`, `artifacts`, `unsupportedFeatures`,
+`flattenedNodeIds`) and has no capability-report field at all. This is not a schema mismatch to
+resolve — it reflects that the Multi-Stack Export system (`packages/exporters` and the target-stack
+exporter packages) remains a Phase 23+ `PLANNED` capability with only placeholder shells today (see
+`docs/11_ROADMAP_AND_STATUS.md`). `docs/10_EXPORT_SYSTEM.md`'s richer `ExportCapabilityReport`
+(native/adapted/flattened/unsupported classification, editability percentages) is the intended
+future contract for that unbuilt system, not a description of anything currently persisted.
 
 ---
 

@@ -16,6 +16,7 @@ import {
   type McpPermission,
   type McpToolName,
 } from "@aevum/mcp-protocol";
+import { analyzeMultiView, createMultiViewTask } from "@aevum/multiview-reconstruction";
 import { create3DRenderPlan } from "@aevum/renderer-3d";
 import { createRuntimeViewport, project3DScene, projectScene, type RuntimeViewport } from "@aevum/scene-runtime";
 import type {
@@ -506,6 +507,77 @@ export function registerInitialTools(
             renderPlanFingerprint: plan.fingerprint,
             renderOperationCount: plan.operations.length,
             diagnostics: threeProjection.diagnostics.map((diagnostic) => diagnostic.code),
+          },
+        };
+      },
+      config,
+    ),
+  );
+
+  registry.registerTool(
+    definition(
+      "three.multiview_analyze",
+      "Analyze several registered images of one object as a deterministic multi-view reconstruction reference set.",
+      ["asset.read", "three.read"],
+      "READ",
+      async (raw, context) => {
+        const input = TOOL_SCHEMAS["three.multiview_analyze"].input.parse(raw);
+        const document = await currentDocument(context);
+
+        for (const view of input.views) {
+          const asset = document.assets[view.assetId];
+          if (!asset) fail(context, "MCP_DOCUMENT_NOT_FOUND", `Referenced asset ${view.assetId} does not exist.`);
+          if (asset.type !== "IMAGE") {
+            fail(context, "MCP_INPUT_INVALID", `Referenced asset ${view.assetId} must be a registered IMAGE asset.`);
+          }
+        }
+
+        const task = createMultiViewTask({
+          projectId: document.metadata.projectId,
+          ...(input.subjectLabel ? { subjectLabel: input.subjectLabel } : {}),
+          ...(input.subjectCategory ? { subjectCategory: input.subjectCategory } : {}),
+          views: input.views.map((view) => ({
+            assetId: view.assetId,
+            imageWidth: view.imageWidth,
+            imageHeight: view.imageHeight,
+            ...(view.silhouetteContour ? { silhouetteContour: view.silhouetteContour } : {}),
+          })),
+          roleHints: input.views
+            .map((view) => (view.role ? { assetId: view.assetId, role: view.role, userProvided: true } : undefined))
+            .filter((hint): hint is NonNullable<typeof hint> => hint !== undefined),
+          landmarkHints: input.landmarkHints,
+          partHints: input.partHints,
+          scaleHints: input.scaleHints,
+          config: {},
+          deterministicSeed: 0,
+          createdAt: context.timestamp,
+          createdBy: actorForCommand(context),
+        });
+
+        const { report } = analyzeMultiView(task, {
+          createdAt: context.timestamp,
+          ...(input.targetQuality ? { targetQuality: input.targetQuality } : {}),
+        });
+
+        return {
+          data: {
+            taskId: report.taskId,
+            referenceSetId: report.referenceSetId,
+            viewSummaries: report.viewSummaries.map((summary) => ({
+              assetId: summary.assetId,
+              role: summary.role,
+              roleConfidence: summary.roleConfidence,
+            })),
+            coverage: report.coverage.directions,
+            readiness: { classification: report.readiness.classification, score: report.readiness.score },
+            validationStatus: report.validation.status,
+            reportStatus: report.status,
+            diagnostics: report.diagnostics.map((entry) => ({
+              code: entry.code,
+              severity: entry.severity,
+              message: entry.message,
+            })),
+            reportFingerprint: report.reportFingerprint,
           },
         };
       },

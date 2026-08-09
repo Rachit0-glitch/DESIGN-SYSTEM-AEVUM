@@ -45,6 +45,7 @@
     "@aevum/mcp-server": "workspace:*",
     "@aevum/motion-reconstruction": "workspace:*",
     "@aevum/motion-reconstruction-worker": "workspace:*",
+    "@aevum/multiview-reconstruction": "workspace:*",
     "@aevum/exporters": "workspace:*",
     "@aevum/project-store": "workspace:*",
     "@aevum/reconstruction": "workspace:*",

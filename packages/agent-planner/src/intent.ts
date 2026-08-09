@@ -17,6 +17,9 @@ function initialCapabilities(session: AgentSession): string[] {
   if (goal.parameters.operation === "blender_uv_repair") {
     return ["blender.inspect_scene", "three.inspect_uv", "document.get", "three.unwrap_uv"];
   }
+  if (goal.parameters.operation === "multiview_reconstruct") {
+    return ["three.multiview_analyze"];
+  }
   switch (goal.category) {
     case "INSPECT":
       return ["project.get", "document.inspect_hierarchy"];
@@ -71,6 +74,7 @@ function requiredPermissions(capabilities: readonly string[]): AgentIntent["requ
       ].includes(capability);
       permissions.add(write ? "three.write" : "three.read");
       if (write) permissions.add("document.write");
+      if (capability === "three.multiview_analyze") permissions.add("asset.read");
       if (capability.startsWith("three.inspect_") || capability.startsWith("three.validate_")) {
         permissions.add("blender.read");
       }

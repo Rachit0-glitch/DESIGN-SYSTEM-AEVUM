@@ -104,6 +104,33 @@ describe("agent orchestration workflow", () => {
     expect(result.run.outcome?.verification?.success).toBe(true);
   });
 
+  it("prepares multi-view references for 3D reconstruction readiness through MCP", async () => {
+    const document = fixtures.assetDemo();
+    const imageAsset = Object.values(document.assets).find((asset) => asset.type === "IMAGE");
+    if (!imageAsset) throw new Error("Multi-view fixture requires a registered IMAGE asset.");
+    const fixture = createAgentTestFixture({
+      document,
+      category: "CUSTOM_3D",
+      request: "Prepare these views for 3D reconstruction.",
+      parameters: {
+        operation: "multiview_reconstruct",
+        views: [{ assetId: imageAsset.id, imageWidth: 1024, imageHeight: 1024, role: "FRONT" }],
+      },
+    });
+    const result = await fixture.run();
+
+    expect(result.run.status).toBe("SUCCEEDED");
+    expect(fixture.calls.map((entry) => entry.request.tool)).toEqual([
+      "system.get_capabilities",
+      "three.multiview_analyze",
+    ]);
+    expect(result.run.outcome?.verification?.success).toBe(true);
+    const analyzeObservation = result.observations.find(
+      (entry) => entry.data && JSON.stringify(entry.data).includes("readiness"),
+    );
+    expect(analyzeObservation).toBeDefined();
+  });
+
   it("renames through dry run, Command Engine commit, verification, persistence, audit, and idempotent retry", async () => {
     let replayed = false;
     const fixture = createAgentTestFixture({

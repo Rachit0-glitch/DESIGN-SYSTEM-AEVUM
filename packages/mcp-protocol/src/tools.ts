@@ -16,7 +16,7 @@ import { z } from "zod";
 import { McpPermissionSchema } from "./permissions.js";
 import { MCP_PROTOCOL_VERSION } from "./version.js";
 
-export const MCP_TOOL_VERSION = "1.3.0" as const;
+export const MCP_TOOL_VERSION = "1.4.0" as const;
 export const McpAuthModeSchema = z.enum(["development", "supabase", "disabled"]);
 export const McpToolNameSchema = z.enum([
   "system.get_capabilities",
@@ -38,6 +38,7 @@ export const McpToolNameSchema = z.enum([
   "three.bevel_mesh",
   "three.unwrap_uv",
   "three.update_pbr_material",
+  "three.multiview_analyze",
   "blender.runtime_info",
   "blender.inspect_scene",
   "blender.inspect_object",
@@ -224,6 +225,133 @@ export const ThreeInspectSceneOutputSchema = z.strictObject({
   renderPlanFingerprint: z.string().regex(/^sha256:[0-9a-f]{64}$/i),
   renderOperationCount: z.number().int().nonnegative(),
   diagnostics: z.array(z.string()),
+});
+
+// Phase 17 multi-view reconstruction foundation. This tool is read-only from the canonical
+// document's perspective: it analyzes already-registered image assets and returns a bounded,
+// flattened evidence summary. It never mutates the document and never invokes Blender or any
+// model-generation provider. The richer internal evidence graph (full landmark/constraint/part
+// records) lives in `@aevum/multiview-reconstruction` and is intentionally not mirrored here in
+// full to avoid duplicating that package's schema surface into the MCP protocol layer.
+const MultiviewNormalizedPointSchema = z.strictObject({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) });
+const MultiviewViewRoleSchema = z.enum([
+  "FRONT",
+  "BACK",
+  "LEFT",
+  "RIGHT",
+  "TOP",
+  "BOTTOM",
+  "THREE_QUARTER_FRONT_LEFT",
+  "THREE_QUARTER_FRONT_RIGHT",
+  "THREE_QUARTER_BACK_LEFT",
+  "THREE_QUARTER_BACK_RIGHT",
+  "DETAIL",
+  "UNKNOWN",
+]);
+export const ThreeMultiviewAnalyzeInputSchema = z.strictObject({
+  subjectLabel: z.string().min(1).max(255).optional(),
+  subjectCategory: z.string().min(1).max(255).optional(),
+  views: z
+    .array(
+      z.strictObject({
+        assetId: EntityIdSchema,
+        role: MultiviewViewRoleSchema.optional(),
+        imageWidth: z.number().int().positive().max(16_384),
+        imageHeight: z.number().int().positive().max(16_384),
+        silhouetteContour: z.array(MultiviewNormalizedPointSchema).min(3).max(256).optional(),
+      }),
+    )
+    .min(1)
+    .max(16),
+  landmarkHints: z
+    .array(
+      z.strictObject({
+        semanticLabel: z.string().min(1).max(255),
+        observations: z
+          .array(
+            z.strictObject({
+              assetId: EntityIdSchema,
+              normalized: MultiviewNormalizedPointSchema,
+              visibility: z.enum(["VISIBLE", "PARTIAL", "OCCLUDED", "OUT_OF_FRAME", "UNKNOWN"]).optional(),
+            }),
+          )
+          .min(1)
+          .max(16),
+      }),
+    )
+    .max(64)
+    .default([]),
+  partHints: z
+    .array(
+      z.strictObject({
+        label: z.string().min(1).max(255),
+        observations: z
+          .array(
+            z.strictObject({
+              assetId: EntityIdSchema,
+              bounds: z.strictObject({
+                minX: z.number().min(0).max(1),
+                minY: z.number().min(0).max(1),
+                maxX: z.number().min(0).max(1),
+                maxY: z.number().min(0).max(1),
+              }),
+              visibility: z
+                .enum(["VISIBLE", "PARTIALLY_OCCLUDED", "FULLY_OCCLUDED", "SELF_OCCLUDED", "OUT_OF_FRAME", "UNKNOWN"])
+                .optional(),
+            }),
+          )
+          .min(1)
+          .max(16),
+      }),
+    )
+    .max(32)
+    .default([]),
+  scaleHints: z
+    .array(
+      z.strictObject({
+        source: z.enum(["USER_PROVIDED", "KNOWN_SPECIFICATION", "REFERENCE_OBJECT", "INFERRED"]),
+        value: z.number().finite().positive(),
+        unit: z.enum(["MM", "CM", "M", "IN", "FT"]),
+        description: z.string().min(1).max(500).optional(),
+        confidence: z.number().min(0).max(1),
+      }),
+    )
+    .max(8)
+    .default([]),
+  targetQuality: z.enum(["DRAFT", "HIGH_QUALITY", "MAXIMUM_FIDELITY"]).optional(),
+});
+export const ThreeMultiviewAnalyzeOutputSchema = z.strictObject({
+  taskId: z.string().min(1),
+  referenceSetId: z.string().min(1),
+  viewSummaries: z.array(
+    z.strictObject({
+      assetId: EntityIdSchema,
+      role: MultiviewViewRoleSchema,
+      roleConfidence: z.number().min(0).max(1),
+    }),
+  ),
+  coverage: z.record(
+    z.enum(["FRONT", "BACK", "LEFT", "RIGHT", "TOP", "BOTTOM"]),
+    z.strictObject({
+      status: z.enum(["COVERED", "WEAK", "MISSING"]),
+      confidence: z.number().min(0).max(1),
+      viewIds: z.array(z.string()),
+    }),
+  ),
+  readiness: z.strictObject({
+    classification: z.enum(["INSUFFICIENT", "WEAK", "USABLE", "STRONG", "EXCELLENT"]),
+    score: z.number().min(0).max(1),
+  }),
+  validationStatus: z.enum(["PASS", "WARN", "FAIL"]),
+  reportStatus: z.enum(["READY_FOR_PROPOSAL", "NEEDS_MORE_EVIDENCE", "BLOCKED"]),
+  diagnostics: z.array(
+    z.strictObject({
+      code: z.string(),
+      severity: z.enum(["INFO", "WARNING", "ERROR", "CRITICAL"]),
+      message: z.string(),
+    }),
+  ),
+  reportFingerprint: z.string().regex(/^sha256:[0-9a-f]{64}$/i),
 });
 
 const WriteBaseSchema = z.strictObject({ expectedDocumentVersion: z.number().int().positive() });
@@ -476,6 +604,7 @@ export const TOOL_SCHEMAS = Object.freeze({
   "timeline.get": { input: TimelineGetInputSchema, output: TimelineGetOutputSchema },
   "three.inspect_asset": { input: ThreeInspectAssetInputSchema, output: ThreeInspectAssetOutputSchema },
   "three.inspect_scene": { input: ThreeInspectSceneInputSchema, output: ThreeInspectSceneOutputSchema },
+  "three.multiview_analyze": { input: ThreeMultiviewAnalyzeInputSchema, output: ThreeMultiviewAnalyzeOutputSchema },
   "document.rename": { input: DocumentRenameInputSchema, output: WriteToolOutputSchema },
   "node.create": { input: NodeCreateInputSchema, output: WriteToolOutputSchema },
   "node.update": { input: NodeUpdateInputSchema, output: WriteToolOutputSchema },
