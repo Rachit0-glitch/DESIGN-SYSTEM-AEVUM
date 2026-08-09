@@ -42,9 +42,8 @@ The replacement account stack was provisioned on 2026-08-09.
 - Blender Bridge service: `78a8a16b-40fe-435b-97ca-9d1428129352`, intentionally undeployed
 
 The active API and MCP services use validated Railway CLI snapshot deployments. Git sources remain disconnected because
-Railway CLI 5.30.3 does not apply nested monorepo manifests during automatic source builds. MCP deployments mirror
-`apps/mcp-server/railway.toml` at the upload root temporarily as documented in `MCP_DEPLOYMENT.md`; the mirror is never
-committed.
+Railway CLI 5.30.3 does not apply nested monorepo manifests during automatic source builds. Deployments mirror
+`apps/api/railway.toml` or `apps/mcp-server/railway.toml` at the upload root temporarily; the mirror is never committed.
 
 ### Target Vercel
 

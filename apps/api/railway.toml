@@ -1,0 +1,17 @@
+[build]
+builder = "RAILPACK"
+buildCommand = "pnpm --filter @aevum/api... run build"
+watchPatterns = [
+  "apps/api/**",
+  "packages/shared/**",
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+]
+
+[deploy]
+startCommand = "pnpm --filter @aevum/api start"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
