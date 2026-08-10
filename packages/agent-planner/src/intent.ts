@@ -20,6 +20,9 @@ function initialCapabilities(session: AgentSession): string[] {
   if (goal.parameters.operation === "multiview_reconstruct") {
     return ["three.multiview_analyze"];
   }
+  if (goal.parameters.operation === "generate_reconstruction_candidate") {
+    return ["three.multiview_analyze", "three.reconstruction_generate_candidate"];
+  }
   switch (goal.category) {
     case "INSPECT":
       return ["project.get", "document.inspect_hierarchy"];
@@ -71,10 +74,14 @@ function requiredPermissions(capabilities: readonly string[]): AgentIntent["requ
         "three.bevel_mesh",
         "three.unwrap_uv",
         "three.update_pbr_material",
+        "three.reconstruction_generate_candidate",
       ].includes(capability);
       permissions.add(write ? "three.write" : "three.read");
       if (write) permissions.add("document.write");
-      if (capability === "three.multiview_analyze") permissions.add("asset.read");
+      if (capability === "three.multiview_analyze" || capability === "three.reconstruction_generate_candidate") {
+        permissions.add("asset.read");
+      }
+      if (capability === "three.reconstruction_generate_candidate") permissions.add("asset.write");
       if (capability.startsWith("three.inspect_") || capability.startsWith("three.validate_")) {
         permissions.add("blender.read");
       }

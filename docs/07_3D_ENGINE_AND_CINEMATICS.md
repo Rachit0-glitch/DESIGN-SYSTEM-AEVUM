@@ -2252,5 +2252,30 @@ out-of-bounds loops, approximate overlap/packing metrics, optional density, UDIM
 metrics are labeled and are not represented as exact geometric proofs.
 
 Professional automatic retopology, character topology, sculpting, texture baking/painting/generation, arbitrary shader
-graphs, rigging, simulation, production rendering, visual 3D comparison, and multi-view reconstruction remain
-deferred. Phase 16 establishes safe local contracts; it does not claim those later capabilities.
+graphs, rigging, simulation, production rendering, and visual 3D comparison remain deferred. Phase 16 establishes safe
+local contracts; it does not claim those later capabilities.
+
+## 103. Phase 18 Multi-View Reconstruction Execution
+
+`packages/geometry-reconstruction` implements the first real local reconstruction provider
+(`LOCAL_BASELINE`) consuming Phase 17's multi-view evidence: box/cylinder primitive fitting derived
+from silhouette-backed dimension constraints, and a real multi-view silhouette-volume intersection
+(voxel visual hull) with per-voxel boundary-face surface extraction as the general-purpose
+fallback. Candidates are scored against real cross-view metrics (rasterized silhouette IoU/
+precision/recall, Chamfer boundary distance, closest-point-on-triangle landmark distance,
+constraint satisfaction, coverage, and a local structural-validity check) and refined through a
+bounded, gradient-free dimension-correction loop that rejects any adjustment regressing a
+previously-scored view.
+
+Generated candidates are exported to a real GLB (`@gltf-transform/core`), registered as a
+`GENERATED`-origin asset with full multi-parent provenance, and handed to the unmodified Phase 14
+`create3DImportProposal`/`scene3d.import` path — no parallel import or Blender-execution path was
+introduced. Geometry generation is pure TypeScript because the Blender Bridge's bounded operation
+set has no primitive-creation capability; Blender's role remains topology inspection/editing of
+already-imported geometry (Phase 15/16), invoked separately.
+
+This works best for product-like, bounded, roughly convex objects with strong silhouette/landmark
+evidence. Characters, hair, cloth, organic anatomy, transparent objects, extreme occlusion, and any
+external/paid reconstruction provider remain deferred — `LOCAL_BASELINE` is the only real provider,
+and no new user-facing credential was introduced. See ADR-0002 for why this phase covers
+reconstruction execution rather than the originally-planned rigging work.

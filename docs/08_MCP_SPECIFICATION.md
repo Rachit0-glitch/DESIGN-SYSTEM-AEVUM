@@ -2119,3 +2119,15 @@ unknown fields before launch where possible. Dry runs do not execute Blender. Su
 artifact before returning, atomically reconciles through the Command Engine, preserves audit/idempotency behavior,
 and returns bounded execution, derivative, reconciliation, and report metadata. The Agent can therefore inspect,
 plan, dry-run, execute, reinspect the persisted derivative, and verify without an arbitrary-code route.
+
+## 96. Phase 18 Reconstruction Execution MCP Surface
+
+MCP tool version `1.5.0` adds one bounded write: `three.reconstruction_generate_candidate`. It reuses existing
+`asset.read`, `asset.write`, `three.write`, and `document.write` permissions — Phase 18 adds no permission domains.
+The tool accepts the same multi-view evidence input shape as `three.multiview_analyze` (Phase 17) plus an optional
+quality mode, runs the full evidence-analysis-and-reconstruction pipeline internally, and — only on a `COMPLETED`
+result — executes the existing `asset.register` command to persist the winning candidate's GLB. It never introduces
+a new command type and never performs `scene3d.import`; no MCP tool exposes canonical scene import for any 3D asset
+yet, so this is not a gap specific to Phase 18. A `BLOCKED` result (insufficient evidence) returns the reconstruction
+diagnostics without registering anything. Every referenced view asset must already be a registered `IMAGE` asset,
+checked before any reconstruction work begins.

@@ -2036,3 +2036,13 @@ Professional resource limits bound selected elements, output vertices/faces, top
 bevel segments, loop cuts, UV islands, and modifiers. Dry runs validate the semantic manifest and deterministic growth
 estimate without launching Blender. The local Blender 5.1.2 process remains the execution boundary, and Railway
 Blender remains inactive.
+
+## 46. Phase 18 Reconstruction Execution Boundary
+
+`packages/geometry-reconstruction` sits between Phase 17's evidence contracts and the existing Phase 14/15/16
+pipeline; it owns no canonical state and adds no execution boundary of its own. Candidate geometry is generated in
+pure TypeScript (the Blender Bridge has no primitive-creation operation, confirmed by inspection before this package
+was built), scored, and exported to a real GLB. Canonical integration reuses the existing `asset.register` and
+`scene3d.import` commands unchanged — no new Command Engine command type, no direct Blender invocation, and no
+parallel import path. Per ADR-0002, this package now occupies the Phase 18 roadmap slot in place of the
+originally-planned Rigging and Character Animation work, which is preserved and deferred, not deleted.

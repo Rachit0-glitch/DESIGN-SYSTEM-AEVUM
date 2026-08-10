@@ -16,7 +16,7 @@ import { z } from "zod";
 import { McpPermissionSchema } from "./permissions.js";
 import { MCP_PROTOCOL_VERSION } from "./version.js";
 
-export const MCP_TOOL_VERSION = "1.4.0" as const;
+export const MCP_TOOL_VERSION = "1.5.0" as const;
 export const McpAuthModeSchema = z.enum(["development", "supabase", "disabled"]);
 export const McpToolNameSchema = z.enum([
   "system.get_capabilities",
@@ -39,6 +39,7 @@ export const McpToolNameSchema = z.enum([
   "three.unwrap_uv",
   "three.update_pbr_material",
   "three.multiview_analyze",
+  "three.reconstruction_generate_candidate",
   "blender.runtime_info",
   "blender.inspect_scene",
   "blender.inspect_object",
@@ -355,6 +356,84 @@ export const ThreeMultiviewAnalyzeOutputSchema = z.strictObject({
 });
 
 const WriteBaseSchema = z.strictObject({ expectedDocumentVersion: z.number().int().positive() });
+
+// Phase 18 reconstruction execution. WRITE-classified because, on success, it registers a real
+// generated GLB as a canonical asset (`asset.register`) — the same bounded mutation surface
+// already used elsewhere, no new command type. It never imports the asset into the scene
+// (`scene3d.import` has no MCP tool at all yet, for any 3D asset); that remains a separate,
+// explicit step.
+export const ThreeReconstructionGenerateCandidateInputSchema = ThreeMultiviewAnalyzeInputSchema.extend(
+  WriteBaseSchema.shape,
+).extend({
+  qualityMode: z.enum(["DRAFT", "STANDARD", "HIGH"]).optional(),
+});
+export const ThreeReconstructionGenerateCandidateOutputSchema = z.strictObject({
+  dryRun: z.boolean(),
+  baseVersion: z.number().int().nonnegative(),
+  resultVersion: z.number().int().nonnegative(),
+  predictedDocumentVersion: z.number().int().nonnegative().optional(),
+  transactionId: z.string().min(1).optional(),
+  commandIds: z.array(z.string().min(1)).optional(),
+  reconstruction: z.strictObject({
+    status: z.enum(["BLOCKED", "COMPLETED"]),
+    stopReason: z.enum([
+      "TARGET_SCORE_REACHED",
+      "NO_IMPROVEMENT",
+      "REGRESSION_DETECTED",
+      "MAXIMUM_PASSES_REACHED",
+      "INSUFFICIENT_EVIDENCE",
+      "RESOURCE_LIMIT_REACHED",
+    ]),
+    providerId: z.enum(["LOCAL_BASELINE", "DETERMINISTIC_TEST"]),
+    providerVersion: z.string().min(1),
+    qualityMode: z.enum(["DRAFT", "STANDARD", "HIGH"]),
+    passCount: z.number().int().nonnegative(),
+    candidateSummaries: z.array(
+      z.strictObject({
+        generationMethod: z.enum(["BOX_PRIMITIVE", "CYLINDER_PRIMITIVE", "VOXEL_HULL"]),
+        partCount: z.number().int().positive(),
+        triangleCount: z.number().int().nonnegative(),
+        overallScore: z.number().min(0).max(1),
+      }),
+    ),
+    selectedScore: z
+      .strictObject({
+        silhouette: z.number().min(0).max(1),
+        landmark: z.number().min(0).max(1),
+        cameraConsistency: z.number().min(0).max(1),
+        scale: z.number().min(0).max(1),
+        constraintSatisfaction: z.number().min(0).max(1),
+        coverage: z.number().min(0).max(1),
+        topologyViability: z.number().min(0).max(1),
+        overall: z.number().min(0).max(1),
+        // Explicit, inspectable weights — never hidden weighting magic.
+        weights: z.strictObject({
+          silhouette: z.number().min(0).max(1),
+          landmark: z.number().min(0).max(1),
+          cameraConsistency: z.number().min(0).max(1),
+          scale: z.number().min(0).max(1),
+          constraintSatisfaction: z.number().min(0).max(1),
+          coverage: z.number().min(0).max(1),
+          topologyViability: z.number().min(0).max(1),
+        }),
+      })
+      .optional(),
+    diagnostics: z.array(
+      z.strictObject({
+        code: z.string(),
+        severity: z.enum(["INFO", "WARNING", "ERROR", "CRITICAL"]),
+        message: z.string(),
+      }),
+    ),
+  }),
+  assetId: EntityIdSchema.optional(),
+  assetHash: z
+    .string()
+    .regex(/^sha256:[0-9a-f]{64}$/i)
+    .optional(),
+  changeSet: z.unknown().optional(),
+});
+
 export const DocumentRenameInputSchema = WriteBaseSchema.extend({ name: z.string().trim().min(1).max(255) });
 export const NodeCreateInputSchema = WriteBaseSchema.extend({
   node: DesignNodeSchema,
@@ -605,6 +684,10 @@ export const TOOL_SCHEMAS = Object.freeze({
   "three.inspect_asset": { input: ThreeInspectAssetInputSchema, output: ThreeInspectAssetOutputSchema },
   "three.inspect_scene": { input: ThreeInspectSceneInputSchema, output: ThreeInspectSceneOutputSchema },
   "three.multiview_analyze": { input: ThreeMultiviewAnalyzeInputSchema, output: ThreeMultiviewAnalyzeOutputSchema },
+  "three.reconstruction_generate_candidate": {
+    input: ThreeReconstructionGenerateCandidateInputSchema,
+    output: ThreeReconstructionGenerateCandidateOutputSchema,
+  },
   "document.rename": { input: DocumentRenameInputSchema, output: WriteToolOutputSchema },
   "node.create": { input: NodeCreateInputSchema, output: WriteToolOutputSchema },
   "node.update": { input: NodeUpdateInputSchema, output: WriteToolOutputSchema },

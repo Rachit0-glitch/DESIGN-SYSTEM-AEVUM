@@ -554,6 +554,108 @@ function multiviewReconstructionPlan(
   ];
 }
 
+function generateReconstructionCandidatePlan(
+  intent: AgentIntent,
+  capabilities: AgentCapabilities,
+  policy: AgentApprovalPolicy,
+): AgentPlanStep[] {
+  const evidenceInput = {
+    ...(intent.parameters.subjectLabel !== undefined ? { subjectLabel: intent.parameters.subjectLabel } : {}),
+    ...(intent.parameters.subjectCategory !== undefined ? { subjectCategory: intent.parameters.subjectCategory } : {}),
+    views: intent.parameters.views ?? [],
+    landmarkHints: intent.parameters.landmarkHints ?? [],
+    partHints: intent.parameters.partHints ?? [],
+    scaleHints: intent.parameters.scaleHints ?? [],
+    ...(intent.parameters.targetQuality !== undefined ? { targetQuality: intent.parameters.targetQuality } : {}),
+  };
+
+  const inspectReadiness = step({
+    goalId: intent.goalId,
+    index: 0,
+    type: "INSPECT",
+    label: "Inspect multi-view reconstruction readiness before generating geometry",
+    tool: "three.multiview_analyze",
+    descriptor: findDescriptor(capabilities, "three.multiview_analyze"),
+    data: evidenceInput,
+    approvalPolicy: policy,
+  });
+  const readDocument = step({
+    goalId: intent.goalId,
+    index: 1,
+    type: "READ",
+    label: "Read the current document version",
+    tool: "document.get",
+    descriptor: findDescriptor(capabilities, "document.get"),
+    dependencies: [inspectReadiness.id],
+    data: { projection: "summary" },
+    approvalPolicy: policy,
+  });
+  const descriptor = findDescriptor(capabilities, "three.reconstruction_generate_candidate");
+  const generateData = {
+    ...evidenceInput,
+    expectedDocumentVersion: 1,
+    ...(intent.parameters.qualityMode !== undefined ? { qualityMode: intent.parameters.qualityMode } : {}),
+  };
+  const generateBindings = [
+    { targetPath: "expectedDocumentVersion", sourceStepId: readDocument.id, sourcePath: "data.documentVersion" },
+  ];
+  const dryRun = step({
+    goalId: intent.goalId,
+    index: 2,
+    type: "DRY_RUN",
+    label: "Dry-run the reconstruction candidate generation",
+    tool: "three.reconstruction_generate_candidate",
+    descriptor,
+    dependencies: [readDocument.id],
+    data: generateData,
+    bindings: generateBindings,
+    approvalPolicy: policy,
+  });
+  const generate = step({
+    goalId: intent.goalId,
+    index: 3,
+    type: "WRITE",
+    label: "Generate and register a real candidate 3D mesh from the multi-view evidence",
+    tool: "three.reconstruction_generate_candidate",
+    descriptor,
+    dependencies: [dryRun.id],
+    data: generateData,
+    bindings: generateBindings,
+    failurePolicy: "REPLAN",
+    approvalPolicy: policy,
+  });
+  const assertion = {
+    sourceStepId: generate.id,
+    path: "data.reconstruction.status",
+    operator: "EXISTS" as const,
+  };
+  const verify = step({
+    goalId: intent.goalId,
+    index: 4,
+    type: "VERIFY",
+    label: "Verify a reconstruction outcome was produced",
+    dependencies: [generate.id],
+    expected: assertion,
+    verification: { required: true, strategy: "STATE_ASSERTION", assertions: [assertion] },
+    approvalPolicy: policy,
+  });
+  return [
+    inspectReadiness,
+    readDocument,
+    dryRun,
+    generate,
+    verify,
+    step({
+      goalId: intent.goalId,
+      index: 5,
+      type: "COMPLETE",
+      label: "Report the reconstruction candidate outcome",
+      dependencies: [verify.id],
+      approvalPolicy: policy,
+    }),
+  ];
+}
+
 function blenderTransformPlan(
   intent: AgentIntent,
   capabilities: AgentCapabilities,
@@ -1045,6 +1147,8 @@ export function generateDeterministicPlan(input: {
     steps = professionalMeshPlan(input.intent, input.capabilities, policy, "UV_REPAIR");
   } else if (operation === "multiview_reconstruct") {
     steps = multiviewReconstructionPlan(input.intent, input.capabilities, policy);
+  } else if (operation === "generate_reconstruction_candidate") {
+    steps = generateReconstructionCandidatePlan(input.intent, input.capabilities, policy);
   } else if (input.intent.category === "INSPECT" || input.intent.category === "PROJECT") {
     steps = inspectPlan(input.intent, input.capabilities, policy);
   } else if (operation === "delete" || input.intent.requiredCapabilities.includes("node.delete")) {

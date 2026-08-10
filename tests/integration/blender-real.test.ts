@@ -12,6 +12,8 @@ import {
 } from "@aevum/blender-bridge";
 import { computeSha256 } from "@aevum/assets";
 import { createAsset, fixtures, type CanonicalDesignDocument } from "@aevum/document-model";
+import { createBoxGroundTruthFixture, runReconstructionSession } from "@aevum/geometry-reconstruction";
+import { analyzeMultiView, createMultiViewTask } from "@aevum/multiview-reconstruction";
 import { apply3DImportProposal, create3DImportProposal } from "@aevum/renderer-3d";
 import { createRuntimeViewport, project3DScene, projectScene } from "@aevum/scene-runtime";
 import { env } from "@aevum/shared";
@@ -747,5 +749,38 @@ describe.sequential("Phase 15 real Blender 5.1 execution", () => {
     expect(
       execution.result.artifacts.some((artifact) => artifact.type === "GLB" && artifact.hash.startsWith("sha256:")),
     ).toBe(true);
+  });
+
+  it("Phase 18: a real-Blender-inspected candidate GLB from geometry-reconstruction round-trips through topology inspection", async () => {
+    const fixture = createBoxGroundTruthFixture();
+    const task = createMultiViewTask(fixture.taskInput);
+    const { referenceSet, proposal } = analyzeMultiView(task, { createdAt: timestamp });
+    const { report, selectedGlb } = await runReconstructionSession({
+      referenceSet,
+      proposal,
+      providerId: "LOCAL_BASELINE",
+      providerVersion: "1.0.0",
+      config: { qualityMode: "DRAFT" },
+      createdAt: timestamp,
+    });
+    expect(report.status).toBe("COMPLETED");
+    if (!selectedGlb) throw new Error("Expected a generated candidate GLB.");
+
+    const candidateFoundation = await createFoundationFromBytes(selectedGlb, "Phase 18 candidate.glb");
+    const target = Object.values(candidateFoundation.document.nodes).find((node) => node.type === "GROUP_3D");
+    if (!target) throw new Error("Expected candidate to import a real GROUP_3D Blender object node.");
+
+    const inspect = await runner.execute(
+      jobFor(
+        candidateFoundation,
+        { operationVersion: "1.0.0", kind: "mesh.topology_inspect", objectId: target.id, profile: "WEB_STATIC" },
+        false,
+      ),
+      candidateFoundation.bytes,
+    );
+    const topology = inspect.result.data as { vertexCount: number; faceCount: number; manifold?: boolean };
+    expect(inspect.result.state).toBe("SUCCEEDED");
+    expect(topology.faceCount).toBeGreaterThan(0);
+    expect(topology.vertexCount).toBeGreaterThan(0);
   });
 });

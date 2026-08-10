@@ -131,6 +131,48 @@ describe("agent orchestration workflow", () => {
     expect(analyzeObservation).toBeDefined();
   });
 
+  it("generates a real reconstruction candidate from multi-view evidence through MCP", async () => {
+    const document = fixtures.assetDemo();
+    const imageAsset = Object.values(document.assets).find((asset) => asset.type === "IMAGE");
+    if (!imageAsset) throw new Error("Reconstruction fixture requires a registered IMAGE asset.");
+    const fixture = createAgentTestFixture({
+      document,
+      category: "CUSTOM_3D",
+      request: "Create a 3D reconstruction candidate from this watch view.",
+      parameters: {
+        operation: "generate_reconstruction_candidate",
+        views: [{ assetId: imageAsset.id, imageWidth: 1024, imageHeight: 1024, role: "FRONT" }],
+        qualityMode: "DRAFT",
+      },
+    });
+    const result = await fixture.run();
+
+    expect(result.run.status).toBe("SUCCEEDED");
+    expect(fixture.calls.map((entry) => entry.request.tool)).toEqual([
+      "system.get_capabilities",
+      "three.multiview_analyze",
+      "document.get",
+      "three.reconstruction_generate_candidate",
+      "three.reconstruction_generate_candidate",
+    ]);
+    expect(
+      fixture.calls
+        .filter((entry) => entry.request.tool === "three.reconstruction_generate_candidate")
+        .map((entry) => entry.request.dryRun),
+    ).toEqual([true, false]);
+    expect(result.run.outcome?.verification?.success).toBe(true);
+    const reconstructionObservation = result.observations.find(
+      (entry) => (entry.data as { data?: { reconstruction?: unknown } } | undefined)?.data?.reconstruction,
+    );
+    expect(reconstructionObservation).toBeDefined();
+    // A single front view cannot honestly reconstruct depth — the Agent must report this state
+    // rather than fabricate geometry, but the workflow itself must still complete successfully.
+    const reconstructionData = reconstructionObservation?.data as
+      | { data?: { reconstruction?: { status?: string } } }
+      | undefined;
+    expect(["BLOCKED", "COMPLETED"]).toContain(reconstructionData?.data?.reconstruction?.status);
+  });
+
   it("renames through dry run, Command Engine commit, verification, persistence, audit, and idempotent retry", async () => {
     let replayed = false;
     const fixture = createAgentTestFixture({

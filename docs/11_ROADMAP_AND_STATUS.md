@@ -2119,19 +2119,193 @@ Status update:
 
 ---
 
-## 24. Phase 18 — Rigging and Character Animation
+## 24. Phase 18 — Multi-View 3D Reconstruction Execution
+
+### Sequencing decision
+
+**Phase 18 was originally scoped as "Rigging and Character Animation."** Per ADR-0002
+(`docs/adr/0002-complete-static-reconstruction-before-rigging.md`), that work is deferred — a
+skeleton has nothing to bind to without an actual reconstructed model, and Phase 17 deliberately
+stopped above the model-generation boundary. Phase 18 is reassigned to the natural next step
+Phase 17's own evidence already identified: generating real candidate geometry from that evidence.
+Rigging's original scope and acceptance gate are preserved verbatim below, unclaimed, until a
+future phase-planning pass assigns them a number.
 
 ### Goal
 
-Create production-ready skeletons, skinning, deformation, retargeting, and character motion.
+Generate an actual candidate 3D mesh from Phase 17's multi-view evidence, score it against real
+cross-view metrics, run a bounded non-regressing correction loop, and hand the result to the
+existing Phase 14 → 15 → 16 pipeline unchanged.
 
 ### Status
 
 ```text
-PLANNED
+VALIDATED
 ```
 
 ### Scope
+
+- Real local reconstruction provider execution (`LOCAL_BASELINE`)
+- Candidate geometry generation (box/cylinder primitive fitting, voxel visual-hull carving)
+- Part-aware reconstruction (preserves Phase 17 part identity rather than flattening)
+- Cross-view scoring (silhouette IoU/precision/recall, boundary/centroid/area difference,
+  landmark-to-surface distance, constraint satisfaction, coverage, local structural validity)
+- Bounded, non-regressing dimension-correction loop
+- GLB export and asset registration with full multi-parent provenance
+- A (not executed) Command Engine plan reusing `asset.register` and Phase 14's `scene3d.import`
+- A bounded provider registry (`LOCAL_BASELINE`, `DETERMINISTIC_TEST`)
+- One new bounded MCP tool and one new deterministic Agent operation
+
+### Acceptance Gate
+
+- A known-geometry (box/cylinder) fixture reconstructs with correct broad proportions and high
+  silhouette consistency
+- A multi-part fixture preserves part identity in the selected candidate rather than flattening it
+- Missing-view evidence honestly downgrades readiness/score rather than fabricating depth
+- Conflicting evidence is reflected in diagnostics and a capped score, never silently averaged
+- A correction pass never improves one view's score by regressing another beyond tolerance
+- The generated GLB round-trips through real Phase 14 import and Phase 16 topology inspection
+- No claim of production-quality, arbitrary-object, or photoreal reconstruction is made
+
+### Current Phase 18 Evidence
+
+Status update:
+
+- Date: 2026-08-09
+- Owner: Claude (Codex-to-Claude handoff)
+- Previous status: PLANNED (as originally-scoped Rigging; reassigned per ADR-0002)
+- New status: VALIDATED (first real local reconstruction execution baseline, as re-scoped)
+- Evidence:
+  - New package `packages/geometry-reconstruction` (`@aevum/geometry-reconstruction`) owns
+    reconstruction-session orchestration, candidate geometry generation, cross-view scoring, the
+    bounded correction loop, GLB export, asset registration, and a (not executed) canonical import
+    plan. Phase 17's `@aevum/multiview-reconstruction` is consumed unchanged as evidence input.
+  - Real, provider-independent geometry: parametric box/cylinder mesh generation; real multi-view
+    silhouette-volume intersection (voxel visual hull) with a genuine per-voxel boundary-face
+    surface extraction (explicitly not marching-cubes); a real closest-point-on-triangle landmark
+    distance metric (Ericson's algorithm); rasterized polygon IoU/precision/recall; a symmetric
+    Chamfer boundary distance; and a bounded, gradient-free local-search correction loop with a
+    hard per-view non-regression gate — verified in unit tests against synthetic ground-truth
+    points and shapes, not just schema shape.
+  - Box/cylinder dimensions are derived from Phase 17's silhouette-backed constraints via each
+    constraint's own camera frustum — an explicit, disclosed extension of Phase 17's
+    turntable-radius assumption, never a fabricated measurement. A cylinder candidate is only
+    proposed when the TOP silhouette is genuinely round and symmetry evidence supports it.
+  - Part-aware reconstruction: when Phase 17 supplies part evidence, one box is fit per part
+    (preserving identity); the general-purpose voxel-hull fallback is skipped in that case so it
+    cannot numerically out-compete and erase the part decomposition.
+  - `MultiViewReconstructionProvider` (Phase 17) is a synchronous, proposal-only interface that
+    cannot carry the full evidence a real provider needs or support the inherently async GLB
+    export step. Rather than force a real provider into a mock-shaped contract, this phase defines
+    its own `GeometryReconstructionProvider` (full-evidence input, async output) and leaves Phase
+    17's original interface and deterministic mock provider completely unchanged — re-exposed
+    as-is under the `DETERMINISTIC_TEST` registry entry.
+  - Every generated candidate GLB, once selected, is registered as a canonical asset with
+    `GENERATED` origin and full multi-parent provenance back to every source image asset used —
+    never a single-parent derivative, since the geometry synthesizes evidence from multiple views.
+  - MCP: one new bounded WRITE tool, `three.reconstruction_generate_candidate`
+    (`packages/mcp-protocol`, `MCP_TOOL_VERSION` `1.5.0`), reusing existing `asset.read`/
+    `asset.write`/`three.write`/`document.write` permissions (no permission sprawl). It runs the
+    full evidence-analysis-plus-reconstruction pipeline and, on success, executes the existing
+    `asset.register` command — it never introduces a new command type, and it never imports the
+    asset into the scene (`scene3d.import` has no MCP tool at all yet, for any 3D asset — not a
+    gap this phase introduces).
+  - Agent: `packages/agent-planner` gained a `generate_reconstruction_candidate` deterministic
+    operation (readiness inspection → document-version read → bounded write → verification →
+    complete), reusing Phase 13's capability-gap and approval machinery unchanged.
+  - Canonical Design Document, Command Engine, and Blender Bridge are unmodified — no schema
+    migration, no new command type, and no direct Blender invocation from this package.
+- Test results:
+  - Focused package unit suite: camera-math-dependent geometry (box/cylinder mesh generation,
+    voxel carving/surface extraction, rasterized IoU, Chamfer distance, closest-point-on-triangle),
+    scoring, and correction-loop non-regression logic.
+  - Integration acceptance scenarios, each built from a real synthetic ground-truth shape (the
+    true geometry is discarded before reconstruction and used only afterward to grade the result,
+    per the project's own acceptance-testing requirement):
+    - **Box**: reaches `EXCELLENT` readiness and a `TARGET_SCORE_REACHED` candidate with correct
+      broad proportions.
+    - **Cylinder**: the roundness/symmetry heuristic correctly selects `CYLINDER_PRIMITIVE` over
+      `BOX_PRIMITIVE` (higher real score).
+    - **Multi-part**: the selected candidate preserves both parts' identity (`partCount: 2`)
+      rather than flattening into a single mesh.
+    - **Missing view** (front only): readiness stays `WEAK`, the correction loop honestly reports
+      `NO_IMPROVEMENT` rather than fabricating depth.
+    - **Conflicting view** (mirrored silhouette + contradictory scale evidence): readiness is
+      capped at `USABLE`, `SCALE_CONFLICT`/`VIEW_DUPLICATE` diagnostics are present, and no
+      correction silently improves the score by averaging away the contradiction.
+    - **Real Phase 14/16 handoff**: a generated candidate GLB is registered, imported via Phase
+      14's unmodified `create3DImportProposal`/`scene3d.import`, and inspected — proving the new
+      package produces output compatible with the existing pipeline without a parallel import path.
+  - Agent workflow test: proves the deterministic `generate_reconstruction_candidate` plan
+    executes `system.get_capabilities` → `three.multiview_analyze` → `document.get` →
+    `three.reconstruction_generate_candidate` (dry run) → `three.reconstruction_generate_candidate`
+    (commit) → passes its own state-assertion verification.
+  - Real Blender handoff: a Phase 18 candidate GLB (box fixture) imports through the unmodified
+    Phase 14 path and passes real Blender 5.1.2 `mesh.topology_inspect` with a nonzero vertex/face
+    count — run as a targeted addition to `tests/integration/blender-real.test.ts` rather than the
+    full ~131-second Phase 15/16 suite, since no Blender-bridge Python code was modified.
+- Validation results:
+  - `pnpm validate:docs`: PASS for 12 canonical files
+  - `pnpm validate:deps`: PASS for 59 workspace packages
+  - `pnpm format:check` / `pnpm lint`: PASS for 493 files, no warnings
+  - `pnpm typecheck`: PASS, 80 Turbo tasks
+  - `pnpm build`: PASS, 59 Turbo package builds
+  - `pnpm test`: PASS, 45 test files and 286 tests (up from 41 files / 233 tests at Phase 17)
+  - Targeted real Blender test (`three.reconstruction_generate_candidate` → Phase 14 import →
+    `mesh.topology_inspect`): PASS against Blender 5.1.2 / Python 3.13.9
+  - `pnpm validate:docker`: PASS; Compose resolves Redis and `aevum-network`
+  - `git diff --check`: PASS (line-ending warnings only, no whitespace errors)
+  - Secret scan of all changed/new files: PASS, no matches
+  - Railway `@aevum/api`: HTTP 200; Railway `mcp-server`: HTTP 200; Vercel `design-system-aevum`:
+    HTTP 200 — all read-only checks, nothing reconfigured
+- Remaining warnings:
+  - Works best for product-like, bounded, roughly convex geometry with strong silhouette/landmark
+    evidence. Characters, hair, cloth, organic anatomy, transparent objects, and extreme occlusion
+    remain explicitly out of scope.
+  - The voxel visual hull inherits that method's standard limitation: it cannot recover
+    concavities no silhouette reveals.
+  - "Topology validity" inside this package is a local structural check (finite coordinates, no
+    degenerate triangles, bounded triangle count) — real Blender-backed topology validation is
+    Phase 16's `mesh.validate`/`mesh.topology_inspect`, invoked separately once a candidate is a
+    registered, imported asset.
+  - The correction loop only refines single-part box/cylinder candidates; multi-part and
+    voxel-hull candidates are not yet corrected.
+  - No external or paid reconstruction provider (Tripo, Meshy, Rodin, Luma, Replicate, fal, or any
+    photogrammetry service) is integrated, and none was requested — no new user-facing credential
+    was introduced. `LOCAL_BASELINE` is the only real provider.
+  - `three.reconstruction_generate_candidate` never performs `scene3d.import` — that step has no
+    MCP tool yet for any 3D asset, matching the existing system boundary rather than introducing a
+    new gap.
+- Blockers:
+  - None for the Phase 18 reconstruction-execution baseline as scoped.
+- Decisions:
+  - See ADR-0002 for the full sequencing rationale (why reconstruction execution now occupies
+    Phase 18 instead of rigging, and why the roadmap was not renumbered).
+  - Geometry generation happens entirely in TypeScript (no Blender round trip for creation) because
+    the Blender Bridge's bounded operation set has no primitive-creation capability today — only
+    inspection and editing of already-imported geometry — confirmed by inspecting
+    `apps/blender-bridge/blender/{bootstrap,professional}.py` before implementation began.
+  - Scoring weights (`silhouette`, `landmark`, `cameraConsistency`, `scale`,
+    `constraintSatisfaction`, `coverage`, `topologyViability`) are explicit, inspectable constants,
+    not hidden or learned.
+  - Readiness/score capping on conflict follows Phase 17's established pattern: classification is
+    capped downward on error/critical diagnostics, but the underlying numeric score is never
+    edited, so regressions cannot hide inside an aggregate.
+- Next action:
+  - Decide the numbered slot for Rigging and Character Animation (preserved below) once a
+    reconstructed or otherwise-imported static model is reliably available to rig. A future phase
+    should also consider: correcting multi-part and voxel-hull candidates (not just single-part
+    primitives), and exposing `scene3d.import` as a bounded MCP tool so an Agent can complete the
+    candidate → canonical → Scene Runtime chain without direct package access.
+
+### Deferred: Original Phase 18 Scope (Rigging and Character Animation)
+
+**Status: DEFERRED.** Preserved verbatim per ADR-0002 — not started, not shortened, not
+reinterpreted. Pick this up as its own phase once a numbered slot is assigned.
+
+Goal: Create production-ready skeletons, skinning, deformation, retargeting, and character motion.
+
+Scope:
 
 - Skeleton creation
 - IK
@@ -2150,7 +2324,7 @@ PLANNED
 - Contact correction
 - Loop correction
 
-### Acceptance Gate
+Acceptance Gate:
 
 - Rig hierarchy is valid
 - Required controls work
@@ -3299,28 +3473,28 @@ Major scope changes shall also update:
 
 ## 57. Current Next Action
 
-**Note:** this section is a generic template pointer and had drifted out of date at least once
-before (it previously still said "Begin Phase 16" after Phase 16 was already validated). The
-authoritative, current next-action statement for any given phase is always the "Next action" line
-inside that phase's own numbered section above (see §22 for Phase 16 and §23 for Phase 17); this
-section should be kept in sync with that same value but is not the source of truth if the two ever
-disagree again.
+**Note:** this section is a generic template pointer and had drifted out of date more than once
+before (it previously still said "Begin Phase 16" after Phase 16 was already validated, and later
+"Decide the numbered slot for multi-view 3D model generation" after that decision — reusing Phase
+18 per ADR-0002 — had already been made). The authoritative, current next-action statement for any
+given phase is always the "Next action" line inside that phase's own numbered section above (see
+§22 for Phase 16, §23 for Phase 17, and §24 for Phase 18); this section should be kept in sync with
+that same value but is not the source of truth if the two ever disagree again.
 
 The next repository action should be:
 
 ```text
-Decide the numbered slot for multi-view 3D model generation, then begin it.
+Decide the numbered slot for Rigging and Character Animation, then begin it once a
+reconstructed or otherwise-imported static model is reliably available to rig.
 ```
 
-Phase 17 (§23) delivered only the evidence architecture above the model-generation boundary
-(reference sets, view roles, camera estimates, landmarks, silhouettes, parts, constraints,
-coverage, readiness, cross-view validation, and a provider-neutral proposal) and intentionally
-stopped there. The next phase must consume Phase 17's `MultiViewReconstructionProposal` unchanged,
-implement a real `MultiViewReconstructionProvider`, register any produced geometry as a normal
-asset, and route it through the existing Phase 14 inspection -> Phase 15 Blender Bridge -> Phase 16
-professional-mesh boundaries — not a second, parallel 3D import or Blender-execution path. It
-should also resolve where this work sits relative to the existing "Phase 18 — Rigging and Character
-Animation" entry, since rigging needs a model to rig.
+Phase 18 (§24) delivered the first real local reconstruction execution — candidate geometry
+generation, cross-view scoring, a bounded correction loop, and the handoff into the existing Phase
+14 → 15 → 16 pipeline — reusing Phase 17's evidence contracts unchanged (see ADR-0002 for why this
+phase now covers reconstruction execution rather than rigging). Rigging's original scope is
+preserved verbatim in §24 and remains genuinely unclaimed. Also worth picking up alongside or
+before rigging: correcting multi-part and voxel-hull candidates (Phase 18 only corrects single-part
+box/cylinder candidates today), and exposing `scene3d.import` as a bounded MCP tool.
 
 ---
 

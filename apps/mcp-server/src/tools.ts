@@ -16,6 +16,11 @@ import {
   type McpPermission,
   type McpToolName,
 } from "@aevum/mcp-protocol";
+import {
+  LOCAL_BASELINE_PROVIDER_VERSION,
+  registerCandidateAsset,
+  runReconstructionSession,
+} from "@aevum/geometry-reconstruction";
 import { analyzeMultiView, createMultiViewTask } from "@aevum/multiview-reconstruction";
 import { create3DRenderPlan } from "@aevum/renderer-3d";
 import { createRuntimeViewport, project3DScene, projectScene, type RuntimeViewport } from "@aevum/scene-runtime";
@@ -579,6 +584,167 @@ export function registerInitialTools(
             })),
             reportFingerprint: report.reportFingerprint,
           },
+        };
+      },
+      config,
+    ),
+  );
+
+  registry.registerTool(
+    definition(
+      "three.reconstruction_generate_candidate",
+      "Generate, score, and (on success) register a real candidate 3D mesh from multi-view evidence.",
+      ["asset.read", "asset.write", "three.write", "document.write"],
+      "WRITE",
+      async (raw, context) => {
+        const input = TOOL_SCHEMAS["three.reconstruction_generate_candidate"].input.parse(raw);
+        const document = await currentDocument(context);
+
+        for (const view of input.views) {
+          const asset = document.assets[view.assetId];
+          if (!asset) fail(context, "MCP_DOCUMENT_NOT_FOUND", `Referenced asset ${view.assetId} does not exist.`);
+          if (asset.type !== "IMAGE") {
+            fail(context, "MCP_INPUT_INVALID", `Referenced asset ${view.assetId} must be a registered IMAGE asset.`);
+          }
+        }
+
+        if (document.documentVersion !== input.expectedDocumentVersion) {
+          throw new McpProtocolError({
+            code: "MCP_DOCUMENT_VERSION_CONFLICT",
+            message: "The requested document version is stale.",
+            recoverable: true,
+            retryable: true,
+            suggestedAction: "Read the latest document version and retry with a new idempotency key.",
+            requestId: context.request.requestId,
+            workspaceId: context.request.workspaceId,
+            projectId: context.request.projectId,
+            documentId: document.metadata.id,
+            documentVersion: document.documentVersion,
+            details: { expectedVersion: input.expectedDocumentVersion, currentVersion: document.documentVersion },
+          });
+        }
+
+        const task = createMultiViewTask({
+          projectId: document.metadata.projectId,
+          ...(input.subjectLabel ? { subjectLabel: input.subjectLabel } : {}),
+          ...(input.subjectCategory ? { subjectCategory: input.subjectCategory } : {}),
+          views: input.views.map((view) => ({
+            assetId: view.assetId,
+            imageWidth: view.imageWidth,
+            imageHeight: view.imageHeight,
+            ...(view.silhouetteContour ? { silhouetteContour: view.silhouetteContour } : {}),
+          })),
+          roleHints: input.views
+            .map((view) => (view.role ? { assetId: view.assetId, role: view.role, userProvided: true } : undefined))
+            .filter((hint): hint is NonNullable<typeof hint> => hint !== undefined),
+          landmarkHints: input.landmarkHints,
+          partHints: input.partHints,
+          scaleHints: input.scaleHints,
+          config: {},
+          deterministicSeed: 0,
+          createdAt: context.timestamp,
+          createdBy: actorForCommand(context),
+        });
+
+        const { referenceSet, proposal } = analyzeMultiView(task, {
+          createdAt: context.timestamp,
+          ...(input.targetQuality ? { targetQuality: input.targetQuality } : {}),
+        });
+
+        const sessionResult = await runReconstructionSession({
+          referenceSet,
+          proposal,
+          providerId: "LOCAL_BASELINE",
+          providerVersion: LOCAL_BASELINE_PROVIDER_VERSION,
+          ...(input.qualityMode ? { config: { qualityMode: input.qualityMode } } : {}),
+          createdAt: context.timestamp,
+        });
+
+        const reconstruction = {
+          status: sessionResult.report.status,
+          stopReason: sessionResult.report.stopReason,
+          providerId: sessionResult.report.providerId,
+          providerVersion: sessionResult.report.providerVersion,
+          qualityMode: sessionResult.report.qualityMode,
+          passCount: sessionResult.report.passes.length,
+          candidateSummaries: sessionResult.report.candidates.map((candidate) => ({
+            generationMethod: candidate.generationMethod,
+            partCount: candidate.partCount,
+            triangleCount: candidate.triangleCount,
+            overallScore: candidate.score.overall,
+          })),
+          ...(sessionResult.report.finalScore ? { selectedScore: sessionResult.report.finalScore } : {}),
+          diagnostics: sessionResult.report.diagnostics.map((entry) => ({
+            code: entry.code,
+            severity: entry.severity,
+            message: entry.message,
+          })),
+        };
+
+        if (sessionResult.report.status === "BLOCKED" || !sessionResult.selectedGlb) {
+          return {
+            data: {
+              dryRun: context.request.dryRun,
+              baseVersion: document.documentVersion,
+              resultVersion: document.documentVersion,
+              reconstruction,
+            },
+          };
+        }
+
+        const selectedCandidate = sessionResult.report.candidates.find(
+          (candidate) => candidate.id === sessionResult.report.selectedCandidateId,
+        );
+        const registration = registerCandidateAsset({
+          registry: document.assets,
+          referenceSet,
+          bytes: sessionResult.selectedGlb,
+          candidateId: sessionResult.report.selectedCandidateId ?? sessionResult.report.id,
+          generationMethod: selectedCandidate?.generationMethod ?? "BOX_PRIMITIVE",
+          providerId: sessionResult.report.providerId,
+          providerVersion: sessionResult.report.providerVersion,
+          timestamp: context.timestamp,
+        });
+
+        if (registration.kind === "QUARANTINED") {
+          fail(context, "MCP_INTERNAL_ERROR", "The generated candidate asset failed security inspection.");
+        }
+
+        if (registration.kind === "DUPLICATE") {
+          return {
+            data: {
+              dryRun: context.request.dryRun,
+              baseVersion: document.documentVersion,
+              resultVersion: document.documentVersion,
+              reconstruction,
+              assetId: registration.asset.id,
+              assetHash: registration.asset.hash,
+            },
+          };
+        }
+
+        const asset = registration.asset;
+        const command: Command = {
+          ...commandBase(context, document),
+          type: "asset.register",
+          payload: { asset },
+        };
+        const commit = context.request.dryRun ? dryRunCommand(document, command) : executeCommand(document, command);
+
+        return {
+          data: {
+            dryRun: context.request.dryRun,
+            baseVersion: document.documentVersion,
+            resultVersion: context.request.dryRun ? document.documentVersion : commit.newDocument.documentVersion,
+            ...(context.request.dryRun ? { predictedDocumentVersion: commit.newDocument.documentVersion } : {}),
+            transactionId: command.transactionId,
+            commandIds: [command.id],
+            reconstruction,
+            assetId: asset.id,
+            assetHash: asset.hash,
+            changeSet: commit.changeSet,
+          },
+          mutation: { commit, sourceDocument: document },
         };
       },
       config,
