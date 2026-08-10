@@ -99,10 +99,17 @@ export function computeDifferenceEvidence(referenceSet: MultiViewReferenceSet, m
         return { landmarkId: landmark.id, errorMagnitude: Math.min(1, distance / LANDMARK_FIT_TOLERANCE) };
       });
 
+    const falsePositiveAreaRatio = (overlap.aCount - overlap.intersectionCount) / totalCells;
+    const falseNegativeAreaRatio = (overlap.bCount - overlap.intersectionCount) / totalCells;
+    const classifications: DifferenceEvidence["classifications"] = [];
+    if (falsePositiveAreaRatio > 0.1) classifications.push("VOXEL_FALSE_POSITIVE_REGION");
+    if (falseNegativeAreaRatio > 0.1) classifications.push("VOXEL_FALSE_NEGATIVE_REGION");
+
     evidence.push({
       viewId: view.id,
-      falsePositiveAreaRatio: (overlap.aCount - overlap.intersectionCount) / totalCells,
-      falseNegativeAreaRatio: (overlap.bCount - overlap.intersectionCount) / totalCells,
+      falsePositiveAreaRatio,
+      falseNegativeAreaRatio,
+      classifications,
       landmarkMismatches,
     });
   }

@@ -2131,3 +2131,20 @@ a new command type and never performs `scene3d.import`; no MCP tool exposes cano
 yet, so this is not a gap specific to Phase 18. A `BLOCKED` result (insufficient evidence) returns the reconstruction
 diagnostics without registering anything. Every referenced view asset must already be a registered `IMAGE` asset,
 checked before any reconstruction work begins.
+
+## 97. Phase 19A Canonical Import MCP Surface
+
+MCP tool version `1.6.0` closes the gap noted in §96: `three.import_scene` is a bounded write tool that compiles the
+existing (Phase 14) `scene3d.import` Command Engine command from a registered `GLB`/`GLTF` asset. It reuses the
+`asset.read`, `document.write`, and `three.write` permissions — no new permission domain. Input is high-level only
+(`assetId`, `expectedDocumentVersion`) — no raw bytes, filesystem paths, or Command Engine payloads are accepted
+over MCP, matching every other write tool's boundary. It supports dry-run, idempotency, and audit identically to
+`three.reconstruction_generate_candidate`.
+
+The tool depends on an `AssetBytesResolver` adapter (`apps/mcp-server/src/registry.ts`) to read the asset's actual
+bytes, because no production asset-byte storage exists anywhere in this repository — registering a candidate via
+`three.reconstruction_generate_candidate` persists only the asset's canonical metadata (hash, URI, size), never the
+bytes themselves. Without a configured resolver, `three.import_scene` reports `enabled: false` in
+`system.get_capabilities` and fails any invocation with `MCP_TOOL_DISABLED` — the same honest-disablement pattern
+already used for the Blender-dependent tools when no Blender adapter is configured. No test or production deployment
+in this repository currently ships a real (non-in-memory) resolver; building one is out of scope for this phase.

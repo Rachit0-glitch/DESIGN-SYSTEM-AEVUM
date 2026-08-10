@@ -2279,3 +2279,26 @@ evidence. Characters, hair, cloth, organic anatomy, transparent objects, extreme
 external/paid reconstruction provider remain deferred — `LOCAL_BASELINE` is the only real provider,
 and no new user-facing credential was introduced. See ADR-0002 for why this phase covers
 reconstruction execution rather than the originally-planned rigging work.
+
+## 104. Phase 19A Reconstruction Hardening
+
+Two real gaps in the Phase 18 correction loop are closed without changing the pipeline's shape.
+Multi-part candidates now correct per part: bounded translation, box axis-scale, and a landmark-
+centroid reposition move are each scored against Phase 17's per-part rectangle evidence (bounding-
+box IoU, since Phase 17 attaches rectangles to parts, not full contours) and accepted only when the
+target part improves, no sibling part regresses beyond tolerance, and no view regresses — the same
+non-regression discipline Phase 18 already applied to whole-candidate dimension correction, applied
+per part instead. Voxel-hull candidates now get a second, evidence-driven refinement pass
+(`refineOccupancyFromEvidence`) after the initial silhouette-intersection carve, on top of the raw
+morphological dilate/erode primitives it is built from. The refinement is deliberately asymmetric:
+removing a voxel only needs majority multi-view disagreement (safe — it can only trim volume, never
+add unsupported volume), while adding one back requires unanimous multi-view agreement, matching the
+strict-intersection rule the initial carve already used. A more lenient majority-agreement addition
+rule was implemented and measured first; it was reverted because it reintroduced exactly the phantom
+volume strict intersection exists to prevent, lowering cross-view IoU on every real fixture tested.
+
+Reconstructed geometry can now also reach the canonical scene without a manual step: `three.import_scene`
+(detailed in the MCP Specification) exposes the existing Phase 14 `scene3d.import` command as a bounded
+MCP write tool, so an Agent (or any authenticated client) can generate a candidate and import it in the
+same authenticated session. No new rendering, geometry-generation, or Command Engine capability was added
+by this — it is purely a new authorization/transport surface over paths that already existed.

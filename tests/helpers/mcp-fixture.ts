@@ -11,6 +11,7 @@ import {
   createMcpRequestId,
   createToolRegistry,
   registerInitialTools,
+  type AssetBytesResolver,
   type BlenderToolAdapter,
   type McpServerRuntimeConfig,
 } from "@aevum/mcp-server";
@@ -38,6 +39,16 @@ export const mcpTestConfig: McpServerRuntimeConfig = {
   },
 };
 
+export function createInMemoryAssetBytesResolver(
+  bytesByAssetId: Readonly<Record<string, Uint8Array>>,
+): AssetBytesResolver {
+  return {
+    async resolve(assetId: string) {
+      return bytesByAssetId[assetId];
+    },
+  };
+}
+
 export function createMcpTestFixture(
   options: {
     readonly role?: "OWNER" | "ADMIN" | "EDITOR" | "VIEWER" | "AGENT" | "SERVICE";
@@ -46,6 +57,7 @@ export function createMcpTestFixture(
     readonly projectReadDelayMs?: number;
     readonly toolTimeoutMs?: number;
     readonly blenderAdapter?: BlenderToolAdapter;
+    readonly assetBytesAdapter?: AssetBytesResolver;
   } = {},
 ) {
   const document = options.document ?? fixtures.assetDemo();
@@ -99,7 +111,10 @@ export function createMcpTestFixture(
     toolTimeoutMs: options.toolTimeoutMs ?? mcpTestConfig.toolTimeoutMs,
   };
   const registry = createToolRegistry();
-  registerInitialTools(registry, config, options.blenderAdapter ? { blender: options.blenderAdapter } : {});
+  registerInitialTools(registry, config, {
+    ...(options.blenderAdapter ? { blender: options.blenderAdapter } : {}),
+    ...(options.assetBytesAdapter ? { assetBytes: options.assetBytesAdapter } : {}),
+  });
   const executor = createMcpExecutor({
     config,
     authVerifier: createDevelopmentAuthVerifier({ nodeEnv: "test", subject: actorSubject }),

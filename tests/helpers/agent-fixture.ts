@@ -16,7 +16,7 @@ import {
   type McpTransportInput,
 } from "@aevum/agent-runtime";
 import type { CanonicalDesignDocument } from "@aevum/document-model";
-import type { BlenderToolAdapter } from "@aevum/mcp-server";
+import type { AssetBytesResolver, BlenderToolAdapter } from "@aevum/mcp-server";
 import { ROLE_PERMISSIONS, type McpPermission, type McpRole } from "@aevum/mcp-protocol";
 import { createMcpTestFixture, MCP_TEST_TIME } from "./mcp-fixture.js";
 
@@ -37,6 +37,7 @@ export interface AgentFixtureOptions {
   readonly clientTimeoutMs?: number;
   readonly mcpToolTimeoutMs?: number;
   readonly blenderAdapter?: BlenderToolAdapter;
+  readonly assetBytesAdapter?: AssetBytesResolver;
   readonly intercept?: (
     input: McpTransportInput,
     execute: () => Promise<unknown>,
@@ -51,6 +52,7 @@ export function createAgentTestFixture(options: AgentFixtureOptions = {}) {
     ...(options.document ? { document: options.document } : {}),
     ...(options.mcpToolTimeoutMs ? { toolTimeoutMs: options.mcpToolTimeoutMs } : {}),
     ...(options.blenderAdapter ? { blenderAdapter: options.blenderAdapter } : {}),
+    ...(options.assetBytesAdapter ? { assetBytesAdapter: options.assetBytesAdapter } : {}),
   });
   const calls: McpTransportInput[] = [];
   const transport = createInProcessMcpTransport(async (input) => {

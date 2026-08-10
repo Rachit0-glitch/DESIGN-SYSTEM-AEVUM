@@ -16,7 +16,7 @@ import { z } from "zod";
 import { McpPermissionSchema } from "./permissions.js";
 import { MCP_PROTOCOL_VERSION } from "./version.js";
 
-export const MCP_TOOL_VERSION = "1.5.0" as const;
+export const MCP_TOOL_VERSION = "1.6.0" as const;
 export const McpAuthModeSchema = z.enum(["development", "supabase", "disabled"]);
 export const McpToolNameSchema = z.enum([
   "system.get_capabilities",
@@ -40,6 +40,7 @@ export const McpToolNameSchema = z.enum([
   "three.update_pbr_material",
   "three.multiview_analyze",
   "three.reconstruction_generate_candidate",
+  "three.import_scene",
   "blender.runtime_info",
   "blender.inspect_scene",
   "blender.inspect_object",
@@ -434,6 +435,39 @@ export const ThreeReconstructionGenerateCandidateOutputSchema = z.strictObject({
   changeSet: z.unknown().optional(),
 });
 
+// Phase 19A: exposes the existing scene3d.import Command Engine path (already used internally
+// since Phase 14) as a bounded MCP write tool. High-level input only — no raw GLB bytes,
+// filesystem paths, or Command Engine payloads accepted.
+export const ThreeImportSceneInputSchema = WriteBaseSchema.extend({
+  assetId: EntityIdSchema,
+});
+export const ThreeImportSceneOutputSchema = z.strictObject({
+  dryRun: z.boolean(),
+  baseVersion: z.number().int().nonnegative(),
+  resultVersion: z.number().int().nonnegative(),
+  predictedDocumentVersion: z.number().int().nonnegative().optional(),
+  transactionId: z.string().min(1).optional(),
+  commandIds: z.array(z.string().min(1)).optional(),
+  assetId: EntityIdSchema,
+  rootNodeIds: z.array(EntityIdSchema),
+  importedNodeIds: z.array(EntityIdSchema),
+  counts: z.strictObject({
+    nodes: z.number().int().nonnegative(),
+    meshes: z.number().int().nonnegative(),
+    materials: z.number().int().nonnegative(),
+    cameras: z.number().int().nonnegative(),
+    lights: z.number().int().nonnegative(),
+  }),
+  diagnostics: z.array(
+    z.strictObject({
+      code: z.string(),
+      severity: z.enum(["INFO", "WARNING", "ERROR", "BLOCKING"]),
+      message: z.string(),
+    }),
+  ),
+  changeSet: z.unknown().optional(),
+});
+
 export const DocumentRenameInputSchema = WriteBaseSchema.extend({ name: z.string().trim().min(1).max(255) });
 export const NodeCreateInputSchema = WriteBaseSchema.extend({
   node: DesignNodeSchema,
@@ -688,6 +722,7 @@ export const TOOL_SCHEMAS = Object.freeze({
     input: ThreeReconstructionGenerateCandidateInputSchema,
     output: ThreeReconstructionGenerateCandidateOutputSchema,
   },
+  "three.import_scene": { input: ThreeImportSceneInputSchema, output: ThreeImportSceneOutputSchema },
   "document.rename": { input: DocumentRenameInputSchema, output: WriteToolOutputSchema },
   "node.create": { input: NodeCreateInputSchema, output: WriteToolOutputSchema },
   "node.update": { input: NodeUpdateInputSchema, output: WriteToolOutputSchema },

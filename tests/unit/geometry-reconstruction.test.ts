@@ -1,5 +1,7 @@
 import {
+  boundsOfPoints,
   boxDimensionNeighbors,
+  buildHullViews,
   carveVisualHull,
   centroidOf,
   chamferBoundaryDistance,
@@ -11,20 +13,37 @@ import {
   countOccupied,
   createBoxGroundTruthFixture,
   createCylinderGroundTruthFixture,
+  createMultiPartGroundTruthFixture,
+  createNoisyViewBoxGroundTruthFixture,
+  detectPartOverlaps,
+  dilateOccupancy,
   distanceToMeshSurface,
+  erodeOccupancy,
   extractVoxelSurface,
   fitBoxDimensions,
   fitCylinderDimensions,
   generateBoxMesh,
   generateCylinderMesh,
   mergeMeshes,
+  partAxisScaleNeighbors,
+  partRepositionFromLandmarksNeighbor,
+  partTranslationNeighbors,
   pointInPolygon,
   rasterizePolygon,
+  rectArea,
+  rectCentroid,
+  rectIoU,
+  refineOccupancyFromEvidence,
   resolveScaleFactor,
+  scorePart,
   translateMesh,
+  type PartMesh,
 } from "@aevum/geometry-reconstruction";
 import { analyzeMultiView, createMultiViewTask, quaternionFromLookAt } from "@aevum/multiview-reconstruction";
 import { describe, expect, it } from "vitest";
+
+const FIXTURE_NOW = "2026-08-09T00:00:00.000Z";
+const IDENTITY_ROTATION = { x: 0, y: 0, z: 0, w: 1 };
 
 describe("geometry-reconstruction: 2D geometry", () => {
   it("computes the convex hull of a point set with interior points removed", () => {
@@ -85,6 +104,24 @@ describe("geometry-reconstruction: 2D geometry", () => {
     ]);
     expect(centroid.x).toBeCloseTo(0.5, 5);
     expect(centroid.y).toBeCloseTo(0.5, 5);
+  });
+
+  it("computes rectangle IoU, area, and centroid for real axis-aligned bounds", () => {
+    const a = { minX: 0, minY: 0, maxX: 1, maxY: 1 };
+    const b = { minX: 0.5, minY: 0, maxX: 1.5, maxY: 1 };
+    expect(rectIoU(a, a)).toBeCloseTo(1, 5);
+    expect(rectIoU(a, b)).toBeCloseTo(0.5 / 1.5, 5);
+    expect(rectArea(a)).toBeCloseTo(1, 5);
+    expect(rectCentroid(a)).toEqual({ x: 0.5, y: 0.5 });
+  });
+
+  it("computes real bounds from a point set", () => {
+    const bounds = boundsOfPoints([
+      { x: -1, y: 2 },
+      { x: 3, y: -4 },
+      { x: 0, y: 0 },
+    ]);
+    expect(bounds).toEqual({ minX: -1, minY: -4, maxX: 3, maxY: 2 });
   });
 });
 
@@ -255,6 +292,244 @@ describe("geometry-reconstruction: correction primitives", () => {
     const improved = [{ ...baseMetric, silhouetteIoU: 0.9 }];
     expect(checkViewRegression(before, regressed).regressed).toBe(true);
     expect(checkViewRegression(before, improved).regressed).toBe(false);
+  });
+});
+
+describe("geometry-reconstruction: per-part scoring (Phase 19A)", () => {
+  it("scores a part highly when its world mesh matches its Phase 17 observed bounds", () => {
+    const fixture = createMultiPartGroundTruthFixture();
+    const task = createMultiViewTask(fixture.taskInput);
+    const { referenceSet } = analyzeMultiView(task, { createdAt: FIXTURE_NOW });
+    const bodyPart = referenceSet.parts.find((part) => part.label === "body");
+    if (!bodyPart) throw new Error("Expected a body part in the reference set.");
+
+    const score = scorePart({
+      partId: bodyPart.id,
+      label: "body",
+      worldMesh: generateBoxMesh(fixture.bodyHalfExtents),
+      referenceSet,
+      evidencePart: bodyPart,
+      maxTriangles: 10_000,
+    });
+
+    expect(score.silhouetteFit).toBeGreaterThan(0.5);
+    expect(score.overall).toBeGreaterThan(0.5);
+    expect(score.diagnostics.some((entry) => entry.code === "PART_SILHOUETTE_TOO_LARGE")).toBe(false);
+    expect(score.diagnostics.some((entry) => entry.code === "PART_POSITION_MISMATCH")).toBe(false);
+  });
+
+  it("flags an oversized part and a mispositioned part with real diagnostics", () => {
+    const fixture = createMultiPartGroundTruthFixture();
+    const task = createMultiViewTask(fixture.taskInput);
+    const { referenceSet } = analyzeMultiView(task, { createdAt: FIXTURE_NOW });
+    const bodyPart = referenceSet.parts.find((part) => part.label === "body");
+    if (!bodyPart) throw new Error("Expected a body part in the reference set.");
+
+    const oversizedScore = scorePart({
+      partId: bodyPart.id,
+      label: "body",
+      worldMesh: generateBoxMesh({
+        x: fixture.bodyHalfExtents.x * 2,
+        y: fixture.bodyHalfExtents.y * 2,
+        z: fixture.bodyHalfExtents.z * 2,
+      }),
+      referenceSet,
+      evidencePart: bodyPart,
+      maxTriangles: 10_000,
+    });
+    expect(oversizedScore.diagnostics.some((entry) => entry.code === "PART_SILHOUETTE_TOO_LARGE")).toBe(true);
+
+    const shiftedScore = scorePart({
+      partId: bodyPart.id,
+      label: "body",
+      worldMesh: translateMesh(generateBoxMesh(fixture.bodyHalfExtents), { x: 0.5, y: 0, z: 0 }),
+      referenceSet,
+      evidencePart: bodyPart,
+      maxTriangles: 10_000,
+    });
+    expect(shiftedScore.diagnostics.some((entry) => entry.code === "PART_POSITION_MISMATCH")).toBe(true);
+  });
+
+  it("returns a neutral, disclosed score when no matching Phase 17 evidence part exists", () => {
+    const fixture = createMultiPartGroundTruthFixture();
+    const task = createMultiViewTask(fixture.taskInput);
+    const { referenceSet } = analyzeMultiView(task, { createdAt: FIXTURE_NOW });
+    const score = scorePart({
+      partId: "part_unmatched",
+      label: "unmatched",
+      worldMesh: generateBoxMesh(fixture.bodyHalfExtents),
+      referenceSet,
+      evidencePart: undefined,
+      maxTriangles: 10_000,
+    });
+    expect(score.silhouetteFit).toBe(0);
+    expect(score.landmarkFit).toBe(0.5);
+    expect(score.constraintFit).toBe(0.5);
+  });
+});
+
+describe("geometry-reconstruction: part overlap detection (Phase 19A)", () => {
+  function makePart(
+    partId: string,
+    label: string,
+    halfExtents: { x: number; y: number; z: number },
+    position: { x: number; y: number; z: number },
+  ): PartMesh {
+    return {
+      partId,
+      label,
+      representation: "BOX_PRIMITIVE",
+      mesh: generateBoxMesh(halfExtents),
+      localTransform: { position, rotation: IDENTITY_ROTATION },
+    };
+  }
+
+  it("flags two parts whose bounding boxes overlap well beyond tolerance", () => {
+    const a = makePart("part-a", "body", { x: 0.3, y: 0.3, z: 0.3 }, { x: 0, y: 0, z: 0 });
+    const b = makePart("part-b", "cap", { x: 0.3, y: 0.3, z: 0.3 }, { x: 0.1, y: 0, z: 0 });
+    const diagnostics = detectPartOverlaps([a, b], 0.15);
+    expect(diagnostics.some((entry) => entry.code === "PART_OVERLAP_DETECTED")).toBe(true);
+  });
+
+  it("reports no diagnostics for spatially separated parts", () => {
+    const a = makePart("part-a", "body", { x: 0.3, y: 0.3, z: 0.3 }, { x: 0, y: 0, z: 0 });
+    const b = makePart("part-b", "cap", { x: 0.1, y: 0.1, z: 0.1 }, { x: 0.6, y: 0, z: 0 });
+    expect(detectPartOverlaps([a, b], 0.15)).toHaveLength(0);
+  });
+});
+
+describe("geometry-reconstruction: part correction neighbors (Phase 19A)", () => {
+  const part: PartMesh = {
+    partId: "part-body",
+    label: "body",
+    representation: "BOX_PRIMITIVE",
+    mesh: generateBoxMesh({ x: 0.3, y: 0.3, z: 0.2 }),
+    localTransform: { position: { x: 0, y: 0, z: 0 }, rotation: IDENTITY_ROTATION },
+  };
+
+  it("generates a bounded set of translation neighbors scaled to the part's own size", () => {
+    const neighbors = partTranslationNeighbors(part);
+    expect(neighbors.length).toBe(12); // 3 axes x 4 factors
+    for (const neighbor of neighbors) {
+      expect(neighbor.action).toBe("PART_TRANSLATE");
+      expect(checkStructuralValidity(neighbor.part.mesh, 1000).valid).toBe(true);
+    }
+    const xPlus = neighbors.find((entry) => entry.label === "translate-x+10%");
+    // Box size on x is 0.6 (half-extent 0.3); a 10% offset should be 0.06, not a fixed constant.
+    expect(xPlus?.part.localTransform.position.x).toBeCloseTo(0.06, 5);
+  });
+
+  it("generates axis-scale neighbors only for box-primitive parts", () => {
+    const boxNeighbors = partAxisScaleNeighbors(part);
+    expect(boxNeighbors.length).toBe(12);
+    for (const neighbor of boxNeighbors) expect(neighbor.action).toBe("PART_AXIS_SCALE");
+
+    const voxelPart: PartMesh = { ...part, representation: "VOXEL_HULL" };
+    expect(partAxisScaleNeighbors(voxelPart)).toHaveLength(0);
+  });
+
+  it("proposes no reposition move without a matching evidence part or resolved landmarks", () => {
+    const fixture = createMultiPartGroundTruthFixture();
+    const task = createMultiViewTask(fixture.taskInput);
+    const { referenceSet } = analyzeMultiView(task, { createdAt: FIXTURE_NOW });
+    expect(partRepositionFromLandmarksNeighbor(part, referenceSet, undefined)).toBeUndefined();
+
+    const bodyPart = referenceSet.parts.find((entry) => entry.label === "body");
+    if (!bodyPart) throw new Error("Expected a body part in the reference set.");
+    // The multi-part fixture attaches no landmark hints, so the body part has no linked landmarks
+    // with a resolved 3D estimate — an explicit, disclosed limitation, not a fabricated move.
+    expect(partRepositionFromLandmarksNeighbor(part, referenceSet, bodyPart)).toBeUndefined();
+  });
+});
+
+describe("geometry-reconstruction: voxel occupancy refinement (Phase 19A)", () => {
+  it("dilates and erodes a single-voxel grid via real 6-connected morphology", () => {
+    const resolution = 5;
+    const occupancy = new Uint8Array(resolution ** 3);
+    const index = (x: number, y: number, z: number) => x * resolution * resolution + y * resolution + z;
+    const center = index(2, 2, 2);
+    occupancy[center] = 1;
+
+    const dilated = dilateOccupancy(occupancy, resolution);
+    expect(countOccupied(dilated)).toBe(7); // the voxel plus its 6 face neighbors
+
+    const eroded = erodeOccupancy(dilated, resolution);
+    // Erosion strips every dilated neighbor that doesn't itself have all 6 neighbors occupied;
+    // only the original center voxel qualifies.
+    expect(countOccupied(eroded)).toBe(1);
+    expect(eroded[center]).toBe(1);
+  });
+
+  it("is a no-op when refining occupancy against the exact views it was carved from", () => {
+    const front = {
+      viewId: "front",
+      geometry: {
+        position: { x: 0, y: 0, z: 2 },
+        orientation: quaternionFromLookAt({ x: 0, y: 0, z: 2 }, { x: 0, y: 0, z: 0 }),
+        verticalFieldOfView: Math.PI / 3,
+        aspectRatio: 1,
+        principalPoint: { x: 0.5, y: 0.5 },
+      },
+      silhouette: [
+        { x: 0.3, y: 0.3 },
+        { x: 0.7, y: 0.3 },
+        { x: 0.7, y: 0.7 },
+        { x: 0.3, y: 0.7 },
+      ],
+    };
+    const side = {
+      viewId: "side",
+      geometry: {
+        position: { x: 2, y: 0, z: 0 },
+        orientation: quaternionFromLookAt({ x: 2, y: 0, z: 0 }, { x: 0, y: 0, z: 0 }),
+        verticalFieldOfView: Math.PI / 3,
+        aspectRatio: 1,
+        principalPoint: { x: 0.5, y: 0.5 },
+      },
+      silhouette: [
+        { x: 0.3, y: 0.3 },
+        { x: 0.7, y: 0.3 },
+        { x: 0.7, y: 0.7 },
+        { x: 0.3, y: 0.7 },
+      ],
+    };
+    const resolution = 12;
+    const halfExtent = 0.6;
+    const { occupancy } = carveVisualHull([front, side], { resolution, halfExtent });
+
+    // Strict-intersection carving is already the tightest hull consistent with every view; feeding
+    // the same views back into refinement must never find anything left to add or remove.
+    const result = refineOccupancyFromEvidence(occupancy, {
+      resolution,
+      halfExtent,
+      views: [front, side],
+      consensusMinViews: 2,
+      maxChangedVoxelRatio: 1,
+    });
+    expect(result.addedVoxels).toBe(0);
+    expect(result.removedVoxels).toBe(0);
+  });
+
+  it("never adds volume a dissenting camera disputes, even for a fixture built to tempt recovery", () => {
+    const fixture = createNoisyViewBoxGroundTruthFixture();
+    const task = createMultiViewTask(fixture.taskInput);
+    const { referenceSet } = analyzeMultiView(task, { createdAt: FIXTURE_NOW });
+    const views = buildHullViews(referenceSet);
+    const resolution = 16;
+    const halfExtent = 0.5;
+    const { occupancy: carved } = carveVisualHull(views, { resolution, halfExtent });
+
+    const result = refineOccupancyFromEvidence(carved, {
+      resolution,
+      halfExtent,
+      views,
+      consensusMinViews: views.length,
+      maxChangedVoxelRatio: 0.25,
+    });
+
+    // The RIGHT view's silhouette was deliberately shrunk (a real, disputed observation) — addition
+    // requires unanimity, so no voxel it disputes may ever be voted back in.
+    expect(result.addedVoxels).toBe(0);
   });
 });
 

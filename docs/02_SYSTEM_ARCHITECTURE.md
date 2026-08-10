@@ -2046,3 +2046,26 @@ was built), scored, and exported to a real GLB. Canonical integration reuses the
 `scene3d.import` commands unchanged — no new Command Engine command type, no direct Blender invocation, and no
 parallel import path. Per ADR-0002, this package now occupies the Phase 18 roadmap slot in place of the
 originally-planned Rigging and Character Animation work, which is preserved and deferred, not deleted.
+
+## 47. Phase 19A Reconstruction Hardening and Canonical Import Boundary
+
+Phase 19A closes two Phase 18 gaps without moving any architectural boundary. First, correction gained two new
+bounded search dimensions inside the existing non-regression loop: per-part translation/axis-scale/landmark-
+reposition moves (`part-correction.ts`) scored per-part against Phase 17 part evidence (`part-scoring.ts`,
+bounding-box IoU in rectangle space, since Phase 17 part observations are rectangles, not full contours) with AABB
+overlap diagnostics (`part-overlap.ts`); and voxel occupancy refinement (`voxel-hull.ts`'s
+`refineOccupancyFromEvidence`), which is intentionally *asymmetric* — safe majority-vote removal, but addition
+requires full multi-view unanimity, because carving is already the tightest hull consistent with every calibrated
+view and relaxing addition to majority-agreement was measured to make cross-view fit worse, not better, on real
+evidence. Neither dimension introduces new state, a new provider, or new randomness; both remain inside the existing
+bounded correction-pass discipline (score improves and no view or sibling part regresses, or the pass is rejected).
+
+Second, `scene3d.import` — used internally since Phase 14 — is now exposed as a bounded MCP write tool
+(`three.import_scene`), closing the "generate a candidate but have no way to actually place it in the scene through
+MCP" gap. It adds no new Command Engine command type; it only compiles the existing `scene3d.import` command from a
+registered GLB/GLTF asset. Because no production asset-byte storage adapter exists anywhere in this repository (byte
+storage was always an interface-only seam, never implemented), the tool depends on an injectable
+`AssetBytesResolver` (`apps/mcp-server/src/registry.ts`, mirroring the existing `BlenderToolAdapter` pattern exactly)
+and is honestly reported as disabled (`enabled: false`, `MCP_TOOL_DISABLED` on invocation) in any deployment that
+does not configure one — the same "absent adapter, absent capability, never faked" rule already governing the
+Railway Blender Bridge.

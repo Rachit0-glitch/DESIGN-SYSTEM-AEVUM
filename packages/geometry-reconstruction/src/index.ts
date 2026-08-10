@@ -11,6 +11,7 @@ export {
   generateInitialCandidates,
   type GenerateCandidatesResult,
   type RawCandidate,
+  type VoxelOccupancy,
 } from "./candidate-generation.js";
 export {
   boxDimensionNeighbors,
@@ -29,15 +30,20 @@ export {
 } from "./deterministic.js";
 export { diagnostic, hasBlockingDiagnostics, hasErrorDiagnostics, sortDiagnostics } from "./diagnostics.js";
 export {
+  boundsOfPoints,
   centroidOf,
   chamferBoundaryDistance,
   compareRasterGrids,
   convexHull,
   pointInPolygon,
   rasterizePolygon,
+  rectArea,
+  rectCentroid,
+  rectIoU,
   type Point2D,
   type RasterGrid,
   type RasterOverlapMetrics,
+  type Rect2D,
 } from "./geometry-2d.js";
 export {
   createBoxGroundTruthFixture,
@@ -45,10 +51,14 @@ export {
   createCylinderGroundTruthFixture,
   createMissingViewFixture,
   createMultiPartGroundTruthFixture,
+  createNoisyViewBoxGroundTruthFixture,
+  createOffsetBoxGroundTruthFixture,
   GEOMETRY_FIXTURE_NOW,
   type GroundTruthBoxFixture,
   type GroundTruthCylinderFixture,
   type GroundTruthMultiPartFixture,
+  type GroundTruthNoisyViewFixture,
+  type GroundTruthOffsetBoxFixture,
 } from "./fixtures.js";
 export { exportMeshToGlb } from "./glb-export.js";
 export { deepFreeze } from "./immutable.js";
@@ -75,6 +85,14 @@ export {
   type ResolvedDimensionTarget,
   type ScaleApplicationResult,
 } from "./primitives.js";
+export { detectPartOverlaps } from "./part-overlap.js";
+export {
+  partAxisScaleNeighbors,
+  partRepositionFromLandmarksNeighbor,
+  partTranslationNeighbors,
+  type PartNeighbor,
+} from "./part-correction.js";
+export { scorePart, type ScorePartInput } from "./part-scoring.js";
 export {
   createDeterministicTestProvider,
   createLocalBaselineProvider,
@@ -107,8 +125,13 @@ export {
 export {
   carveVisualHull,
   countOccupied,
+  dilateOccupancy,
+  erodeOccupancy,
   extractVoxelSurface,
+  refineOccupancyFromEvidence,
   type HullView,
+  type RefineOccupancyOptions,
+  type RefineOccupancyResult,
   type VoxelHullOptions,
 } from "./voxel-hull.js";
 

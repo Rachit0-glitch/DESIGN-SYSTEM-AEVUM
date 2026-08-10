@@ -2291,12 +2291,158 @@ Status update:
   - Readiness/score capping on conflict follows Phase 17's established pattern: classification is
     capped downward on error/critical diagnostics, but the underlying numeric score is never
     edited, so regressions cannot hide inside an aggregate.
-- Next action:
+- Next action (superseded — see the Phase 19A addendum below, which completed both items):
   - Decide the numbered slot for Rigging and Character Animation (preserved below) once a
     reconstructed or otherwise-imported static model is reliably available to rig. A future phase
     should also consider: correcting multi-part and voxel-hull candidates (not just single-part
     primitives), and exposing `scene3d.import` as a bounded MCP tool so an Agent can complete the
     candidate → canonical → Scene Runtime chain without direct package access.
+
+### Phase 19A Addendum — Reconstruction Hardening and Canonical Import
+
+This addendum stays inside the Phase 18 slot (it hardens Phase 18's own deliverables) rather than
+claiming the roadmap's already-assigned "Phase 19 — Physics and Simulation" number, consistent with
+ADR-0002's decision not to renumber the roadmap.
+
+#### Goal
+
+Close the two gaps Phase 18 left open in its own "Next action": correct multi-part and voxel-hull
+candidates (not just single-part box/cylinder primitives), and expose `scene3d.import` as a bounded
+MCP write tool so an Agent can complete the generate → import chain without direct package access.
+
+#### Status
+
+```text
+VALIDATED
+```
+
+#### Scope
+
+- Per-part correction for multi-part candidates: bounded translation, box axis-scale, and a
+  landmark-centroid reposition move, each scored against Phase 17's per-part rectangle evidence
+- AABB-level part-overlap diagnostics (`PART_OVERLAP_DETECTED`)
+- Evidence-driven voxel occupancy refinement on top of the existing carve, with an intentionally
+  asymmetric multi-view rule (safe majority-vote removal, unanimity-required addition)
+- One new bounded MCP write tool, `three.import_scene`, compiling the existing Phase 14
+  `scene3d.import` command from a registered GLB/GLTF asset
+- An injectable `AssetBytesResolver` adapter seam (mirroring `BlenderToolAdapter`), since no
+  production asset-byte storage adapter exists in this repository
+- One new deterministic Agent operation, `reconstruct_and_import`, chaining evidence inspection →
+  candidate generation (dry run + commit) → canonical import (dry run + commit) → verification
+
+#### Acceptance Gate
+
+- A multi-part correction pass never regresses a sibling part or any view beyond tolerance
+- Voxel occupancy refinement never accepts a pass that regresses any view, even on a fixture built
+  to tempt an unsafe recovery (proven both by direct refinement-function tests and by a full
+  reconstruction-session test against a genuinely noisy view)
+- `three.import_scene` is honestly reported disabled (`enabled: false`, `MCP_TOOL_DISABLED`) with no
+  configured `AssetBytesResolver`, never faked
+- A dry-run then commit of `three.import_scene` increments the document version, produces real
+  `MESH_3D` nodes, and writes an audit record
+- The Agent's `reconstruct_and_import` operation completes end-to-end through MCP: analyze → dry-run
+  generate → commit generate → dry-run import → commit import → verify mesh nodes exist
+- Workspace isolation, idempotent replay, and stale-version rejection all hold for the new tool,
+  matching every other write tool's existing guarantees
+
+#### Current Phase 19A Evidence
+
+Status update:
+
+- Date: 2026-08-10
+- Owner: Claude (Codex-to-Claude handoff)
+- Previous status: PLANNED (as the "Next action" left open by Phase 18)
+- New status: VALIDATED
+- Evidence:
+  - `part-scoring.ts`: real per-part bounding-box IoU against Phase 17's per-part rectangle
+    evidence (Phase 17 attaches rectangles to parts, not full contours), plus landmark-to-surface
+    distance for landmarks the part references. Constraint fit stays neutral (`0.5`) because Phase
+    17 does not yet attach geometric constraints to individual parts — a disclosed limitation, not
+    a fabricated signal.
+  - `part-correction.ts`: bounded translation (scaled to the part's own size, not a fixed absolute
+    distance), box axis-scale (box-primitive parts only — an explicit, disclosed limitation for
+    voxel/cylinder parts), and a landmark-centroid reposition move that only exists when the part
+    has landmarks with a resolved 3D estimate.
+  - `part-overlap.ts`: AABB intersection-volume-ratio diagnostics between reconstructed parts,
+    tolerant of the expected touch/slight-overlap between attached parts (a crown against a watch
+    body), only flagging overlap beyond a configurable tolerance ratio.
+  - `session.ts`'s multi-part correction sweeps all parts repeatedly, accepting a neighbor move only
+    when the target part improves, no sibling part regresses beyond tolerance, no view regresses,
+    and the whole-candidate score improves — the same non-regression discipline Phase 18 already
+    applied to whole-candidate dimension correction.
+  - `voxel-hull.ts`'s `refineOccupancyFromEvidence`: majority-vote removal (safe — trims volume most
+    evidence disputes, cannot add unsupported volume) but unanimity-required addition. A more
+    lenient majority-agreement addition rule was implemented and measured first; it was reverted
+    after empirically making cross-view IoU worse on every real fixture tested (including a fixture
+    purpose-built to tempt an unsafe recovery), because strict-intersection carving is already the
+    literature-correct tightest hull consistent with every calibrated view.
+  - `three.import_scene` (`packages/mcp-protocol`, `MCP_TOOL_VERSION` `1.6.0`): reuses existing
+    `asset.read`/`document.write`/`three.write` permissions, high-level input only (`assetId`,
+    `expectedDocumentVersion`), full dry-run/idempotency/audit support matching every other write
+    tool.
+  - `AssetBytesResolver` (`apps/mcp-server/src/registry.ts`): an injectable adapter interface
+    mirroring `BlenderToolAdapter` exactly. `registerInitialTools` now accepts an optional
+    `assetBytes` adapter; without one, `three.import_scene` shows `enabled: false` and fails with
+    `MCP_TOOL_DISABLED` — never fabricated.
+  - Agent: `packages/agent-planner` gained a `reconstruct_and_import` deterministic operation
+    (readiness inspection → document-version read → dry-run/commit generate → dry-run/commit import
+    → verification → complete). Its plan has exactly one terminal `VERIFY` step, not one after
+    `generate` and one after `import`, because the deterministic reasoning provider's
+    `verifyCompletion` aggregates every `VERIFY` step's assertions across the whole plan against
+    whatever observations exist so far — an intermediate `VERIFY` step would always fail on the
+    later import assertion before the import steps had even run. If candidate generation produces
+    no `assetId`, the import dry-run's own input validation fails naturally and honestly instead.
+  - Canonical Design Document, Command Engine, and Blender Bridge are unmodified — no schema
+    migration, no new command type beyond reusing `scene3d.import`, and no direct Blender
+    invocation from this work.
+- Test results:
+  - Unit: rectangle IoU/area/centroid/bounds-of-points; per-part scoring (matching evidence, an
+    oversized part, a mispositioned part, no matching evidence); part-overlap detection (flagged and
+    unflagged); part-correction neighbor generation (bounded, size-scaled, box-only axis-scale, no
+    reposition without landmarks); voxel dilate/erode morphology on a synthetic grid; occupancy
+    refinement self-consistency (a no-op when fed the exact views it was carved from) and the
+    never-add-disputed-volume property against the purpose-built noisy-view fixture.
+  - Integration: multi-part correction passes never regress a sibling part or view; voxel
+    refinement passes never regress a view even on the noisy-view fixture; whole-candidate scoring
+    is a genuinely distinct blend from either individual part's own score (not a copy of one).
+  - MCP: `three.import_scene` honestly disabled without a configured resolver; full dry-run → commit
+    cycle with document-version increment, real `MESH_3D` nodes, and an audit record; idempotent
+    replay without double-importing; stale-version rejection; cross-workspace asset isolation;
+    nonexistent-asset and wrong-asset-type rejection.
+  - Agent: `reconstruct_and_import` completes end-to-end through MCP with a real five-view box
+    fixture — `system.get_capabilities` → `three.multiview_analyze` → `document.get` →
+    `three.reconstruction_generate_candidate` (dry run) → (commit) → `three.import_scene` (dry run)
+    → (commit) → passes its own state-assertion verification, and the canonical document ends with
+    real `MESH_3D` nodes.
+  - `pnpm test`: PASS, 46 test files and 309 tests (up from 45 files / 286 tests at Phase 18)
+- Validation results:
+  - `pnpm validate:docs`: PASS for 12 canonical files
+  - `pnpm validate:deps`: PASS for 59 workspace packages
+  - `pnpm format:check` / `pnpm lint`: PASS, no warnings
+  - `pnpm typecheck`: PASS, 80 Turbo tasks
+  - `pnpm build`: PASS, 59 Turbo package builds
+- Remaining warnings:
+  - The landmark-reposition correction move only fires when Phase 17 attaches landmarks to the
+    part; a part with no linked landmarks is left to translation/axis-scale correction alone — a
+    disclosed limitation, not a silent no-op.
+  - `AssetBytesResolver` has no real (non-in-memory) implementation anywhere in this repository;
+    building persistent asset-byte storage is out of scope for this addendum.
+  - The correction loop still does not correct cylinder-primitive candidates' own dimensions beyond
+    what Phase 18 already did; this addendum only adds part-level and voxel-level correction.
+- Blockers:
+  - None for the Phase 19A hardening and canonical-import addendum as scoped.
+- Decisions:
+  - Voxel-addition unanimity (not majority) is the load-bearing correctness decision of this
+    addendum — see the `refineOccupancyFromEvidence` docstring in `voxel-hull.ts` for the full
+    empirical rationale.
+  - `AssetBytesResolver` follows the exact adapter-injection shape already established by
+    `BlenderToolAdapter`, rather than inventing a second pattern for "capability absent, honestly
+    disabled."
+- Next action:
+  - Proceed to Phase 19B (Rigging, Skeletons, Skinning, and Character Deformation Foundation) only
+    after this addendum is committed and pushed, per the user's own gating instruction. A future
+    phase should also consider building a real `AssetBytesResolver` implementation once persistent
+    asset storage exists.
 
 ### Deferred: Original Phase 18 Scope (Rigging and Character Animation)
 
@@ -3478,8 +3624,9 @@ before (it previously still said "Begin Phase 16" after Phase 16 was already val
 "Decide the numbered slot for multi-view 3D model generation" after that decision — reusing Phase
 18 per ADR-0002 — had already been made). The authoritative, current next-action statement for any
 given phase is always the "Next action" line inside that phase's own numbered section above (see
-§22 for Phase 16, §23 for Phase 17, and §24 for Phase 18); this section should be kept in sync with
-that same value but is not the source of truth if the two ever disagree again.
+§22 for Phase 16, §23 for Phase 17, and §24 for Phase 18, whose Phase 19A addendum is now
+VALIDATED); this section should be kept in sync with that same value but is not the source of truth
+if the two ever disagree again.
 
 The next repository action should be:
 
@@ -3491,10 +3638,12 @@ reconstructed or otherwise-imported static model is reliably available to rig.
 Phase 18 (§24) delivered the first real local reconstruction execution — candidate geometry
 generation, cross-view scoring, a bounded correction loop, and the handoff into the existing Phase
 14 → 15 → 16 pipeline — reusing Phase 17's evidence contracts unchanged (see ADR-0002 for why this
-phase now covers reconstruction execution rather than rigging). Rigging's original scope is
-preserved verbatim in §24 and remains genuinely unclaimed. Also worth picking up alongside or
-before rigging: correcting multi-part and voxel-hull candidates (Phase 18 only corrects single-part
-box/cylinder candidates today), and exposing `scene3d.import` as a bounded MCP tool.
+phase now covers reconstruction execution rather than rigging). Its Phase 19A addendum (§24) then
+closed both gaps Phase 18 left open: multi-part and voxel-hull candidates are now correction-loop
+aware (not just single-part box/cylinder primitives), and `scene3d.import` is now exposed as a
+bounded MCP write tool (`three.import_scene`) with a matching Agent operation
+(`reconstruct_and_import`). Rigging's original scope is preserved verbatim in §24 and remains
+genuinely unclaimed — it is the next repository action once a numbered slot is assigned.
 
 ---
 

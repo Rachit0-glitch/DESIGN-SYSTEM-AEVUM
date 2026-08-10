@@ -1,12 +1,19 @@
 import { createAgentCancellationController } from "@aevum/agent-runtime";
 import { createAgentWorker, createAgentWorkerHttpServer } from "@aevum/agent-worker";
 import { computeSha256 } from "@aevum/assets";
-import { createAsset, createFrame, fixtures } from "@aevum/document-model";
+import { createAsset, createFrame, fixtures, type AssetRecord } from "@aevum/document-model";
+import {
+  createBoxGroundTruthFixture,
+  LOCAL_BASELINE_PROVIDER_VERSION,
+  runReconstructionSession,
+} from "@aevum/geometry-reconstruction";
+import { analyzeMultiView, createMultiViewTask } from "@aevum/multiview-reconstruction";
 import { apply3DImportProposal, create3DImportProposal } from "@aevum/renderer-3d";
 import { createThreeFixture } from "@aevum/test-fixtures";
 import type { Server } from "node:http";
 import { describe, expect, it } from "vitest";
 import { createAgentTestFixture } from "../helpers/agent-fixture.js";
+import { MCP_TEST_TIME } from "../helpers/mcp-fixture.js";
 
 function listen(server: Server): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -171,6 +178,102 @@ describe("agent orchestration workflow", () => {
       | { data?: { reconstruction?: { status?: string } } }
       | undefined;
     expect(["BLOCKED", "COMPLETED"]).toContain(reconstructionData?.data?.reconstruction?.status);
+  });
+
+  it("reconstructs a real box from five views and imports it into the canonical document through MCP (Phase 19A)", async () => {
+    const boxFixture = createBoxGroundTruthFixture();
+    const document = structuredClone(fixtures.assetDemo());
+    boxFixture.taskInput.views.forEach((view, index) => {
+      document.assets[view.assetId] = {
+        id: view.assetId,
+        type: "IMAGE",
+        name: `Reconstruction view ${index}`,
+        hash: `sha256:${(index + 1).toString(16).padStart(64, "0")}`,
+        source: { kind: "UPLOAD", uri: `generated://phase19a/view-${index}.png` },
+        mimeType: "image/png",
+        byteSize: 1024,
+        metadata: {},
+      } satisfies AssetRecord;
+    });
+    const views = boxFixture.taskInput.views.map((view, index) => ({
+      assetId: view.assetId,
+      imageWidth: view.imageWidth,
+      imageHeight: view.imageHeight,
+      role: boxFixture.taskInput.roleHints[index]?.role,
+      silhouetteContour: view.silhouetteContour,
+    }));
+
+    // The MCP server never returns generated candidate bytes to the caller (there is still no
+    // production asset-byte store) — this in-memory resolver stands in for that store by
+    // deterministically re-running the exact same evidence through the same local pipeline. It
+    // mirrors apps/mcp-server/src/tools.ts's three.reconstruction_generate_candidate handler
+    // field-for-field (projectId, view shape, roleHints derivation, empty config, seed 0) since
+    // those are mixed into content-addressed IDs and therefore into the final GLB bytes; createdAt
+    // and actor identity are not (proven empirically), so any valid values there are safe.
+    const assetBytesAdapter = {
+      async resolve() {
+        const task = createMultiViewTask({
+          projectId: document.metadata.projectId,
+          views: views.map((view) => ({
+            assetId: view.assetId,
+            imageWidth: view.imageWidth,
+            imageHeight: view.imageHeight,
+            ...(view.silhouetteContour ? { silhouetteContour: view.silhouetteContour } : {}),
+          })),
+          roleHints: views
+            .map((view) => (view.role ? { assetId: view.assetId, role: view.role, userProvided: true } : undefined))
+            .filter((hint): hint is NonNullable<typeof hint> => hint !== undefined),
+          landmarkHints: [],
+          partHints: [],
+          scaleHints: [],
+          config: {},
+          deterministicSeed: 0,
+          createdAt: MCP_TEST_TIME,
+          // Must match apps/mcp-server/src/tools.ts's `actorForCommand(context)` exactly: the actor
+          // identity is mixed into content-addressed IDs and therefore into the final GLB bytes
+          // (proven empirically). This is the fixed development-auth actor every createMcpTestFixture
+          // call resolves to (see tests/helpers/mcp-fixture.ts's actorSubject).
+          createdBy: { id: "development:phase-12-actor", type: "MCP_AGENT", provider: "DEVELOPMENT" },
+        });
+        const { referenceSet, proposal } = analyzeMultiView(task, { createdAt: MCP_TEST_TIME });
+        const sessionResult = await runReconstructionSession({
+          referenceSet,
+          proposal,
+          providerId: "LOCAL_BASELINE",
+          providerVersion: LOCAL_BASELINE_PROVIDER_VERSION,
+          config: { qualityMode: "DRAFT" },
+          createdAt: MCP_TEST_TIME,
+        });
+        return sessionResult.selectedGlb;
+      },
+    };
+
+    const fixture = createAgentTestFixture({
+      document,
+      category: "CUSTOM_3D",
+      request: "Reconstruct this box from five views and import it into the scene.",
+      parameters: { operation: "reconstruct_and_import", views, qualityMode: "DRAFT" },
+      assetBytesAdapter,
+    });
+    const result = await fixture.run();
+    const current = await fixture.mcp.repository.getCurrentDocument(fixture.mcp.workspaceId, fixture.mcp.projectId);
+
+    expect(result.run.status).toBe("SUCCEEDED");
+    expect(fixture.calls.map((entry) => entry.request.tool)).toEqual([
+      "system.get_capabilities",
+      "three.multiview_analyze",
+      "document.get",
+      "three.reconstruction_generate_candidate",
+      "three.reconstruction_generate_candidate",
+      "three.import_scene",
+      "three.import_scene",
+    ]);
+    expect(
+      fixture.calls.filter((entry) => entry.request.tool === "three.import_scene").map((entry) => entry.request.dryRun),
+    ).toEqual([true, false]);
+    expect(result.run.outcome?.verification?.success).toBe(true);
+    expect(current?.documentVersion).toBe(3); // 1 (start) + asset.register + scene3d.import
+    expect(Object.values(current?.nodes ?? {}).some((node) => node.type === "MESH_3D")).toBe(true);
   });
 
   it("renames through dry run, Command Engine commit, verification, persistence, audit, and idempotent retry", async () => {

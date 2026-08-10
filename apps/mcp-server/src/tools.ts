@@ -22,9 +22,10 @@ import {
   runReconstructionSession,
 } from "@aevum/geometry-reconstruction";
 import { analyzeMultiView, createMultiViewTask } from "@aevum/multiview-reconstruction";
-import { create3DRenderPlan } from "@aevum/renderer-3d";
+import { compile3DImportTransaction, create3DImportProposal, create3DRenderPlan } from "@aevum/renderer-3d";
 import { createRuntimeViewport, project3DScene, projectScene, type RuntimeViewport } from "@aevum/scene-runtime";
 import type {
+  AssetBytesResolver,
   BlenderToolAdapter,
   McpServerRuntimeConfig,
   McpToolDefinition,
@@ -240,7 +241,7 @@ function definition(
 export function registerInitialTools(
   registry: McpToolRegistry,
   config: McpServerRuntimeConfig,
-  adapters: { readonly blender?: BlenderToolAdapter } = {},
+  adapters: { readonly blender?: BlenderToolAdapter; readonly assetBytes?: AssetBytesResolver } = {},
 ): void {
   registry.registerTool(
     definition(
@@ -748,6 +749,87 @@ export function registerInitialTools(
         };
       },
       config,
+    ),
+  );
+
+  registry.registerTool(
+    definition(
+      "three.import_scene",
+      "Import a registered GLB/GLTF asset into the canonical document through the existing Phase 14 scene3d.import path.",
+      ["asset.read", "document.write", "three.write"],
+      "WRITE",
+      async (raw, context) => {
+        const input = TOOL_SCHEMAS["three.import_scene"].input.parse(raw);
+        const document = await currentDocument(context);
+
+        const asset = document.assets[input.assetId];
+        if (!asset) fail(context, "MCP_DOCUMENT_NOT_FOUND", `Referenced asset ${input.assetId} does not exist.`);
+        if (asset.type !== "GLB" && asset.type !== "GLTF") {
+          fail(context, "MCP_INPUT_INVALID", `Asset ${input.assetId} must be a registered GLB or GLTF asset.`);
+        }
+
+        if (document.documentVersion !== input.expectedDocumentVersion) {
+          throw new McpProtocolError({
+            code: "MCP_DOCUMENT_VERSION_CONFLICT",
+            message: "The requested document version is stale.",
+            recoverable: true,
+            retryable: true,
+            suggestedAction: "Read the latest document version and retry with a new idempotency key.",
+            requestId: context.request.requestId,
+            workspaceId: context.request.workspaceId,
+            projectId: context.request.projectId,
+            documentId: document.metadata.id,
+            documentVersion: document.documentVersion,
+            details: { expectedVersion: input.expectedDocumentVersion, currentVersion: document.documentVersion },
+          });
+        }
+
+        if (!adapters.assetBytes) {
+          fail(context, "MCP_TOOL_DISABLED", "No asset-byte storage adapter is configured for this deployment.");
+        }
+        const bytes = await adapters.assetBytes.resolve(asset.id);
+        if (!bytes) fail(context, "MCP_DOCUMENT_NOT_FOUND", `Bytes for asset ${asset.id} could not be resolved.`);
+
+        const proposal = await create3DImportProposal({ canonicalDocument: document, asset, bytes });
+        const command = compile3DImportTransaction({
+          proposal,
+          document,
+          actor: actorForCommand(context),
+          timestamp: context.timestamp,
+          correlationId: context.request.correlationId ?? context.request.requestId,
+        });
+        const commit = context.request.dryRun ? dryRunCommand(document, command) : executeCommand(document, command);
+
+        return {
+          data: {
+            dryRun: context.request.dryRun,
+            baseVersion: document.documentVersion,
+            resultVersion: context.request.dryRun ? document.documentVersion : commit.newDocument.documentVersion,
+            ...(context.request.dryRun ? { predictedDocumentVersion: commit.newDocument.documentVersion } : {}),
+            transactionId: command.transactionId,
+            commandIds: [command.id],
+            assetId: asset.id,
+            rootNodeIds: [...proposal.rootNodeIds],
+            importedNodeIds: proposal.nodes.map((node) => node.id),
+            counts: {
+              nodes: proposal.nodes.length,
+              meshes: proposal.nodes.filter((node) => node.type === "MESH_3D").length,
+              materials: proposal.materials.length,
+              cameras: proposal.cameras.length,
+              lights: proposal.lights.length,
+            },
+            diagnostics: proposal.diagnostics.map((entry) => ({
+              code: entry.code,
+              severity: entry.severity,
+              message: entry.message,
+            })),
+            changeSet: commit.changeSet,
+          },
+          mutation: { commit, sourceDocument: document },
+        };
+      },
+      config,
+      Boolean(adapters.assetBytes),
     ),
   );
 

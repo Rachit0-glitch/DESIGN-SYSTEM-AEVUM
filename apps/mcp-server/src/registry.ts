@@ -60,6 +60,17 @@ export interface BlenderToolAdapter {
   }): Promise<ToolHandlerResult>;
 }
 
+/**
+ * Resolves a registered asset's raw bytes for tools (like `three.import_scene`) that must parse
+ * actual GLB/GLTF content, not just canonical metadata. No production asset-byte storage adapter
+ * exists in this repository yet (Phase 3 left asset storage as a provider-neutral interface only)
+ * — this seam makes that dependency explicit and injectable rather than silently assumed. Without
+ * one configured, the affected tools are honestly disabled (`MCP_TOOL_DISABLED`), never faked.
+ */
+export interface AssetBytesResolver {
+  resolve(assetId: string): Promise<Uint8Array | undefined>;
+}
+
 export interface ToolExecutionContext {
   readonly actor: McpActor;
   readonly request: McpRequestEnvelope;

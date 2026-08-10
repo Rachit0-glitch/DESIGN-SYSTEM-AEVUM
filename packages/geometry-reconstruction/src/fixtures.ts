@@ -55,8 +55,14 @@ function projectPoints(role: ViewRoleClassification["role"], points: readonly Ve
 }
 
 /** The real ground-truth silhouette of a box: the convex hull of all 8 corners projected through
- * the role's camera — not a hand-drawn rectangle. */
-function boxSilhouette(role: ViewRoleClassification["role"], halfExtents: Vec3): Point2D[] {
+ * the role's camera — not a hand-drawn rectangle. `center` defaults to the origin; a nonzero
+ * center is used by the voxel-refinement fixture to create genuine (not injected) multi-view
+ * silhouette disagreement against the origin-centered turntable camera assumption. */
+function boxSilhouette(
+  role: ViewRoleClassification["role"],
+  halfExtents: Vec3,
+  center: Vec3 = { x: 0, y: 0, z: 0 },
+): Point2D[] {
   const { x: hx, y: hy, z: hz } = halfExtents;
   const corners: Vec3[] = [
     { x: -hx, y: -hy, z: -hz },
@@ -67,7 +73,7 @@ function boxSilhouette(role: ViewRoleClassification["role"], halfExtents: Vec3):
     { x: hx, y: -hy, z: hz },
     { x: hx, y: hy, z: hz },
     { x: -hx, y: hy, z: hz },
-  ];
+  ].map((corner) => ({ x: corner.x + center.x, y: corner.y + center.y, z: corner.z + center.z }));
   return convexHull(projectPoints(role, corners));
 }
 
@@ -340,5 +346,113 @@ export function createMultiPartGroundTruthFixture(): GroundTruthMultiPartFixture
     },
     bodyHalfExtents,
     capHalfExtents,
+  };
+}
+
+export interface GroundTruthOffsetBoxFixture {
+  readonly taskInput: MultiViewTaskInput;
+  readonly trueHalfExtents: Vec3;
+  readonly trueCenter: Vec3;
+}
+
+/**
+ * F. A box whose TRUE position is slightly off the world origin, observed through the same
+ * role-based turntable camera assumption (which always looks at the origin). This creates real,
+ * non-injected multi-view silhouette disagreement — the assumed camera pose is honestly slightly
+ * wrong relative to the true object — giving the voxel visual-hull carving genuine false-positive/
+ * false-negative regions for occupancy refinement to correct, rather than a perfectly self-
+ * consistent evidence set with nothing left to fix.
+ */
+export function createOffsetBoxGroundTruthFixture(): GroundTruthOffsetBoxFixture {
+  const trueHalfExtents: Vec3 = { x: 0.22, y: 0.22, z: 0.22 };
+  const trueCenter: Vec3 = { x: 0.09, y: 0, z: 0 };
+  const roles: ViewRoleClassification["role"][] = ["FRONT", "BACK", "LEFT", "RIGHT", "TOP"];
+  return {
+    taskInput: {
+      projectId: PROJECT_ID,
+      subjectLabel: "Ground-truth offset box (voxel refinement fixture)",
+      views: roles.map((role, index) => ({
+        assetId: assetId(index + 1),
+        imageWidth: 1024,
+        imageHeight: 1024,
+        silhouetteContour: boxSilhouette(role, trueHalfExtents, trueCenter),
+      })),
+      roleHints: roles.map((role, index) => ({ assetId: assetId(index + 1), role, userProvided: true })),
+      landmarkHints: [],
+      partHints: [],
+      scaleHints: [],
+      config: {
+        maxViews: 16,
+        maxLandmarks: 64,
+        maxObservationsPerLandmark: 16,
+        maxSilhouetteSamples: 128,
+        maxParts: 32,
+        maxConstraints: 64,
+      },
+      deterministicSeed: 106,
+      createdAt: GEOMETRY_FIXTURE_NOW,
+      createdBy: CREATED_BY,
+    },
+    trueHalfExtents,
+    trueCenter,
+  };
+}
+
+function shrinkTowardCentroid(contour: readonly Point2D[], factor: number): Point2D[] {
+  const centroid = contour.reduce(
+    (sum, point) => ({ x: sum.x + point.x / contour.length, y: sum.y + point.y / contour.length }),
+    { x: 0, y: 0 },
+  );
+  return contour.map((point) => ({
+    x: clampUnit(centroid.x + (point.x - centroid.x) * factor),
+    y: clampUnit(centroid.y + (point.y - centroid.y) * factor),
+  }));
+}
+
+export interface GroundTruthNoisyViewFixture {
+  readonly taskInput: MultiViewTaskInput;
+  readonly trueHalfExtents: Vec3;
+}
+
+/**
+ * G. A box observed accurately from four roles, plus one (RIGHT) whose silhouette is genuinely
+ * under-segmented (shrunk toward its own centroid, simulating a real partial-occlusion/bad-
+ * segmentation observation) — not a hand-picked "expected" result. The strict unanimous visual
+ * hull will under-carve wherever the bad view disagrees; multi-view-consensus refinement should
+ * recover the volume the other four views support without being fooled by the one bad view.
+ */
+export function createNoisyViewBoxGroundTruthFixture(): GroundTruthNoisyViewFixture {
+  const trueHalfExtents: Vec3 = { x: 0.25, y: 0.25, z: 0.25 };
+  const roles: ViewRoleClassification["role"][] = ["FRONT", "BACK", "LEFT", "RIGHT", "TOP"];
+  return {
+    taskInput: {
+      projectId: PROJECT_ID,
+      subjectLabel: "Ground-truth box with one noisy view",
+      views: roles.map((role, index) => ({
+        assetId: assetId(index + 1),
+        imageWidth: 1024,
+        imageHeight: 1024,
+        silhouetteContour:
+          role === "RIGHT"
+            ? shrinkTowardCentroid(boxSilhouette(role, trueHalfExtents), 0.6)
+            : boxSilhouette(role, trueHalfExtents),
+      })),
+      roleHints: roles.map((role, index) => ({ assetId: assetId(index + 1), role, userProvided: true })),
+      landmarkHints: [],
+      partHints: [],
+      scaleHints: [],
+      config: {
+        maxViews: 16,
+        maxLandmarks: 64,
+        maxObservationsPerLandmark: 16,
+        maxSilhouetteSamples: 128,
+        maxParts: 32,
+        maxConstraints: 64,
+      },
+      deterministicSeed: 107,
+      createdAt: GEOMETRY_FIXTURE_NOW,
+      createdBy: CREATED_BY,
+    },
+    trueHalfExtents,
   };
 }

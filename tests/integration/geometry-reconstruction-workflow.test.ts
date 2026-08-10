@@ -8,6 +8,7 @@ import {
   createLocalBaselineProvider,
   createMissingViewFixture,
   createMultiPartGroundTruthFixture,
+  createNoisyViewBoxGroundTruthFixture,
   registerCandidateAsset,
   runReconstructionSession,
 } from "@aevum/geometry-reconstruction";
@@ -193,5 +194,65 @@ describe("geometry-reconstruction acceptance scenarios", () => {
     const afterRegister = executeCommand(document, plan.registerAssetCommand).newDocument;
     const afterImport = executeCommand(afterRegister, plan.importCommand).newDocument;
     expect(Object.values(afterImport.nodes).some((node) => node.type === "MESH_3D")).toBe(true);
+  });
+
+  it("K. Multi-part correction (Phase 19A): bounded per-part passes never regress a sibling part", async () => {
+    const fixture = createMultiPartGroundTruthFixture();
+    const { report } = await reconstruct(fixture.taskInput, { qualityMode: "STANDARD" });
+
+    expect(report.status).toBe("COMPLETED");
+    const selected = report.candidates.find((candidate) => candidate.id === report.selectedCandidateId);
+    expect(selected?.partScores).toHaveLength(2);
+
+    // Every accepted correction pass targeting a specific part must show zero regressed sibling
+    // parts and zero regressed views — the same non-regression discipline as whole-candidate passes.
+    const partPasses = report.passes.filter((pass) => pass.targetPartId !== undefined);
+    for (const pass of partPasses) {
+      if (pass.accepted) {
+        expect(pass.regressedPartIds).toHaveLength(0);
+        expect(pass.regressedViewIds).toHaveLength(0);
+      } else {
+        expect(pass.scoreAfter).toBe(pass.scoreBefore);
+      }
+    }
+  });
+
+  it("L. Voxel occupancy refinement (Phase 19A): never accepts a pass that regresses any view, even on a fixture built to tempt an unsafe recovery", async () => {
+    const fixture = createNoisyViewBoxGroundTruthFixture();
+    const { report } = await reconstruct(fixture.taskInput, { qualityMode: "STANDARD" });
+
+    expect(report.status).toBe("COMPLETED");
+    const voxelPasses = report.passes.filter((pass) =>
+      report.candidates.some(
+        (candidate) => candidate.id === pass.candidateIdAfter && candidate.generationMethod === "VOXEL_HULL",
+      ),
+    );
+    for (const pass of voxelPasses) {
+      if (pass.accepted) {
+        expect(pass.regressedViewIds).toHaveLength(0);
+      } else {
+        expect(pass.scoreAfter).toBe(pass.scoreBefore);
+      }
+    }
+    expect(["TARGET_SCORE_REACHED", "NO_IMPROVEMENT", "MAXIMUM_PASSES_REACHED"]).toContain(report.stopReason);
+  });
+
+  it("M. Hybrid scoring (Phase 19A): whole-candidate score is a distinct blend, not a copy of either part's own score", async () => {
+    const fixture = createMultiPartGroundTruthFixture();
+    const { report } = await reconstruct(fixture.taskInput, { qualityMode: "DRAFT" });
+
+    expect(report.status).toBe("COMPLETED");
+    const selected = report.candidates.find((candidate) => candidate.id === report.selectedCandidateId);
+    if (!selected) throw new Error("Expected a selected multi-part candidate.");
+    expect(selected.partScores.map((score) => score.label).sort()).toEqual(["body", "cap"]);
+    for (const partScore of selected.partScores) {
+      expect(partScore.overall).toBeGreaterThanOrEqual(0);
+      expect(partScore.overall).toBeLessThanOrEqual(1);
+    }
+    // The blended whole-candidate score (70% whole-geometry fit, 30% average part fit) must be a
+    // genuinely distinct signal, not a stand-in copy of either individual part's own score.
+    for (const partScore of selected.partScores) {
+      expect(selected.score.overall).not.toBe(partScore.overall);
+    }
   });
 });

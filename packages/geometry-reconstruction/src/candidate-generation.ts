@@ -13,10 +13,20 @@ import type { z } from "zod";
 
 const IDENTITY_TRANSFORM = { position: { x: 0, y: 0, z: 0 }, rotation: { x: 0, y: 0, z: 0, w: 1 } };
 
+export interface VoxelOccupancy {
+  readonly grid: Uint8Array;
+  readonly resolution: number;
+  readonly halfExtent: number;
+}
+
 export interface RawCandidate {
   readonly generationMethod: z.infer<typeof GeometryRepresentationSchema>;
   readonly parts: readonly PartMesh[];
   readonly sampleCount?: number;
+  /** Retained only for VOXEL_HULL candidates so the correction loop can refine occupancy directly
+   * instead of re-voxelizing the already-lossy extracted surface mesh. Never persisted in the
+   * immutable `CandidateReconstruction` schema — session-local only. */
+  readonly occupancy?: VoxelOccupancy;
 }
 
 function frustumExtent(camera: ResolvedCameraGeometry, axis: "horizontal" | "vertical"): number {
@@ -154,6 +164,7 @@ export function generateInitialCandidates(
         candidates.push({
           generationMethod: "VOXEL_HULL",
           sampleCount,
+          occupancy: { grid: occupancy, resolution: config.voxelResolution, halfExtent },
           parts: [
             {
               partId: "root",

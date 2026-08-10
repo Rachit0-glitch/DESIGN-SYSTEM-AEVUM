@@ -23,6 +23,9 @@ function initialCapabilities(session: AgentSession): string[] {
   if (goal.parameters.operation === "generate_reconstruction_candidate") {
     return ["three.multiview_analyze", "three.reconstruction_generate_candidate"];
   }
+  if (goal.parameters.operation === "reconstruct_and_import") {
+    return ["three.multiview_analyze", "three.reconstruction_generate_candidate", "document.get", "three.import_scene"];
+  }
   switch (goal.category) {
     case "INSPECT":
       return ["project.get", "document.inspect_hierarchy"];
@@ -75,10 +78,15 @@ function requiredPermissions(capabilities: readonly string[]): AgentIntent["requ
         "three.unwrap_uv",
         "three.update_pbr_material",
         "three.reconstruction_generate_candidate",
+        "three.import_scene",
       ].includes(capability);
       permissions.add(write ? "three.write" : "three.read");
       if (write) permissions.add("document.write");
-      if (capability === "three.multiview_analyze" || capability === "three.reconstruction_generate_candidate") {
+      if (
+        capability === "three.multiview_analyze" ||
+        capability === "three.reconstruction_generate_candidate" ||
+        capability === "three.import_scene"
+      ) {
         permissions.add("asset.read");
       }
       if (capability === "three.reconstruction_generate_candidate") permissions.add("asset.write");

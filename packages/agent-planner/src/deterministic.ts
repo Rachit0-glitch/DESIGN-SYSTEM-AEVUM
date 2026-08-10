@@ -656,6 +656,146 @@ function generateReconstructionCandidatePlan(
   ];
 }
 
+function reconstructAndImportPlan(
+  intent: AgentIntent,
+  capabilities: AgentCapabilities,
+  policy: AgentApprovalPolicy,
+): AgentPlanStep[] {
+  const evidenceInput = {
+    ...(intent.parameters.subjectLabel !== undefined ? { subjectLabel: intent.parameters.subjectLabel } : {}),
+    ...(intent.parameters.subjectCategory !== undefined ? { subjectCategory: intent.parameters.subjectCategory } : {}),
+    views: intent.parameters.views ?? [],
+    landmarkHints: intent.parameters.landmarkHints ?? [],
+    partHints: intent.parameters.partHints ?? [],
+    scaleHints: intent.parameters.scaleHints ?? [],
+    ...(intent.parameters.targetQuality !== undefined ? { targetQuality: intent.parameters.targetQuality } : {}),
+  };
+
+  const inspectReadiness = step({
+    goalId: intent.goalId,
+    index: 0,
+    type: "INSPECT",
+    label: "Inspect multi-view reconstruction readiness before generating geometry",
+    tool: "three.multiview_analyze",
+    descriptor: findDescriptor(capabilities, "three.multiview_analyze"),
+    data: evidenceInput,
+    approvalPolicy: policy,
+  });
+  const readDocument = step({
+    goalId: intent.goalId,
+    index: 1,
+    type: "READ",
+    label: "Read the current document version",
+    tool: "document.get",
+    descriptor: findDescriptor(capabilities, "document.get"),
+    dependencies: [inspectReadiness.id],
+    data: { projection: "summary" },
+    approvalPolicy: policy,
+  });
+  const generateDescriptor = findDescriptor(capabilities, "three.reconstruction_generate_candidate");
+  const generateData = {
+    ...evidenceInput,
+    expectedDocumentVersion: 1,
+    ...(intent.parameters.qualityMode !== undefined ? { qualityMode: intent.parameters.qualityMode } : {}),
+  };
+  const generateBindings = [
+    { targetPath: "expectedDocumentVersion", sourceStepId: readDocument.id, sourcePath: "data.documentVersion" },
+  ];
+  const generateDryRun = step({
+    goalId: intent.goalId,
+    index: 2,
+    type: "DRY_RUN",
+    label: "Dry-run the reconstruction candidate generation",
+    tool: "three.reconstruction_generate_candidate",
+    descriptor: generateDescriptor,
+    dependencies: [readDocument.id],
+    data: generateData,
+    bindings: generateBindings,
+    approvalPolicy: policy,
+  });
+  const generate = step({
+    goalId: intent.goalId,
+    index: 3,
+    type: "WRITE",
+    label: "Generate and register a real candidate 3D mesh from the multi-view evidence",
+    tool: "three.reconstruction_generate_candidate",
+    descriptor: generateDescriptor,
+    dependencies: [generateDryRun.id],
+    data: generateData,
+    bindings: generateBindings,
+    failurePolicy: "REPLAN",
+    approvalPolicy: policy,
+  });
+  // No intermediate VERIFY step here: the deterministic reasoning provider's verifyCompletion
+  // aggregates every VERIFY step's assertions across the whole plan against whatever observations
+  // exist so far, so an early VERIFY would always fail on the later import assertion before the
+  // import steps have even run. If candidate generation produced no assetId, the import dry-run's
+  // input validation fails naturally and honestly instead.
+  const importDescriptor = findDescriptor(capabilities, "three.import_scene");
+  const importBindings = [
+    { targetPath: "assetId", sourceStepId: generate.id, sourcePath: "data.assetId" },
+    { targetPath: "expectedDocumentVersion", sourceStepId: generate.id, sourcePath: "data.resultVersion" },
+  ];
+  const importDryRun = step({
+    goalId: intent.goalId,
+    index: 4,
+    type: "DRY_RUN",
+    label: "Dry-run the canonical import of the generated candidate",
+    tool: "three.import_scene",
+    descriptor: importDescriptor,
+    dependencies: [generate.id],
+    data: { assetId: "pending", expectedDocumentVersion: 1 },
+    bindings: importBindings,
+    approvalPolicy: policy,
+  });
+  const importScene = step({
+    goalId: intent.goalId,
+    index: 5,
+    type: "WRITE",
+    label: "Import the generated candidate into the canonical document",
+    tool: "three.import_scene",
+    descriptor: importDescriptor,
+    dependencies: [importDryRun.id],
+    data: { assetId: "pending", expectedDocumentVersion: 1 },
+    bindings: importBindings,
+    failurePolicy: "REPLAN",
+    approvalPolicy: policy,
+  });
+  const importAssertion = {
+    sourceStepId: importScene.id,
+    path: "data.counts.meshes",
+    operator: "GREATER_THAN" as const,
+    value: 0,
+  };
+  const verifyImport = step({
+    goalId: intent.goalId,
+    index: 6,
+    type: "VERIFY",
+    label: "Verify the canonical document now contains imported mesh geometry",
+    dependencies: [importScene.id],
+    expected: importAssertion,
+    verification: { required: true, strategy: "STATE_ASSERTION", assertions: [importAssertion] },
+    approvalPolicy: policy,
+  });
+  return [
+    inspectReadiness,
+    readDocument,
+    generateDryRun,
+    generate,
+    importDryRun,
+    importScene,
+    verifyImport,
+    step({
+      goalId: intent.goalId,
+      index: 7,
+      type: "COMPLETE",
+      label: "Report the reconstruct-and-import outcome",
+      dependencies: [verifyImport.id],
+      approvalPolicy: policy,
+    }),
+  ];
+}
+
 function blenderTransformPlan(
   intent: AgentIntent,
   capabilities: AgentCapabilities,
@@ -1149,6 +1289,8 @@ export function generateDeterministicPlan(input: {
     steps = multiviewReconstructionPlan(input.intent, input.capabilities, policy);
   } else if (operation === "generate_reconstruction_candidate") {
     steps = generateReconstructionCandidatePlan(input.intent, input.capabilities, policy);
+  } else if (operation === "reconstruct_and_import") {
+    steps = reconstructAndImportPlan(input.intent, input.capabilities, policy);
   } else if (input.intent.category === "INSPECT" || input.intent.category === "PROJECT") {
     steps = inspectPlan(input.intent, input.capabilities, policy);
   } else if (operation === "delete" || input.intent.requiredCapabilities.includes("node.delete")) {

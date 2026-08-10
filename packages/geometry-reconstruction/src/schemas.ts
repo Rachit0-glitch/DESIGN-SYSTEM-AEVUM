@@ -31,6 +31,19 @@ export const GeometryDiagnosticCodeSchema = z.enum([
   "VIEW_REGRESSION_DETECTED",
   "RESOURCE_LIMIT_EXCEEDED",
   "TOPOLOGY_STRUCTURAL_INVALID",
+  // Phase 19A: multi-part correction and voxel refinement
+  "PART_SILHOUETTE_TOO_LARGE",
+  "PART_SILHOUETTE_TOO_SMALL",
+  "PART_POSITION_MISMATCH",
+  "PART_LANDMARK_MISMATCH",
+  "PART_OVERLAP_DETECTED",
+  "PART_CORRECTION_NO_IMPROVEMENT",
+  "PART_CORRECTION_REGRESSION_BLOCKED",
+  "VOXEL_FALSE_POSITIVE_REGION",
+  "VOXEL_FALSE_NEGATIVE_REGION",
+  "VOXEL_REFINEMENT_NO_IMPROVEMENT",
+  "VOXEL_REFINEMENT_REGRESSION_BLOCKED",
+  "VOXEL_VOLUME_BOUND_EXCEEDED",
 ]);
 export const GeometryDiagnosticSchema = z.strictObject({
   code: GeometryDiagnosticCodeSchema,
@@ -132,6 +145,22 @@ export const CrossViewFitScoreSchema = z.strictObject({
 // Candidate contract
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Phase 19A: per-part scoring
+// ---------------------------------------------------------------------------
+
+export const PartScoreSchema = z.strictObject({
+  partId: z.string().min(1),
+  label: z.string().min(1),
+  silhouetteFit: UnitIntervalSchema,
+  landmarkFit: UnitIntervalSchema,
+  constraintFit: UnitIntervalSchema,
+  topologyViability: UnitIntervalSchema,
+  overall: UnitIntervalSchema,
+  viewScores: z.array(z.strictObject({ viewId: z.string().min(1), iou: UnitIntervalSchema })),
+  diagnostics: z.array(GeometryDiagnosticSchema),
+});
+
 export const CandidateReconstructionSchema = z.strictObject({
   id: ScopedIdSchema("candidate"),
   taskId: z.string().min(1),
@@ -149,6 +178,7 @@ export const CandidateReconstructionSchema = z.strictObject({
   score: CrossViewFitScoreSchema,
   viewMetrics: z.array(ViewFitMetricSchema),
   landmarkMetrics: z.array(LandmarkFitMetricSchema),
+  partScores: z.array(PartScoreSchema),
   diagnostics: z.array(GeometryDiagnosticSchema),
   provenance: ProvenanceSchema,
   fingerprint: FingerprintSchema,
@@ -163,26 +193,35 @@ export const ReconstructionPassActionSchema = z.enum([
   "ADJUST_BOX_DIMENSION",
   "ADJUST_CYLINDER_DIMENSION",
   "REGENERATE_VOXEL_HULL",
+  // Phase 19A
+  "PART_TRANSLATE",
+  "PART_AXIS_SCALE",
+  "PART_REPOSITION_FROM_LANDMARKS",
+  "VOXEL_OCCUPANCY_REFINEMENT",
 ]);
 export const ReconstructionPassSchema = z.strictObject({
   id: ScopedIdSchema("reconstruction-pass"),
   passNumber: z.number().int().positive(),
   sessionId: z.string().min(1),
   action: ReconstructionPassActionSchema,
+  targetPartId: z.string().min(1).optional(),
   candidateIdBefore: z.string().min(1).optional(),
   candidateIdAfter: z.string().min(1),
   scoreBefore: UnitIntervalSchema.optional(),
   scoreAfter: UnitIntervalSchema,
   accepted: z.boolean(),
   regressedViewIds: z.array(z.string().min(1)),
+  regressedPartIds: z.array(z.string().min(1)),
   diagnostics: z.array(GeometryDiagnosticSchema),
   fingerprint: FingerprintSchema,
 });
 
 export const DifferenceEvidenceSchema = z.strictObject({
   viewId: z.string().min(1),
+  partId: z.string().min(1).optional(),
   falsePositiveAreaRatio: UnitIntervalSchema,
   falseNegativeAreaRatio: UnitIntervalSchema,
+  classifications: z.array(GeometryDiagnosticCodeSchema),
   landmarkMismatches: z.array(z.strictObject({ landmarkId: z.string().min(1), errorMagnitude: NonNegativeSchema })),
 });
 
@@ -213,6 +252,12 @@ export const ReconstructionConfigSchema = z.strictObject({
   voxelResolution: z.number().int().positive().max(64).default(32),
   maxTriangles: z.number().int().positive().max(200_000).default(20_000),
   maxExecutionMs: z.number().int().positive().max(60_000).default(20_000),
+  // Phase 19A: bounded multi-part and voxel refinement
+  maxPartPasses: z.number().int().positive().max(10).default(4),
+  maxVoxelRefinementPasses: z.number().int().positive().max(10).default(3),
+  voxelConsensusMinViews: z.number().int().positive().max(16).default(2),
+  maxVoxelVolumeChangeRatio: UnitIntervalSchema.default(0.25),
+  partOverlapToleranceRatio: UnitIntervalSchema.default(0.15),
 });
 
 export const ReconstructionStopReasonSchema = z.enum([
@@ -256,6 +301,7 @@ export const ReconstructionSessionReportSchema = z.strictObject({
 // Types
 // ---------------------------------------------------------------------------
 
+export type PartScore = z.infer<typeof PartScoreSchema>;
 export type GeometryDiagnostic = z.infer<typeof GeometryDiagnosticSchema>;
 export type RawMesh = z.infer<typeof RawMeshSchema>;
 export type PartMesh = z.infer<typeof PartMeshSchema>;

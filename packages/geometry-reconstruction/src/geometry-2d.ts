@@ -133,6 +133,42 @@ export function chamferBoundaryDistance(a: readonly Point2D[], b: readonly Point
   return (aToB + bToA) / 2;
 }
 
+export interface Rect2D {
+  readonly minX: number;
+  readonly minY: number;
+  readonly maxX: number;
+  readonly maxY: number;
+}
+
+/** Real, standard axis-aligned bounding-box IoU — used for part-level (bounding-box) evidence,
+ * where Phase 17 part observations are already rectangles rather than full silhouette contours. */
+export function rectIoU(a: Rect2D, b: Rect2D): number {
+  const ix0 = Math.max(a.minX, b.minX);
+  const iy0 = Math.max(a.minY, b.minY);
+  const ix1 = Math.min(a.maxX, b.maxX);
+  const iy1 = Math.min(a.maxY, b.maxY);
+  const intersection = Math.max(0, ix1 - ix0) * Math.max(0, iy1 - iy0);
+  const areaA = Math.max(0, a.maxX - a.minX) * Math.max(0, a.maxY - a.minY);
+  const areaB = Math.max(0, b.maxX - b.minX) * Math.max(0, b.maxY - b.minY);
+  const union = areaA + areaB - intersection;
+  return union <= 0 ? 0 : intersection / union;
+}
+
+export function rectArea(rect: Rect2D): number {
+  return Math.max(0, rect.maxX - rect.minX) * Math.max(0, rect.maxY - rect.minY);
+}
+
+export function rectCentroid(rect: Rect2D): Point2D {
+  return { x: (rect.minX + rect.maxX) / 2, y: (rect.minY + rect.maxY) / 2 };
+}
+
+export function boundsOfPoints(points: readonly Point2D[]): Rect2D {
+  if (points.length === 0) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
+  return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
+}
+
 export function centroidOf(points: readonly Point2D[]): Point2D {
   if (points.length === 0) return { x: 0.5, y: 0.5 };
   const sum = points.reduce((acc, point) => ({ x: acc.x + point.x, y: acc.y + point.y }), { x: 0, y: 0 });
