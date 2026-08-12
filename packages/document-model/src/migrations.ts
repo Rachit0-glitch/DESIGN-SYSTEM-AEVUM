@@ -125,7 +125,7 @@ defaultRegistry.registerMigration("1.2.0", "1.3.0", (document, context) => {
     stateMachines: {},
   };
 });
-defaultRegistry.registerMigration("1.3.0", CURRENT_SCHEMA_VERSION, (document, context) => {
+defaultRegistry.registerMigration("1.3.0", "1.4.0", (document, context) => {
   const nodes = Object.fromEntries(
     Object.entries((document.nodes as Record<string, Record<string, unknown>> | undefined) ?? {}).map(([id, node]) => {
       if (node.type === "SCENE_3D") {
@@ -180,6 +180,15 @@ defaultRegistry.registerMigration("1.3.0", CURRENT_SCHEMA_VERSION, (document, co
     nodes,
   };
 });
+// Phase 19B adds RIG_3D/BONE_3D node types plus optional skinBinding (Mesh3DNode) and rigId
+// (Model3DNode) fields. No existing document has rig data to backfill — this is a structural
+// passthrough, not a data transformation, mirroring how the "1.3.0" migration synthesizes
+// coordinateSystem/geometry only for nodes that already carry the relevant type.
+defaultRegistry.registerMigration("1.4.0", CURRENT_SCHEMA_VERSION, (document, context) => ({
+  ...document,
+  schemaVersion: context.toVersion,
+  migrationVersion: 5,
+}));
 
 export function currentSchema(): string {
   return defaultRegistry.currentSchema();

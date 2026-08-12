@@ -8,16 +8,18 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from professional import ProfessionalFailure, SUPPORTED_PROFESSIONAL, execute_professional
+from rigging import RiggingFailure, SUPPORTED_RIGGING, execute_rigging
 
 PROTOCOL_VERSION = "1.0.0"
 IDENTITY_KEY = "aevum.entity_id"
+RIG_FINGERPRINT_KEY = "aevum.rig_fingerprint"
 SUPPORTED = {
     "scene.inspect", "scene.import_gltf", "scene.export_glb", "scene.validate",
     "object.inspect", "object.transform", "object.duplicate", "object.delete",
     "mesh.inspect", "material.inspect", "material.update_pbr",
     "camera.inspect", "camera.update", "camera.activate",
     "light.inspect", "light.update", "bridge.test_delay",
-} | SUPPORTED_PROFESSIONAL
+} | SUPPORTED_PROFESSIONAL | SUPPORTED_RIGGING
 C = Matrix(((1.0, 0.0, 0.0), (0.0, 0.0, -1.0), (0.0, 1.0, 0.0)))
 C_INV = C.inverted()
 
@@ -108,7 +110,14 @@ def collection_for(kind):
 def apply_identity_bindings(bindings):
     for binding in bindings:
         collection = collection_for(binding["kind"])
-        target = collection.get(binding["sourceName"])
+        source_fingerprint = binding.get("sourceFingerprint")
+        if source_fingerprint:
+            matches = [value for value in collection if value.get(RIG_FINGERPRINT_KEY) == source_fingerprint]
+            if len(matches) > 1:
+                raise BridgeFailure("BLENDER_IDENTITY_AMBIGUOUS", "Stable rig identity matched more than one object.")
+            target = matches[0] if matches else None
+        else:
+            target = collection.get(binding["sourceName"])
         if target is None and binding["kind"] in ("CAMERA", "LIGHT"):
             source_object = bpy.data.objects.get(binding["sourceName"])
             target = source_object.data if source_object and source_object.data in collection.values() else None
@@ -346,6 +355,8 @@ def execute(operation, budget):
     kind = operation["kind"]
     if kind in SUPPORTED_PROFESSIONAL:
         return execute_professional(operation, budget)
+    if kind in SUPPORTED_RIGGING:
+        return execute_rigging(operation)
     if kind in ("scene.inspect", "scene.import_gltf"):
         return scene_record()
     if kind == "scene.validate":
@@ -500,7 +511,7 @@ def main():
             "diagnostics": [],
             "durationMs": int((time.time() - started) * 1000),
         }
-    except (BridgeFailure, ProfessionalFailure) as error:
+    except (BridgeFailure, ProfessionalFailure, RiggingFailure) as error:
         result = {
             "protocolVersion": PROTOCOL_VERSION,
             "jobId": job_id,
@@ -509,13 +520,13 @@ def main():
             "diagnostics": [{"code": error.code, "severity": "ERROR", "message": str(error), "recoverable": False}],
             "durationMs": int((time.time() - started) * 1000),
         }
-    except Exception as error:
+    except Exception:
         result = {
             "protocolVersion": PROTOCOL_VERSION,
             "jobId": job_id,
             "state": "FAILED",
             "operation": operation_kind,
-            "diagnostics": [{"code": "BLENDER_PROCESS_FAILED", "severity": "ERROR", "message": "Controlled Blender operation failed.", "recoverable": False, "details": {"exceptionType": type(error).__name__}}],
+            "diagnostics": [{"code": "BLENDER_PROCESS_FAILED", "severity": "ERROR", "message": "Controlled Blender operation failed.", "recoverable": False}],
             "durationMs": int((time.time() - started) * 1000),
         }
     with open(result_path, "x", encoding="utf-8") as handle:

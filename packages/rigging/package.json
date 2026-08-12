@@ -1,6 +1,6 @@
 {
-  "name": "@aevum/blender-bridge",
-  "version": "0.0.0",
+  "name": "@aevum/rigging",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -13,17 +13,11 @@
   },
   "scripts": {
     "build": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
-    "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
-    "smoke": "node dist/smoke.js"
+    "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@aevum/assets": "workspace:*",
     "@aevum/command-engine": "workspace:*",
     "@aevum/document-model": "workspace:*",
-    "@aevum/mcp-protocol": "workspace:*",
-    "@aevum/renderer-3d": "workspace:*",
-    "@aevum/rigging": "workspace:*",
-    "@aevum/scene-runtime": "workspace:*",
     "@aevum/shared": "workspace:*",
     "zod": "4.4.3"
   }

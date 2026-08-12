@@ -234,11 +234,14 @@ function inspectParsed(
     }
   }
   if (root.listSkins().length > 0) {
+    // Phase 19B: skins are now converted into real RIG_3D/BONE_3D nodes and a MESH_3D skinBinding
+    // on import (see create3DImportProposal) — this is informational, not a dropped-feature
+    // warning. It stays a distinct diagnostic so callers can still see that rig data is present.
     diagnostics.push(
       diagnostic(
         "UNSUPPORTED_SKIN_FEATURE",
-        "WARNING",
-        "Skin metadata is inspected but canonical rig execution is deferred.",
+        "INFO",
+        "Skin metadata is present and will be imported as a canonical rig.",
       ),
     );
   }

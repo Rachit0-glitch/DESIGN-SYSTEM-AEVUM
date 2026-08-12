@@ -25,6 +25,8 @@ const adapter: BlenderToolAdapter = {
         "three.validate_mesh",
         "three.validate_material",
         "three.analyze_web_quality",
+        "three.rig_inspect",
+        "three.skin_inspect",
       ].includes(tool)
     ) {
       return {
@@ -134,5 +136,50 @@ describe("MCP Blender authorization boundary", () => {
         python: "import bpy",
       }).success,
     ).toBe(false);
+  });
+
+  it("enforces authenticated rigging permissions and idempotent dry-run replay", async () => {
+    const fixture = createMcpTestFixture({ blenderAdapter: adapter });
+    const input = {
+      assetId: "asset_11111111-1111-4111-8111-111111111111",
+      targetId: "group_11111111-1111-4111-8111-111111111111",
+      expectedDocumentVersion: fixture.document.documentVersion,
+      name: "MCP Rig",
+      bones: [
+        {
+          key: "root",
+          parentKey: null,
+          head: { x: 0, y: 0, z: 0 },
+          tail: { x: 0, y: 1, z: 0 },
+          deforming: true,
+        },
+      ],
+    };
+    const before = vi.mocked(adapter.execute).mock.calls.length;
+    const first = await fixture.execute("three.rig_create", input, {
+      dryRun: true,
+      idempotencyKey: "phase19b-rig-create",
+    });
+    const replay = await fixture.execute("three.rig_create", input, {
+      dryRun: true,
+      idempotencyKey: "phase19b-rig-create",
+    });
+
+    expect(first).toMatchObject({ success: true, data: { dryRun: true, stage: "VALIDATED" } });
+    expect(replay.data).toEqual(first.data);
+    expect(vi.mocked(adapter.execute).mock.calls.length).toBe(before + 1);
+
+    const viewer = createMcpTestFixture({ role: "VIEWER", blenderAdapter: adapter });
+    const denied = await viewer.execute(
+      "three.skin_bind",
+      {
+        assetId: input.assetId,
+        targetId: input.targetId,
+        rigObjectId: "rig_11111111-1111-4111-8111-111111111111",
+        expectedDocumentVersion: viewer.document.documentVersion,
+      },
+      { dryRun: true, idempotencyKey: "phase19b-viewer-bind" },
+    );
+    expect(denied).toMatchObject({ success: false, errors: [{ code: "MCP_AUTHORIZATION_DENIED" }] });
   });
 });

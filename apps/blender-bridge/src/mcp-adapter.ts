@@ -1,5 +1,6 @@
 import type { TransactionCommitResult } from "@aevum/command-engine";
 import type { AssetRecord, CanonicalDesignDocument } from "@aevum/document-model";
+import { validateBoneHierarchy } from "@aevum/rigging";
 import {
   McpProtocolError,
   TOOL_SCHEMAS,
@@ -27,6 +28,10 @@ type BlenderToolName = Extract<
   | "three.bevel_mesh"
   | "three.unwrap_uv"
   | "three.update_pbr_material"
+  | "three.rig_create"
+  | "three.rig_inspect"
+  | "three.skin_bind"
+  | "three.skin_inspect"
 >;
 
 export interface BlenderAssetResolverContext {
@@ -209,6 +214,25 @@ function operationFor(tool: BlenderToolName, payload: Record<string, unknown>): 
       });
     case "blender.export_scene":
       return BlenderOperationSchema.parse({ ...base, kind: "scene.export_glb" });
+    case "three.rig_create":
+      return BlenderOperationSchema.parse({
+        ...base,
+        kind: "rig.create",
+        objectId: payload.targetId,
+        name: payload.name,
+        bones: payload.bones,
+      });
+    case "three.rig_inspect":
+      return BlenderOperationSchema.parse({ ...base, kind: "rig.inspect", objectId: payload.targetId });
+    case "three.skin_bind":
+      return BlenderOperationSchema.parse({
+        ...base,
+        kind: "skin.bind",
+        objectId: payload.targetId,
+        rigObjectId: payload.rigObjectId,
+      });
+    case "three.skin_inspect":
+      return BlenderOperationSchema.parse({ ...base, kind: "skin.inspect", objectId: payload.targetId });
   }
 }
 
@@ -226,6 +250,8 @@ const READ_OPERATION_KINDS = new Set<BlenderOperation["kind"]>([
   "camera.inspect",
   "light.inspect",
   "optimization.analyze",
+  "rig.inspect",
+  "skin.inspect",
 ]);
 
 function selectionCount(operation: BlenderOperation, vertices: number, faces: number): number {
@@ -284,11 +310,40 @@ function assetLineage(document: CanonicalDesignDocument, assetId: string): Reado
   return ids;
 }
 
+function lineageOperationFingerprints(
+  document: CanonicalDesignDocument,
+  lineage: ReadonlySet<string>,
+): ReadonlySet<string> {
+  const fingerprints = new Set<string>();
+  for (const assetId of lineage) {
+    const metadata = document.assets[assetId]?.metadata["aevum.blender"];
+    const value =
+      metadata && typeof metadata === "object" && !Array.isArray(metadata)
+        ? (metadata as Record<string, unknown>).operationFingerprint
+        : undefined;
+    if (typeof value === "string") fingerprints.add(value);
+  }
+  return fingerprints;
+}
+
 function assertOperationTarget(document: CanonicalDesignDocument, assetId: string, operation: BlenderOperation): void {
   const lineage = assetLineage(document, assetId);
+  const operationFingerprints = lineageOperationFingerprints(document, lineage);
+  if (operation.kind === "rig.create") {
+    const hierarchy = validateBoneHierarchy(operation.bones);
+    if (!hierarchy.valid) {
+      throw blenderError(
+        "RIG_HIERARCHY_INVALID",
+        hierarchy.diagnostics[0]?.message ?? "Rig hierarchy validation failed.",
+      );
+    }
+  }
   if ("objectId" in operation) {
     const node = document.nodes[operation.objectId];
-    if (!node || !lineage.has(node.importProvenance?.sourceAssetId ?? "")) {
+    const rigFingerprint = node?.type === "RIG_3D" ? node.metadata.customData["aevum.rig_fingerprint"] : undefined;
+    const rigOwnedByAsset =
+      node?.type === "RIG_3D" && typeof rigFingerprint === "string" && operationFingerprints.has(rigFingerprint);
+    if (!node || (!lineage.has(node.importProvenance?.sourceAssetId ?? "") && !rigOwnedByAsset)) {
       throw blenderError("BLENDER_OBJECT_NOT_FOUND", "The Blender object is not owned by the requested source asset.");
     }
     if (!READ_OPERATION_KINDS.has(operation.kind) && node.locked) {
@@ -296,6 +351,19 @@ function assertOperationTarget(document: CanonicalDesignDocument, assetId: strin
     }
     if (operation.kind === "object.duplicate" && document.nodes[operation.newEntityId]) {
       throw blenderError("BLENDER_INPUT_INVALID", "The requested duplicate identity already exists.");
+    }
+  }
+  if (operation.kind === "skin.bind") {
+    const rig = document.nodes[operation.rigObjectId];
+    if (rig?.type !== "RIG_3D") {
+      throw blenderError("RIG_BONE_MISSING", "The requested skin rig is not canonical.");
+    }
+    if (rig.locked) {
+      throw blenderError("BLENDER_INPUT_INVALID", "Locked canonical rigs cannot be modified through Blender.");
+    }
+    const fingerprint = rig.metadata.customData["aevum.rig_fingerprint"];
+    if (typeof fingerprint !== "string" || !operationFingerprints.has(fingerprint)) {
+      throw blenderError("BLENDER_OBJECT_NOT_FOUND", "The requested rig is not owned by the source asset.");
     }
   }
   if (

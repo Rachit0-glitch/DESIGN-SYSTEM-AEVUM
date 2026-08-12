@@ -187,6 +187,84 @@ export async function createInvalidTopologyFixture(): Promise<ThreeFixture> {
   return serialize(document);
 }
 
+/**
+ * A thin vertical strip (8 vertices) bound to a real 2-joint chain (root + tip, tip 0.66 units up)
+ * with a real per-vertex weight gradient from fully-root to fully-tip, and non-identity inverse
+ * bind matrices — enough to exercise real skin import (Phase 19B) without needing Blender: joint
+ * hierarchy, inverse bind matrices, and a genuine (not uniform) weight distribution.
+ */
+export async function createSkinnedThreeFixture(
+  options: { readonly meshNodeCount?: number } = {},
+): Promise<ThreeFixture> {
+  const document = new Document();
+  const buffer = document.createBuffer("skin-buffer");
+  const positions = document
+    .createAccessor("skin-positions")
+    .setType("VEC3")
+    .setArray(
+      new Float32Array([
+        -0.1, 0, 0, 0.1, 0, 0, -0.1, 0.33, 0, 0.1, 0.33, 0, -0.1, 0.66, 0, 0.1, 0.66, 0, -0.1, 1, 0, 0.1, 1, 0,
+      ]),
+    )
+    .setBuffer(buffer);
+  const indices = document
+    .createAccessor("skin-indices")
+    .setType("SCALAR")
+    .setArray(new Uint16Array([0, 1, 2, 1, 3, 2, 2, 3, 4, 3, 5, 4, 4, 5, 6, 5, 7, 6]))
+    .setBuffer(buffer);
+  const joints = document
+    .createAccessor("skin-joints")
+    .setType("VEC4")
+    .setArray(
+      new Uint16Array([0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]),
+    )
+    .setBuffer(buffer);
+  const weights = document
+    .createAccessor("skin-weights")
+    .setType("VEC4")
+    .setArray(
+      new Float32Array([
+        1, 0, 0, 0, 1, 0, 0, 0, 0.5, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0.25, 0.75, 0, 0, 0.25, 0.75, 0, 0, 0, 1, 0, 0, 0, 1, 0,
+        0,
+      ]),
+    )
+    .setBuffer(buffer);
+  const primitive = document
+    .createPrimitive()
+    .setAttribute("POSITION", positions)
+    .setAttribute("JOINTS_0", joints)
+    .setAttribute("WEIGHTS_0", weights)
+    .setIndices(indices);
+  const mesh = document.createMesh("skin-mesh").addPrimitive(primitive);
+  const rootJoint = document.createNode("root-joint").setTranslation([0, 0, 0]);
+  const tipJoint = document.createNode("tip-joint").setTranslation([0, 0.66, 0]);
+  rootJoint.addChild(tipJoint);
+  const inverseBindMatrices = document
+    .createAccessor("skin-ibm")
+    .setType("MAT4")
+    .setArray(
+      // biome-ignore format: matrix columns read more clearly unformatted
+      new Float32Array([
+        1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,
+        1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, -0.66, 0, 1,
+      ]),
+    )
+    .setBuffer(buffer);
+  const skin = document
+    .createSkin("test-skin")
+    .addJoint(rootJoint)
+    .addJoint(tipJoint)
+    .setInverseBindMatrices(inverseBindMatrices)
+    .setSkeleton(rootJoint);
+  const armatureNode = document.createNode("armature").addChild(rootJoint);
+  const scene = document.createScene("skin-scene").addChild(armatureNode);
+  for (let index = 0; index < (options.meshNodeCount ?? 1); index += 1) {
+    scene.addChild(document.createNode(`skinned-mesh-node-${index}`).setMesh(mesh).setSkin(skin));
+  }
+  document.getRoot().setDefaultScene(scene);
+  return serialize(document);
+}
+
 export async function createThreeFixtureSet(): Promise<ThreeFixtureSet> {
   const [simpleCube, comprehensive] = await Promise.all([createSimpleCubeFixture(), createThreeFixture()]);
   return Object.freeze({

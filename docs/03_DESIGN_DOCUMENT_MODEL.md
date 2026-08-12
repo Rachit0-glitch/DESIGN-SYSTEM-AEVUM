@@ -1385,14 +1385,18 @@ interface Rig3DNode extends BaseNode {
   type: "RIG_3D";
   rootBoneId: string;
   boneIds: string[];
-  controls: RigControl[];
+  ikChains: IKChain[];
   constraints: RigConstraint[];
-  bindPoseAssetId?: string;
+  rigMethod: "IMPORTED" | "TEMPLATE_MECHANICAL_CHAIN" | "TEMPLATE_BASIC_HUMANOID" | "MANUAL";
   compatibilityProfile?: string;
 }
 ```
 
-The rig model shall support:
+CDD `1.5.0` stores static rig structure. `rootBoneId` must be in `boneIds`; every bone belongs to
+exactly one rig; roots are parented to the rig and child bones use `parentId`/`childIds`. IK chains
+and constraints are validated metadata at this checkpoint, not executed behavior.
+
+Future phases may extend the rig model to support:
 
 - IK
 - FK
@@ -1411,12 +1415,18 @@ The rig model shall support:
 ```ts
 interface Bone3DNode extends BaseNode {
   type: "BONE_3D";
-  parentBoneId?: string;
-  restTransform: TransformData;
+  length: number;
   inverseBindMatrix?: number[];
   deforming: boolean;
 }
 ```
+
+`BaseNode.transform` on `BONE_3D` is the immutable rest/bind transform. Evaluated pose transforms
+belong to a future Scene Runtime projection and must not overwrite canonical rest state.
+
+Per-vertex JOINTS/WEIGHTS remain in the registered GLB/GLTF. `MESH_3D.skinBinding` stores compact
+joint and validation metadata. A skinned derivative updates `geometryAssetId` and
+`geometry.sourceAssetId` to the immutable derivative while preserving source lineage.
 
 ---
 

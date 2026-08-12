@@ -913,6 +913,19 @@ Skinning shall support:
 - Weight transfer
 - Symmetry
 - Limit influence count
+
+### Phase 19B Static Round-Trip Checkpoint
+
+The implemented checkpoint supports canonical rig/bone structure, deterministic hierarchy
+validation, real glTF JOINTS/WEIGHTS inspection, bounded Blender automatic weighting, explicit
+normalization, armature modifiers, immutable derivative GLB registration, inverse-bind reimport,
+and canonical reconciliation. One glTF Skin maps to one canonical rig even when several mesh nodes
+share it; distinct skins remain distinct.
+
+In Blender, the mesh becomes the armature child and carries the Armature modifier. The armature is
+never initially parented under the mesh, preventing circular ownership. Automatic weights are
+labeled `AUTOMATIC_HEURISTIC` and prove only the bounded fixture pipeline. Pose evaluation,
+deformation runtime, IK/FK and constraint execution, retargeting, and Agent rigging remain deferred.
 - Deformation tests
 - Pose-space correction
 - Corrective blend shapes

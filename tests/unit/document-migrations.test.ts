@@ -37,6 +37,21 @@ describe("document migrations", () => {
     expect(migrated.assets).toEqual(current.assets);
   });
 
+  it("migrates 1.4 directly to 1.5 losslessly and deterministically", () => {
+    const current = fixtures.assetDemo();
+    const legacy = { ...current, schemaVersion: "1.4.0", migrationVersion: 4 };
+
+    const first = migrate(legacy);
+    const second = migrate(legacy);
+
+    expect(first).toEqual(second);
+    expect(first.schemaVersion).toBe("1.5.0");
+    expect(first.migrationVersion).toBe(5);
+    expect(first.nodes).toEqual(current.nodes);
+    expect(first.assets).toEqual(current.assets);
+    expect(first.metadata).toEqual(current.metadata);
+  });
+
   it("rejects duplicate registrations and incomplete migration paths", () => {
     const registry = new MigrationRegistry();
     const migration = (document: Readonly<Record<string, unknown>>) => ({ ...document, schemaVersion: "1.0.0" });

@@ -13,8 +13,9 @@ import {
   type DesignNode,
   type ImportProvenanceSchema,
 } from "@aevum/document-model";
-import type { Material, Node, Primitive, Texture, TextureInfo } from "@gltf-transform/core";
+import type { Material, Node, Primitive, Skin, Texture, TextureInfo } from "@gltf-transform/core";
 import { KHRLightsPunctual, type Light } from "@gltf-transform/extensions";
+import { validateWeights, type VertexInfluence } from "@aevum/rigging";
 import type { z } from "zod";
 import { parse3DAsset, type Inspect3DAssetInput, type Parsed3DAsset } from "./inspection.js";
 import { deepFreeze, deterministicEntityId, threeFingerprint } from "./stable.js";
@@ -64,6 +65,50 @@ function transformFor(node: Node, world = false) {
     quaternion: { x: rotation[0], y: rotation[1], z: rotation[2], w: rotation[3] },
     scale: { x: scale[0], y: scale[1], z: scale[2] },
   };
+}
+
+/**
+ * glTF has no native "bone length" concept — only Blender's own bone-chain representation does,
+ * and that information does not survive a glTF round trip. This is an explicit, disclosed
+ * approximation (Phase 19B §11): the distance to the nearest child joint, or a small fixed default
+ * for a leaf joint. It is cosmetic/editing-aid data only, never consumed for skinning math (which
+ * uses the joint's real local transform and inverse bind matrix instead).
+ */
+function jointLength(sourceNode: Node, jointNodeSet: ReadonlySet<Node>): number {
+  const childJoints = sourceNode.listChildren().filter((child) => jointNodeSet.has(child));
+  if (childJoints.length === 0) return 0.05;
+  const origin = sourceNode.getWorldTranslation();
+  const distances = childJoints.map((child) => {
+    const target = child.getWorldTranslation();
+    return Math.hypot(target[0] - origin[0], target[1] - origin[1], target[2] - origin[2]);
+  });
+  const farthest = Math.max(...distances);
+  return farthest > 1e-6 ? farthest : 0.05;
+}
+
+/** The inverse bind matrix for a joint, read verbatim from whichever skin lists it (Phase 19B §8).
+ * Stored for potential future GPU-skinning use; not interpreted or consumed by this import path. */
+function inverseBindMatrixFor(sourceNode: Node, skins: readonly Skin[]): number[] | undefined {
+  for (const skin of skins) {
+    const jointIndex = skin.listJoints().indexOf(sourceNode);
+    if (jointIndex === -1) continue;
+    const accessor = skin.getInverseBindMatrices();
+    if (!accessor) return undefined;
+    const target = new Array(16).fill(0);
+    accessor.getElement(jointIndex, target);
+    return target;
+  }
+  return undefined;
+}
+
+/** The joint whose parent is not itself a joint in this skin — the real root of the bone chain.
+ * `Skin.getSkeleton()` (when set) names the joints' common ancestor, which is typically the
+ * armature's own object node, not a joint itself, so it cannot be used directly here. */
+function rootJointFor(skin: Skin, jointNodeSet: ReadonlySet<Node>): Node | undefined {
+  return skin.listJoints().find((joint) => {
+    const parent = joint.getParentNode();
+    return parent === null || !jointNodeSet.has(parent);
+  });
 }
 
 function nodeBase(
@@ -284,6 +329,80 @@ function geometry(parsed: Parsed3DAsset, primitive: Primitive, meshIndex: number
   };
 }
 
+interface SkinWeightStats {
+  readonly vertexCount: number;
+  readonly unweightedVertexCount: number;
+  readonly normalized: boolean;
+  readonly maxInfluencesPerVertex: number;
+  readonly diagnostics: readonly ThreeDiagnostic[];
+}
+
+/** Real per-vertex weight inspection (Phase 19B §9/§10) across every JOINTS_n/WEIGHTS_n accessor
+ * set actually present on the primitive, aggregated across a multi-primitive mesh. Reports what
+ * the import found; does not repair or normalize it. */
+function primitiveWeightStats(primitive: Primitive, jointCount: number): SkinWeightStats | undefined {
+  const sets: Array<{
+    joints: import("@gltf-transform/core").Accessor;
+    weights: import("@gltf-transform/core").Accessor;
+  }> = [];
+  const malformedSets: number[] = [];
+  for (let set = 0; set < 8; set += 1) {
+    const joints = primitive.getAttribute(`JOINTS_${set}`);
+    const weights = primitive.getAttribute(`WEIGHTS_${set}`);
+    if (!joints && !weights) break;
+    if (!joints || !weights) {
+      malformedSets.push(set);
+      continue;
+    }
+    sets.push({ joints, weights });
+  }
+  if (sets.length === 0) return undefined;
+  const vertexCount = sets[0]?.weights.getCount() ?? 0;
+  const weightTarget: number[] = [];
+  const jointTarget: number[] = [];
+  const influences: VertexInfluence[][] = [];
+  for (let vertex = 0; vertex < vertexCount; vertex += 1) {
+    const vertexInfluences: VertexInfluence[] = [];
+    for (const set of sets) {
+      const weights = set.weights.getElement(vertex, weightTarget);
+      const joints = set.joints.getElement(vertex, jointTarget);
+      for (let component = 0; component < weights.length; component += 1) {
+        const weight = weights[component] ?? Number.NaN;
+        if (weight !== 0 || !Number.isFinite(weight)) {
+          vertexInfluences.push({ jointIndex: joints[component] ?? -1, weight });
+        }
+      }
+    }
+    influences.push(vertexInfluences);
+  }
+  const report = validateWeights({ influences, jointCount, maxInfluencesPerVertex: 8 });
+  const diagnostics: ThreeDiagnostic[] = report.diagnostics.map((entry) => ({
+    code: "UNSUPPORTED_SKIN_FEATURE",
+    severity: entry.severity === "CRITICAL" ? "BLOCKING" : entry.severity,
+    message: entry.message,
+    recoverable: entry.recoverable,
+    details: {
+      invalidVertexCount: report.invalidVertexCount,
+      unweightedVertexCount: report.unweightedVertexCount,
+    },
+  }));
+  if (malformedSets.length > 0) {
+    diagnostics.push({
+      code: "UNSUPPORTED_SKIN_FEATURE",
+      severity: "ERROR",
+      message: `Skin attributes have unmatched JOINTS/WEIGHTS sets: ${malformedSets.join(", ")}.`,
+      recoverable: false,
+    });
+  }
+  return {
+    vertexCount: report.vertexCount,
+    unweightedVertexCount: report.unweightedVertexCount,
+    normalized: report.normalized && malformedSets.length === 0,
+    maxInfluencesPerVertex: report.maxInfluencesObserved,
+    diagnostics,
+  };
+}
+
 export async function create3DImportProposal(input: Create3DImportProposalInput): Promise<ThreeImportProposal> {
   const parsed = await parse3DAsset(input);
   const root = parsed.document.getRoot();
@@ -309,6 +428,13 @@ export async function create3DImportProposal(input: Create3DImportProposalInput)
   const cameras: ReturnType<typeof CameraSchema.parse>[] = [];
   const lights: ReturnType<typeof LightSchema.parse>[] = [];
   const rootNodeIds: string[] = [];
+  const skins = root.listSkins();
+  const skinIndexes = new Map(skins.map((skin, index) => [skin, index]));
+  // Phase 19B: every joint referenced by any skin becomes a canonical BONE_3D node instead of a
+  // generic GROUP_3D node — determined up front since a joint can be visited as an ordinary child
+  // node before its skin is discovered on the mesh node that uses it.
+  const jointNodeSet = new Set<Node>(skins.flatMap((skin) => skin.listJoints()));
+  const skinDiagnostics: ThreeDiagnostic[] = [];
 
   for (const [sceneIndex, sourceScene] of root.listScenes().entries()) {
     const sceneId = deterministicEntityId("scene", { asset: parsed.input.asset.hash, sceneIndex });
@@ -333,6 +459,9 @@ export async function create3DImportProposal(input: Create3DImportProposalInput)
       realWorldScale: { value: 1, unit: "M" },
     });
     const canonicalBySource = new Map<Node, string>();
+    const meshNodeSkins = new Map<Node, Skin>();
+    const meshNodeMeshIds = new Map<Node, string[]>();
+    const sceneRigIds: string[] = [];
 
     const visit = (sourceNode: Node, parentId: string): string => {
       const sourceNodeIndex = nodeIndexes.get(sourceNode);
@@ -343,8 +472,10 @@ export async function create3DImportProposal(input: Create3DImportProposalInput)
       const canonicalIdentity = parsedIdentity.success ? parsedIdentity.data : undefined;
       canonicalBySource.set(sourceNode, groupId);
       const childIds: string[] = [];
+      const nodeMeshIds: string[] = [];
       const mesh = sourceNode.getMesh();
       const sourceMeshIndex = mesh ? meshIndexes.get(mesh) : undefined;
+      const skin = sourceNode.getSkin();
       if (mesh && sourceMeshIndex !== undefined) {
         for (const [primitiveIndex, primitive] of mesh.listPrimitives().entries()) {
           const meshId = deterministicEntityId("mesh", {
@@ -386,7 +517,10 @@ export async function create3DImportProposal(input: Create3DImportProposalInput)
           );
           childIds.push(meshId);
           importedMeshIds.push(meshId);
+          nodeMeshIds.push(meshId);
         }
+        if (skin) meshNodeSkins.set(sourceNode, skin);
+        if (nodeMeshIds.length > 0) meshNodeMeshIds.set(sourceNode, nodeMeshIds);
       }
       for (const child of sourceNode.listChildren()) childIds.push(visit(child, groupId));
       const camera = sourceNode.getCamera();
@@ -463,20 +597,42 @@ export async function create3DImportProposal(input: Create3DImportProposalInput)
         );
         (sceneNode as Extract<DesignNode, { type: "SCENE_3D" }>).lightIds.push(lightId);
       }
-      nodes.push(
-        DesignNodeSchema.parse({
-          ...nodeBase(
-            groupId,
-            sourceNode.getName() || `Node ${sourceNodeIndex}`,
-            parentId,
-            provenance(parsed, { sourceSceneIndex: sceneIndex, sourceNodeIndex }),
-            canonicalIdentity,
-          ),
-          type: "GROUP_3D",
-          childIds,
-          transform: transformFor(sourceNode),
-        }),
-      );
+      if (jointNodeSet.has(sourceNode)) {
+        nodes.push(
+          DesignNodeSchema.parse({
+            ...nodeBase(
+              groupId,
+              sourceNode.getName() || `Bone ${sourceNodeIndex}`,
+              parentId,
+              provenance(parsed, { sourceSceneIndex: sceneIndex, sourceNodeIndex }),
+              canonicalIdentity,
+            ),
+            type: "BONE_3D",
+            childIds,
+            transform: transformFor(sourceNode),
+            length: jointLength(sourceNode, jointNodeSet),
+            deforming: true,
+            ...(inverseBindMatrixFor(sourceNode, skins)
+              ? { inverseBindMatrix: inverseBindMatrixFor(sourceNode, skins) }
+              : {}),
+          }),
+        );
+      } else {
+        nodes.push(
+          DesignNodeSchema.parse({
+            ...nodeBase(
+              groupId,
+              sourceNode.getName() || `Node ${sourceNodeIndex}`,
+              parentId,
+              provenance(parsed, { sourceSceneIndex: sceneIndex, sourceNodeIndex }),
+              canonicalIdentity,
+            ),
+            type: "GROUP_3D",
+            childIds,
+            transform: transformFor(sourceNode),
+          }),
+        );
+      }
       return groupId;
     };
 
@@ -484,11 +640,83 @@ export async function create3DImportProposal(input: Create3DImportProposalInput)
       ...sourceScene.listChildren().map((sourceNode) => visit(sourceNode, modelId)),
     );
     (modelNode as Extract<DesignNode, { type: "MODEL_3D" }>).meshIds.push(...importedMeshIds);
-    void canonicalBySource;
+
+    // Phase 19B: build one RIG_3D node per skin actually used by a mesh in this scene, inserted
+    // between the root bone's original glTF parent and the root bone itself (the root bone's
+    // parent becomes the rig, not the armature object node it was originally parented under).
+    const meshNodesBySkin = new Map<Skin, Node[]>();
+    for (const [meshNode, skin] of meshNodeSkins) {
+      meshNodesBySkin.set(skin, [...(meshNodesBySkin.get(skin) ?? []), meshNode]);
+    }
+    for (const [skin, meshNodes] of meshNodesBySkin) {
+      const jointIds = skin
+        .listJoints()
+        .map((joint) => canonicalBySource.get(joint))
+        .filter((id): id is string => id !== undefined);
+      const rootJoint = rootJointFor(skin, jointNodeSet);
+      const rootBoneId = rootJoint ? canonicalBySource.get(rootJoint) : undefined;
+      if (jointIds.length === 0 || !rootBoneId) continue;
+      const rootBoneNode = nodes.find((node) => node.id === rootBoneId);
+      if (!rootBoneNode) continue;
+      const originalParentId = rootBoneNode.parentId;
+      const sourceSkinIndex = skinIndexes.get(skin) ?? 0;
+      const rootNodeIndex = rootJoint ? nodeIndexes.get(rootJoint) : undefined;
+      const rigId = deterministicEntityId("rig", { asset: parsed.input.asset.hash, sceneIndex, sourceSkinIndex });
+      rootBoneNode.parentId = rigId;
+      const originalParent =
+        originalParentId === modelNode.id ? modelNode : nodes.find((node) => node.id === originalParentId);
+      if (originalParent) {
+        const index = originalParent.childIds.indexOf(rootBoneId);
+        if (index !== -1) originalParent.childIds.splice(index, 1, rigId);
+      }
+      nodes.push(
+        DesignNodeSchema.parse({
+          ...nodeBase(
+            rigId,
+            skin.getName() || `Rig ${skinIndexes.get(skin) ?? 0}`,
+            originalParentId,
+            provenance(parsed, { sourceSceneIndex: sceneIndex, sourceNodeIndex: rootNodeIndex }),
+          ),
+          type: "RIG_3D",
+          childIds: [rootBoneId],
+          rootBoneId,
+          boneIds: jointIds,
+          ikChains: [],
+          constraints: [],
+          rigMethod: "IMPORTED",
+        }),
+      );
+      sceneRigIds.push(rigId);
+
+      for (const meshNode of meshNodes) {
+        const meshIds = meshNodeMeshIds.get(meshNode) ?? [];
+        const mesh = meshNode.getMesh();
+        const primitiveWeightReports = mesh
+          ? mesh.listPrimitives().map((primitive) => primitiveWeightStats(primitive, jointIds.length))
+          : [];
+        for (const [primitiveIndex, meshId] of meshIds.entries()) {
+          const weightStats = primitiveWeightReports[primitiveIndex];
+          skinDiagnostics.push(...(weightStats?.diagnostics ?? []));
+          const meshDesignNode = nodes.find((node) => node.id === meshId);
+          if (meshDesignNode?.type !== "MESH_3D") continue;
+          meshDesignNode.skinBinding = {
+            rigId,
+            jointIds,
+            maxInfluencesPerVertex: Math.max(1, Math.min(8, weightStats?.maxInfluencesPerVertex ?? 4)),
+            weightMethod: "IMPORTED",
+            normalized: weightStats?.normalized ?? false,
+            vertexCount: weightStats?.vertexCount ?? meshDesignNode.geometry.vertexCount,
+            unweightedVertexCount: weightStats?.unweightedVertexCount ?? 0,
+          };
+        }
+      }
+    }
+    if (sceneRigIds.length === 1) (modelNode as Extract<DesignNode, { type: "MODEL_3D" }>).rigId = sceneRigIds[0];
+
     nodes.push(modelNode, sceneNode);
     rootNodeIds.push(sceneId);
   }
-  const diagnostics: ThreeDiagnostic[] = [...parsed.inspection.diagnostics];
+  const diagnostics: ThreeDiagnostic[] = [...parsed.inspection.diagnostics, ...skinDiagnostics];
   const content = {
     version: THREE_FOUNDATION_VERSION,
     sourceAssetId: parsed.input.asset.id,

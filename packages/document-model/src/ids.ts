@@ -43,6 +43,9 @@ export const ENTITY_ID_PREFIXES = [
   "export",
   "artifact",
   "viewport",
+  "rig",
+  "bone",
+  "constraint",
 ] as const;
 
 export type EntityIdPrefix = (typeof ENTITY_ID_PREFIXES)[number];

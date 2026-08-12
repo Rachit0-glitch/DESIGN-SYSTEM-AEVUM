@@ -51,6 +51,10 @@ export interface BlenderToolAdapter {
       | "three.bevel_mesh"
       | "three.unwrap_uv"
       | "three.update_pbr_material"
+      | "three.rig_create"
+      | "three.rig_inspect"
+      | "three.skin_bind"
+      | "three.skin_inspect"
     >;
     readonly payload: unknown;
     readonly document: CanonicalDesignDocument;

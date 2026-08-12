@@ -14,6 +14,7 @@ import {
   type DesignNode,
 } from "@aevum/document-model";
 import { create3DImportProposal } from "@aevum/renderer-3d";
+import { buildRigNodes } from "@aevum/rigging";
 import { z } from "zod";
 import type { BlenderJob, BlenderOperation, BlenderRuntimeInfo } from "./protocol.js";
 import { blenderFingerprint, deepFreeze, deterministicBlenderId, stableSerialize } from "./stable.js";
@@ -131,6 +132,19 @@ function directMeshChildren(document: CanonicalDesignDocument, objectId: string)
     .filter((node): node is DesignNode => node?.type === "MESH_3D");
 }
 
+function meshDescendants(nodes: readonly DesignNode[], objectId: string): DesignNode[] {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const meshes: DesignNode[] = [];
+  const visit = (id: string): void => {
+    const node = byId.get(id);
+    if (!node) return;
+    if (node.type === "MESH_3D") meshes.push(node);
+    for (const childId of node.childIds) visit(childId);
+  };
+  visit(objectId);
+  return meshes;
+}
+
 export async function createBlenderReconciliationProposal(
   input: CreateBlenderReconciliationInput,
 ): Promise<BlenderReconciliationProposal> {
@@ -157,6 +171,10 @@ export async function createBlenderReconciliationProposal(
           blenderVersion: input.runtime.blenderVersion,
           operationFingerprint: blenderFingerprint(input.job.operation),
           sourceAssetHash: input.job.inputAsset.hash,
+          outputAssetHash: outputHash,
+          correlationId: input.job.correlationId,
+          actorId: input.actor.id,
+          ...(input.job.operation.kind === "skin.bind" ? { rigId: input.job.operation.rigObjectId } : {}),
         },
       },
     });
@@ -313,6 +331,100 @@ export async function createBlenderReconciliationProposal(
       type: "node.duplicate",
       payload: { sourceNodeId: source.id, parentId, index, idMap },
     });
+  } else if (operation.kind === "rig.create") {
+    const parentNode = input.document.nodes[operation.objectId];
+    if (!parentNode) throw new Error("Blender rig target object is not canonical.");
+    // Blender successfully constructing the armature (a real hierarchy/length validity proof in
+    // real 3D software) is the gate for this write, but the canonical nodes are built directly
+    // from the operation's own bone specs via the already-tested @aevum/rigging construction path
+    // — not re-parsed from the exported GLB. glTF only marks nodes as skin "joints" once an actual
+    // skin references them, which does not exist yet immediately after rig.create alone (skin.bind
+    // is a separate step), so there is nothing meaningful to re-parse at this point.
+    const built = buildRigNodes({
+      parentId: parentNode.id,
+      rigName: operation.name,
+      bones: operation.bones,
+      rigMethod: "MANUAL",
+      scope: { jobId: input.job.id },
+    });
+    const rigFingerprint = blenderFingerprint(operation);
+    const rigNode = {
+      ...built.rig,
+      metadata: {
+        ...built.rig.metadata,
+        customData: { ...built.rig.metadata.customData, "aevum.rig_fingerprint": rigFingerprint },
+      },
+    };
+    commands.push({
+      ...commandBase(input, transactionId, commands.length),
+      type: "rig.create",
+      payload: { rig: rigNode, bones: [...built.bones] },
+    });
+    added.add(built.rig.id);
+    for (const bone of built.bones) {
+      added.add(bone.id);
+    }
+  } else if (operation.kind === "skin.bind") {
+    const currentObject = input.document.nodes[operation.objectId];
+    const rig = input.document.nodes[operation.rigObjectId];
+    if (!currentObject || rig?.type !== "RIG_3D") throw new Error("Blender skin target or rig is not canonical.");
+    const candidateObject = imported.nodes.find((node) => identity(node) === operation.objectId);
+    const currentMeshes = directMeshChildren(input.document, currentObject.id);
+    const candidateMeshes = candidateObject ? meshDescendants(imported.nodes, candidateObject.id) : [];
+    if (currentMeshes.length === 0 || candidateMeshes.length === 0) {
+      throw new Error("Blender did not return canonical mesh descendants for skin reconciliation.");
+    }
+    let inverseBindUpdatesAdded = false;
+    for (const currentMesh of currentMeshes) {
+      if (currentMesh.type !== "MESH_3D") continue;
+      const candidateMesh = candidateMeshes.find(
+        (candidate) =>
+          candidate.type === "MESH_3D" &&
+          candidate.geometry.sourcePrimitiveIndex === currentMesh.geometry.sourcePrimitiveIndex,
+      );
+      if (candidateMesh?.type !== "MESH_3D" || !candidateMesh.skinBinding) {
+        throw new Error("Blender did not produce reconcilable skin data for every canonical primitive.");
+      }
+      if (!inverseBindUpdatesAdded) {
+        const candidateBones = candidateMesh.skinBinding.jointIds.map((id) =>
+          imported.nodes.find((node) => node.id === id),
+        );
+        const matrices = candidateBones.map((bone) => (bone?.type === "BONE_3D" ? bone.inverseBindMatrix : undefined));
+        if (matrices.some((matrix) => matrix !== undefined) && matrices.some((matrix) => matrix === undefined)) {
+          throw new Error("Blender exported an incomplete inverse-bind matrix set.");
+        }
+        if (matrices.every((matrix) => matrix !== undefined) && matrices.length === rig.boneIds.length) {
+          for (const [index, boneId] of rig.boneIds.entries()) {
+            commands.push({
+              ...commandBase(input, transactionId, commands.length),
+              type: "node.update",
+              payload: { nodeId: boneId, changes: { inverseBindMatrix: matrices[index] } },
+            });
+            modified.add(boneId);
+          }
+        }
+        inverseBindUpdatesAdded = true;
+      }
+      modified.add(currentMesh.id);
+      commands.push({
+        ...commandBase(input, transactionId, commands.length),
+        type: "node.update",
+        payload: {
+          nodeId: currentMesh.id,
+          changes: {
+            geometryAssetId: outputAsset.id,
+            geometry: candidateMesh.geometry,
+            topology: candidateMesh.topology,
+            skinBinding: {
+              ...candidateMesh.skinBinding,
+              rigId: rig.id,
+              jointIds: rig.boneIds,
+              weightMethod: "AUTOMATIC_HEURISTIC",
+            },
+          },
+        },
+      });
+    }
   }
 
   for (const binding of input.job.identityBindings) {

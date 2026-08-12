@@ -70,6 +70,11 @@ export const CreateNodeCommandSchema = z.strictObject({
   type: z.literal("node.create"),
   payload: z.strictObject({ node: DesignNodeSchema, index: z.number().int().nonnegative().optional() }),
 });
+export const CreateRigCommandSchema = z.strictObject({
+  ...BaseCommandShape,
+  type: z.literal("rig.create"),
+  payload: z.strictObject({ rig: DesignNodeSchema, bones: z.array(DesignNodeSchema).min(1).max(256) }),
+});
 export const DeleteNodeCommandSchema = z.strictObject({
   ...BaseCommandShape,
   type: z.literal("node.delete"),
@@ -170,6 +175,7 @@ export type CreatePageCommand = z.infer<typeof CreatePageCommandSchema>;
 export type DeletePageCommand = z.infer<typeof DeletePageCommandSchema>;
 export type RenamePageCommand = z.infer<typeof RenamePageCommandSchema>;
 export type CreateNodeCommand = z.infer<typeof CreateNodeCommandSchema>;
+export type CreateRigCommand = z.infer<typeof CreateRigCommandSchema>;
 export type DeleteNodeCommand = z.infer<typeof DeleteNodeCommandSchema>;
 export type MoveNodeCommand = z.infer<typeof MoveNodeCommandSchema>;
 export type ReparentNodeCommand = z.infer<typeof ReparentNodeCommandSchema>;
@@ -192,6 +198,7 @@ export type Command =
   | DeletePageCommand
   | RenamePageCommand
   | CreateNodeCommand
+  | CreateRigCommand
   | DeleteNodeCommand
   | MoveNodeCommand
   | ReparentNodeCommand
@@ -215,6 +222,7 @@ export const CommandSchema: z.ZodType<Command> = z.discriminatedUnion("type", [
   DeletePageCommandSchema,
   RenamePageCommandSchema,
   CreateNodeCommandSchema,
+  CreateRigCommandSchema,
   DeleteNodeCommandSchema,
   MoveNodeCommandSchema,
   ReparentNodeCommandSchema,

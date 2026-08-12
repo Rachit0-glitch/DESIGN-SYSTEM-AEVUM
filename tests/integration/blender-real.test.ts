@@ -351,6 +351,8 @@ describe.sequential("Phase 15 real Blender 5.1 execution", () => {
       state: "FAILED",
       diagnostics: [expect.objectContaining({ code: "BLENDER_OBJECT_NOT_FOUND" })],
     });
+    const sanitizedFailure = JSON.stringify(failed.result.diagnostics);
+    expect(sanitizedFailure).not.toMatch(/traceback|Program Files|SUPABASE|DATABASE_URL|\\Users\\/i);
 
     const timeout = await runner.execute(
       jobFor(foundation, { operationVersion: "1.0.0", kind: "bridge.test_delay", durationMs: 2_000 }, false, 300),
@@ -782,5 +784,109 @@ describe.sequential("Phase 15 real Blender 5.1 execution", () => {
     expect(inspect.result.state).toBe("SUCCEEDED");
     expect(topology.faceCount).toBeGreaterThan(0);
     expect(topology.vertexCount).toBeGreaterThan(0);
+  });
+});
+
+describe.sequential("Phase 19B real Blender rigging execution", () => {
+  const runner = createBlenderJobRunner(blenderBridgeConfig(env));
+  let foundation: Foundation;
+
+  beforeAll(async () => {
+    foundation = await createFoundation();
+  });
+
+  it("creates a real 2-bone armature parented to a canonical object and reconciles it into RIG_3D/BONE_3D nodes", async () => {
+    const target = Object.values(foundation.document.nodes).find(
+      (node) => node.type === "GROUP_3D" && node.name === "nested-mesh",
+    );
+    if (!target) throw new Error("Expected fixture hierarchy is missing.");
+
+    const operation = {
+      operationVersion: "1.0.0" as const,
+      kind: "rig.create" as const,
+      objectId: target.id,
+      name: "AEVUM_Test_Rig",
+      bones: [
+        { key: "base", parentKey: null, head: { x: 0, y: -1, z: 0 }, tail: { x: 0, y: 0, z: 0 }, deforming: true },
+        { key: "tip", parentKey: "base", head: { x: 0, y: 0, z: 0 }, tail: { x: 0, y: 1, z: 0 }, deforming: true },
+      ],
+    };
+    const execution = await runner.execute(jobFor(foundation, operation), foundation.bytes);
+    expect(execution.result.state).toBe("SUCCEEDED");
+    const inspected = execution.result.data as {
+      boneCount: number;
+      bones: Array<{ key: string; parentKey: string | null }>;
+    };
+    expect(inspected.boneCount).toBe(2);
+    expect(inspected.bones.map((bone) => bone.key).sort()).toEqual(["base", "tip"]);
+
+    const updated = await reconcileExecution(foundation, operation, execution);
+    const rig = Object.values(updated.document.nodes).find((node) => node.type === "RIG_3D");
+    const bones = Object.values(updated.document.nodes).filter((node) => node.type === "BONE_3D");
+    if (rig?.type !== "RIG_3D") throw new Error("Expected a canonical RIG_3D node after reconciliation.");
+    expect(bones).toHaveLength(2);
+    expect(rig.parentId).toBe(target.id);
+    expect(rig.rigMethod).toBe("MANUAL");
+    const rootBone = bones.find((bone) => bone.id === rig.rootBoneId);
+    expect(rootBone?.parentId).toBe(rig.id);
+
+    foundation = updated;
+  });
+
+  it("binds the canonical mesh to the real armature with Blender's automatic weights and reconciles a real skinBinding", async () => {
+    const rig = Object.values(foundation.document.nodes).find((node) => node.type === "RIG_3D");
+    const meshWrapper = Object.values(foundation.document.nodes).find(
+      (node) => node.type === "GROUP_3D" && node.name === "nested-mesh",
+    );
+    if (rig?.type !== "RIG_3D" || !meshWrapper) throw new Error("Expected a prior real rig and mesh wrapper.");
+
+    const operation = {
+      operationVersion: "1.0.0" as const,
+      kind: "skin.bind" as const,
+      objectId: meshWrapper.id,
+      rigObjectId: rig.id,
+    };
+    const execution = await runner.execute(jobFor(foundation, operation), foundation.bytes);
+    expect(execution.result.state).toBe("SUCCEEDED");
+    const bound = execution.result.data as { method: string; vertexGroupCount: number; vertexCount: number };
+    expect(bound.method).toBe("AUTOMATIC_HEURISTIC");
+    expect(bound.vertexGroupCount).toBeGreaterThan(0);
+
+    const updated = await reconcileExecution(foundation, operation, execution);
+    const mesh = Object.values(updated.document.nodes).find(
+      (node) => node.type === "MESH_3D" && node.parentId === meshWrapper.id,
+    );
+    if (mesh?.type !== "MESH_3D") throw new Error("Expected the bound mesh to remain canonical.");
+    expect(mesh.skinBinding).toBeDefined();
+    expect(mesh.skinBinding?.rigId).toBe(rig.id);
+    expect([...(mesh.skinBinding?.jointIds ?? [])].sort()).toEqual([...rig.boneIds].sort());
+    expect(mesh.skinBinding?.weightMethod).toBe("AUTOMATIC_HEURISTIC");
+    expect(mesh.skinBinding?.normalized).toBe(true);
+    expect(mesh.geometryAssetId).not.toBe(foundation.sourceAssetId);
+    expect(updated.document.assets[mesh.geometryAssetId]?.source.originalAssetId).toBe(foundation.sourceAssetId);
+    const canonicalBones = rig.boneIds.map((boneId) => updated.document.nodes[boneId]);
+    expect(canonicalBones.every((bone) => bone?.type === "BONE_3D" && bone.inverseBindMatrix?.length === 16)).toBe(
+      true,
+    );
+
+    const rigInspection = await runner.execute(
+      jobFor(updated, { operationVersion: "1.0.0", kind: "rig.inspect", objectId: rig.id }, false),
+      updated.bytes,
+    );
+    expect(rigInspection.result).toMatchObject({ state: "SUCCEEDED", data: { objectId: rig.id, boneCount: 2 } });
+    const skinInspection = await runner.execute(
+      jobFor(updated, { operationVersion: "1.0.0", kind: "skin.inspect", objectId: meshWrapper.id }, false),
+      updated.bytes,
+    );
+    expect(skinInspection.result).toMatchObject({
+      state: "SUCCEEDED",
+      data: {
+        rigObjectId: rig.id,
+        normalized: true,
+        armatureModifierPresent: true,
+        inverseBindMatrixCount: 2,
+        diagnostics: [],
+      },
+    });
   });
 });

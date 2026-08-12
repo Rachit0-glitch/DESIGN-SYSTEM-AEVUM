@@ -779,6 +779,20 @@ It shall not become a dumping ground for domain logic.
 
 ---
 
+## 7.20 `packages/rigging`
+
+This package owns deterministic, provider-neutral rig construction and validation: bone hierarchy
+validation, rest/bind-pose metadata, skin-weight validation and explicit normalization, bounded
+mechanical and architecture-test humanoid templates, and rig validation reports. It does not own
+Blender execution, canonical mutation, MCP transport, pose evaluation, deformation runtime, or
+Agent planning.
+
+The static execution path is `canonical model -> rigging proposal -> Command Engine rig.create ->
+Blender Bridge -> derivative GLB -> renderer-3d reimport -> Command Engine reconciliation`.
+Blender custom properties provide stable canonical rig identity; visible names are descriptive only.
+
+---
+
 ## 8. Dependency Rules
 
 The architecture shall enforce directional dependencies.

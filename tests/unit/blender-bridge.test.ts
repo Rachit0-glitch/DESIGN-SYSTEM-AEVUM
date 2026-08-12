@@ -1,12 +1,15 @@
 import {
   BLENDER_BRIDGE_PROTOCOL_VERSION,
   BlenderOperationSchema,
+  createBlenderIdentityBindings,
   createBlenderJob,
   getBlenderBridgeHealth,
   validateBlenderJob,
   validateBlenderInputIsolation,
 } from "@aevum/blender-bridge";
+import { fixtures } from "@aevum/document-model";
 import { ROLE_PERMISSIONS, TOOL_SCHEMAS } from "@aevum/mcp-protocol";
+import { buildMechanicalChainTemplate, buildRigNodes } from "@aevum/rigging";
 import { describe, expect, it } from "vitest";
 
 const input = {
@@ -53,6 +56,43 @@ const input = {
 };
 
 describe("Phase 15 Blender Bridge contracts", () => {
+  it("creates stable rig bindings from fingerprints even when visible armature names are duplicated", () => {
+    const document = fixtures.landingPage();
+    const parentId = document.rootNodeIds[0];
+    if (!parentId) throw new Error("Expected fixture root.");
+    const first = buildRigNodes({
+      parentId,
+      rigName: "Duplicate Armature",
+      bones: buildMechanicalChainTemplate({ segmentCount: 1 }).bones,
+      rigMethod: "MANUAL",
+      scope: "first",
+    });
+    const second = buildRigNodes({
+      parentId,
+      rigName: "Duplicate Armature",
+      bones: buildMechanicalChainTemplate({ segmentCount: 1 }).bones,
+      rigMethod: "MANUAL",
+      scope: "second",
+    });
+    const withFingerprint = (rig: typeof first.rig, fingerprint: string) => ({
+      ...rig,
+      metadata: { ...rig.metadata, customData: { "aevum.rig_fingerprint": fingerprint } },
+    });
+    const nodes = {
+      ...document.nodes,
+      [first.rig.id]: withFingerprint(first.rig, `sha256:${"a".repeat(64)}`),
+      [second.rig.id]: withFingerprint(second.rig, `sha256:${"b".repeat(64)}`),
+    };
+    const bindings = createBlenderIdentityBindings({ ...document, nodes }, "asset_missing").filter(
+      (binding) => binding.entityId === first.rig.id || binding.entityId === second.rig.id,
+    );
+
+    expect(bindings.map((binding) => binding.sourceName)).toEqual(["Duplicate Armature", "Duplicate Armature"]);
+    expect(new Set(bindings.map((binding) => binding.sourceFingerprint))).toEqual(
+      new Set([`sha256:${"a".repeat(64)}`, `sha256:${"b".repeat(64)}`]),
+    );
+  });
+
   it("creates immutable deterministic jobs with explicit lifecycle budgets", () => {
     const first = createBlenderJob(input);
     const second = createBlenderJob(input);

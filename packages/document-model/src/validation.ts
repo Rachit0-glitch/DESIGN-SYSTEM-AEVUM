@@ -60,6 +60,8 @@ const expectedNodePrefixes: Record<DesignNode["type"], string> = {
   GROUP_3D: "group",
   MODEL_3D: "model",
   MESH_3D: "mesh",
+  RIG_3D: "rig",
+  BONE_3D: "bone",
 };
 
 function issue(code: DocumentValidationIssueCode, path: string, message: string): DocumentValidationIssue {
@@ -183,6 +185,132 @@ function validateReferences(document: CanonicalDesignDocument, issues: DocumentV
       issues.push(issue("INVALID_REFERENCE", path, `${id} is not a ${types.join("/")} asset.`));
     }
   };
+  const boneOwner = new Map<string, string>();
+  for (const [rigId, node] of Object.entries(document.nodes)) {
+    if (node.type !== "RIG_3D") continue;
+    const uniqueBoneIds = new Set(node.boneIds);
+    if (uniqueBoneIds.size !== node.boneIds.length) {
+      issues.push(
+        issue("INVALID_REFERENCE", `nodes.${rigId}.boneIds`, "Rig bone membership must not contain duplicates."),
+      );
+    }
+    if (!uniqueBoneIds.has(node.rootBoneId)) {
+      issues.push(
+        issue("INVALID_REFERENCE", `nodes.${rigId}.rootBoneId`, "Rig root bone must be included in boneIds."),
+      );
+    }
+    for (const [index, boneId] of node.boneIds.entries()) {
+      const bone = document.nodes[boneId];
+      if (bone?.type !== "BONE_3D") {
+        issues.push(issue("INVALID_REFERENCE", `nodes.${rigId}.boneIds.${index}`, `${boneId} is not a BONE_3D node.`));
+        continue;
+      }
+      const owner = boneOwner.get(boneId);
+      if (owner && owner !== rigId) {
+        issues.push(
+          issue(
+            "INVALID_REFERENCE",
+            `nodes.${rigId}.boneIds.${index}`,
+            `Bone ${boneId} already belongs to rig ${owner}.`,
+          ),
+        );
+      } else {
+        boneOwner.set(boneId, rigId);
+      }
+      const expectedParent = boneId === node.rootBoneId ? rigId : bone.parentId;
+      if (boneId === node.rootBoneId && bone.parentId !== rigId) {
+        issues.push(
+          issue(
+            "INVALID_REFERENCE",
+            `nodes.${boneId}.parentId`,
+            `Root bone must be parented directly to rig ${rigId}.`,
+          ),
+        );
+      } else if (boneId !== node.rootBoneId && (!expectedParent || !uniqueBoneIds.has(expectedParent))) {
+        issues.push(issue("INVALID_REFERENCE", `nodes.${boneId}.parentId`, `Bone parent must belong to rig ${rigId}.`));
+      }
+      if (!Number.isFinite(bone.length) || bone.length <= 0) {
+        issues.push(
+          issue("INVALID_REFERENCE", `nodes.${boneId}.length`, "Bone rest/bind length must be finite and positive."),
+        );
+      }
+    }
+    for (const [index, chain] of node.ikChains.entries()) {
+      for (const [field, boneId] of [
+        ["rootBoneId", chain.rootBoneId],
+        ["endEffectorBoneId", chain.endEffectorBoneId],
+      ] as const) {
+        if (!uniqueBoneIds.has(boneId)) {
+          issues.push(
+            issue(
+              "INVALID_REFERENCE",
+              `nodes.${rigId}.ikChains.${index}.${field}`,
+              `IK bone ${boneId} does not belong to this rig.`,
+            ),
+          );
+        }
+      }
+      requireRef(chain.targetNodeId, document.nodes, `nodes.${rigId}.ikChains.${index}.targetNodeId`, "IK target");
+      requireRef(
+        chain.poleTargetNodeId,
+        document.nodes,
+        `nodes.${rigId}.ikChains.${index}.poleTargetNodeId`,
+        "IK pole target",
+      );
+      if (chain.targetNodeId === chain.endEffectorBoneId || chain.poleTargetNodeId === chain.endEffectorBoneId) {
+        issues.push(
+          issue(
+            "INVALID_REFERENCE",
+            `nodes.${rigId}.ikChains.${index}`,
+            "IK targets must not target the end-effector bone itself.",
+          ),
+        );
+      }
+      let cursor: string | null = chain.endEffectorBoneId;
+      let traversed = 0;
+      while (cursor !== chain.rootBoneId && traversed <= node.boneIds.length) {
+        const parentId: string | null = document.nodes[cursor]?.parentId ?? null;
+        cursor = parentId && uniqueBoneIds.has(parentId) ? parentId : null;
+        traversed += 1;
+        if (!cursor) break;
+      }
+      if (cursor !== chain.rootBoneId || traversed !== chain.chainLength) {
+        issues.push(
+          issue(
+            "INVALID_REFERENCE",
+            `nodes.${rigId}.ikChains.${index}.chainLength`,
+            "IK chain must be a valid bone ancestry path with an exact chain length.",
+          ),
+        );
+      }
+    }
+    for (const [index, constraint] of node.constraints.entries()) {
+      if (!uniqueBoneIds.has(constraint.targetBoneId)) {
+        issues.push(
+          issue(
+            "INVALID_REFERENCE",
+            `nodes.${rigId}.constraints.${index}.targetBoneId`,
+            "Constraint target bone must belong to this rig.",
+          ),
+        );
+      }
+      if (constraint.sourceBoneId && !uniqueBoneIds.has(constraint.sourceBoneId)) {
+        issues.push(
+          issue(
+            "INVALID_REFERENCE",
+            `nodes.${rigId}.constraints.${index}.sourceBoneId`,
+            "Constraint source bone must belong to this rig.",
+          ),
+        );
+      }
+      requireRef(
+        constraint.sourceNodeId,
+        document.nodes,
+        `nodes.${rigId}.constraints.${index}.sourceNodeId`,
+        "Constraint source node",
+      );
+    }
+  }
   for (const [index, pageId] of document.pages.entries()) {
     const page = document.nodes[pageId];
     if (page?.type !== "PAGE")
@@ -304,6 +432,15 @@ function validateReferences(document: CanonicalDesignDocument, issues: DocumentV
     if (node.type === "MODEL_3D") {
       requireRef(node.sourceAssetId, document.assets, `nodes.${id}.sourceAssetId`, "Source asset");
       for (const meshId of node.meshIds) requireNodeType(meshId, "MESH_3D", `nodes.${id}.meshIds`);
+      requireNodeType(node.rigId, "RIG_3D", `nodes.${id}.rigId`);
+      for (const meshId of node.meshIds) {
+        const mesh = document.nodes[meshId];
+        if (node.rigId && mesh?.type === "MESH_3D" && mesh.skinBinding && mesh.skinBinding.rigId !== node.rigId) {
+          issues.push(
+            issue("INVALID_REFERENCE", `nodes.${id}.rigId`, `Model rig does not match skin binding on mesh ${meshId}.`),
+          );
+        }
+      }
     }
     if (node.type === "MESH_3D") {
       requireRef(node.geometryAssetId, document.assets, `nodes.${id}.geometryAssetId`, "Geometry asset");
@@ -319,6 +456,62 @@ function validateReferences(document: CanonicalDesignDocument, issues: DocumentV
       }
       for (const materialId of node.materialIds)
         requireRef(materialId, document.materials, `nodes.${id}.materialIds`, "Material");
+      if (node.skinBinding) {
+        const rig = document.nodes[node.skinBinding.rigId];
+        if (rig?.type !== "RIG_3D") {
+          issues.push(
+            issue("INVALID_REFERENCE", `nodes.${id}.skinBinding.rigId`, "Skin binding rig must resolve to RIG_3D."),
+          );
+        } else {
+          const uniqueJoints = new Set(node.skinBinding.jointIds);
+          if (uniqueJoints.size !== node.skinBinding.jointIds.length) {
+            issues.push(
+              issue("INVALID_REFERENCE", `nodes.${id}.skinBinding.jointIds`, "Skin joint IDs must be unique."),
+            );
+          }
+          for (const [index, jointId] of node.skinBinding.jointIds.entries()) {
+            if (!rig.boneIds.includes(jointId) || document.nodes[jointId]?.type !== "BONE_3D") {
+              issues.push(
+                issue(
+                  "INVALID_REFERENCE",
+                  `nodes.${id}.skinBinding.jointIds.${index}`,
+                  `Joint ${jointId} does not belong to rig ${rig.id}.`,
+                ),
+              );
+            }
+          }
+          const inverseBindCount = node.skinBinding.jointIds.filter(
+            (jointId) => document.nodes[jointId]?.type === "BONE_3D" && document.nodes[jointId].inverseBindMatrix,
+          ).length;
+          if (inverseBindCount !== 0 && inverseBindCount !== node.skinBinding.jointIds.length) {
+            issues.push(
+              issue(
+                "INVALID_REFERENCE",
+                `nodes.${id}.skinBinding.jointIds`,
+                "Inverse bind matrices must be present for every joint or omitted for every joint.",
+              ),
+            );
+          }
+        }
+        if (node.skinBinding.vertexCount !== node.geometry.vertexCount) {
+          issues.push(
+            issue(
+              "INVALID_REFERENCE",
+              `nodes.${id}.skinBinding.vertexCount`,
+              "Skin vertex count must match canonical geometry.",
+            ),
+          );
+        }
+        if (node.skinBinding.unweightedVertexCount > node.skinBinding.vertexCount) {
+          issues.push(
+            issue(
+              "INVALID_REFERENCE",
+              `nodes.${id}.skinBinding.unweightedVertexCount`,
+              "Unweighted vertex count exceeds the skin vertex count.",
+            ),
+          );
+        }
+      }
     }
     if (node.type === "TEXT") {
       for (const [runIndex, run] of node.runs.entries())

@@ -2444,6 +2444,54 @@ Status update:
     phase should also consider building a real `AssetBytesResolver` implementation once persistent
     asset storage exists.
 
+### Phase 19B Addendum - Rigging, Skeletons, Skinning, and Character Deformation
+
+**Status: IN_PROGRESS - static rig/skin round-trip stabilization complete.**
+
+- Date: 2026-08-12
+- Previous status: PLANNED / partially implemented in an intentionally dirty worktree
+- New status: IN_PROGRESS
+- Evidence:
+  - CDD `1.5.0` rig, bone, model-rig, and mesh-skin references now have complete document-level
+    validation and deterministic direct `1.4.0 -> 1.5.0` migration coverage.
+  - Stable fingerprint-based Blender armature identity is independent of visible names.
+  - Shared glTF skins produce one canonical rig; real JOINTS/WEIGHTS are validated per primitive.
+  - Real local Blender creates an acyclic armature, binds normalized bounded automatic weights,
+    exports a derivative GLB, reimports skin and inverse-bind data, and reconciles canonical
+    geometry through an atomic Command Engine transaction.
+  - MCP exposes only `three.rig_create`, `three.rig_inspect`, `three.skin_bind`, and
+    `three.skin_inspect`, retaining auth, permission, workspace, version, lock, dry-run, audit,
+    rollback, and idempotency boundaries.
+  - Blender failures return sanitized structured diagnostics without tracebacks or private paths.
+  - Focused stabilization suite: PASS, 8 files / 74 tests.
+  - Full non-Blender suite: PASS, 47 files / 339 tests.
+  - Real Blender 5.1 suite: PASS, 1 file / 19 tests, including rig create, bind, inspect,
+    derivative GLB reimport, inverse binds, failure isolation, timeout, and cancellation.
+  - `pnpm validate`: PASS; docs 12/12, dependency boundaries 60 packages, formatting, lint,
+    typecheck 82 tasks, build 60 packages, tests 339.
+  - `pnpm validate:docker`: PASS (`docker compose config`).
+  - `git diff --check`: PASS; tracked-source secret scan found only documented variable names and
+    test placeholders, with no private values or generated artifacts.
+  - Read-only production health: Railway API `/health`, MCP `/health`, `/ready`, `/version`, and
+    Vercel production alias all returned HTTP 200. Supabase `Design-System-Aevum` is linked and
+    `ACTIVE_HEALTHY`. Railway Blender remains intentionally offline.
+- Decision: `BONE_3D.transform` is immutable rest/bind state. Evaluated pose is a future Scene
+  Runtime projection and must not mutate canonical rest state.
+- Remaining warnings:
+  - `AUTOMATIC_HEURISTIC` proves the bounded fixture pipeline and is not professional character
+    skinning quality.
+  - Production MCP remains behind repository state and is intentionally not redeployed here.
+  - Railway Blender remains intentionally offline; real validation uses local Blender 5.1.
+- Blockers: none for this static rig/skin stabilization checkpoint.
+- Remaining Phase 19B scope: pose evaluation, Scene Runtime deformation, IK/FK and constraint
+  execution, animation-track integration, Agent planning, professional weight editing and
+  deformation gates, retargeting, and character-motion validation.
+- Substantive Phase 19B completion estimate: 60% end-to-end. The static foundation and round trip
+  are validated; the remaining percentage is dominated by evaluated pose/deformation behavior,
+  professional controls and weight editing, retargeting, Agent orchestration, and motion quality.
+- Next action: commit and push this checkpoint, then begin a separately scoped Phase 19B
+  pose/runtime block. Do not begin that block during stabilization.
+
 ### Deferred: Original Phase 18 Scope (Rigging and Character Animation)
 
 **Status: DEFERRED.** Preserved verbatim per ADR-0002 — not started, not shortened, not
@@ -3631,8 +3679,8 @@ if the two ever disagree again.
 The next repository action should be:
 
 ```text
-Decide the numbered slot for Rigging and Character Animation, then begin it once a
-reconstructed or otherwise-imported static model is reliably available to rig.
+Continue Phase 19B with a separately scoped pose/runtime block: canonical evaluated pose state,
+Scene Runtime deformation boundaries, and non-executing animation integration contracts.
 ```
 
 Phase 18 (§24) delivered the first real local reconstruction execution — candidate geometry
@@ -3642,8 +3690,9 @@ phase now covers reconstruction execution rather than rigging). Its Phase 19A ad
 closed both gaps Phase 18 left open: multi-part and voxel-hull candidates are now correction-loop
 aware (not just single-part box/cylinder primitives), and `scene3d.import` is now exposed as a
 bounded MCP write tool (`three.import_scene`) with a matching Agent operation
-(`reconstruct_and_import`). Rigging's original scope is preserved verbatim in §24 and remains
-genuinely unclaimed — it is the next repository action once a numbered slot is assigned.
+(`reconstruct_and_import`). Rigging's original scope remains preserved in Section 24. Phase 19B
+has claimed and validated only the static rig/skin round-trip checkpoint; pose, deformation
+runtime, IK/FK execution, retargeting, and Agent workflows remain genuinely unclaimed.
 
 ---
 

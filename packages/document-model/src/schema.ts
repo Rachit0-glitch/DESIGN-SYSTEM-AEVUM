@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { EntityIdSchema } from "./ids.js";
 
-export const CURRENT_SCHEMA_VERSION = "1.4.0" as const;
-export const CURRENT_MIGRATION_VERSION = 4 as const;
+export const CURRENT_SCHEMA_VERSION = "1.5.0" as const;
+export const CURRENT_MIGRATION_VERSION = 5 as const;
 
 export const JsonValueSchema: z.ZodType<unknown> = z.lazy(() =>
   z.union([
@@ -393,11 +393,78 @@ const Group3DNodeSchema = z.strictObject({
   ...BaseNodeShape,
   type: z.literal("GROUP_3D"),
 });
+// ---------------------------------------------------------------------------
+// Phase 19B: rigging (canonical rig/bone model, skin binding)
+// ---------------------------------------------------------------------------
+
+// Bounded to the constraint types that round-trip safely through a single Blender export (Phase
+// 19B §24). Facial controls, cloth/hair bones, and finger-level rigs remain out of scope — an
+// explicit, disclosed limitation, not a fabricated capability.
+export const RigConstraintTypeSchema = z.enum([
+  "COPY_TRANSFORM",
+  "COPY_ROTATION",
+  "COPY_LOCATION",
+  "LIMIT_ROTATION",
+  "LIMIT_LOCATION",
+  "TRACK_TO",
+]);
+export const RigConstraintSchema = z.strictObject({
+  id: EntityIdSchema,
+  type: RigConstraintTypeSchema,
+  targetBoneId: EntityIdSchema,
+  sourceBoneId: EntityIdSchema.optional(),
+  sourceNodeId: EntityIdSchema.optional(),
+  influence: UnitIntervalSchema.default(1),
+  settings: JsonObjectSchema,
+});
+export const IKChainSchema = z.strictObject({
+  id: EntityIdSchema,
+  rootBoneId: EntityIdSchema,
+  endEffectorBoneId: EntityIdSchema,
+  chainLength: z.number().int().positive(),
+  targetNodeId: EntityIdSchema,
+  poleTargetNodeId: EntityIdSchema.optional(),
+  iterations: z.number().int().positive().default(500),
+});
+const Bone3DNodeSchema = z.strictObject({
+  ...BaseNodeShape,
+  type: z.literal("BONE_3D"),
+  length: z.number().finite().positive(),
+  deforming: z.boolean(),
+  inverseBindMatrix: z.array(z.number().finite()).length(16).optional(),
+});
+export const RigMethodSchema = z.enum(["IMPORTED", "TEMPLATE_MECHANICAL_CHAIN", "TEMPLATE_BASIC_HUMANOID", "MANUAL"]);
+const Rig3DNodeSchema = z.strictObject({
+  ...BaseNodeShape,
+  type: z.literal("RIG_3D"),
+  rootBoneId: EntityIdSchema,
+  boneIds: z.array(EntityIdSchema).min(1),
+  ikChains: z.array(IKChainSchema),
+  constraints: z.array(RigConstraintSchema),
+  rigMethod: RigMethodSchema,
+  compatibilityProfile: z.string().min(1).max(64).optional(),
+});
+export const SkinWeightMethodSchema = z.enum(["AUTOMATIC_HEURISTIC", "MANUAL", "IMPORTED"]);
+// Deliberately compact: per-vertex joint indices and weights are never duplicated into the CDD.
+// They live in the registered GLB/GLTF asset's own JOINTS_0/WEIGHTS_0 accessors (Phase 19B §8) —
+// the same "canonical references + derived artifacts" pattern already used for mesh geometry
+// itself (GeometryReference never stores raw vertex arrays either).
+export const SkinBindingSchema = z.strictObject({
+  rigId: EntityIdSchema,
+  jointIds: z.array(EntityIdSchema).min(1),
+  maxInfluencesPerVertex: z.number().int().positive().max(8),
+  weightMethod: SkinWeightMethodSchema,
+  normalized: z.boolean(),
+  vertexCount: z.number().int().nonnegative(),
+  unweightedVertexCount: z.number().int().nonnegative(),
+});
+
 const Model3DNodeSchema = z.strictObject({
   ...BaseNodeShape,
   type: z.literal("MODEL_3D"),
   sourceAssetId: EntityIdSchema.optional(),
   meshIds: z.array(EntityIdSchema),
+  rigId: EntityIdSchema.optional(),
   sourceSceneIndex: z.number().int().nonnegative().optional(),
   realWorldScale: z
     .strictObject({ value: z.number().finite().positive(), unit: z.enum(["MM", "CM", "M", "IN", "WORLD_UNIT"]) })
@@ -415,6 +482,7 @@ const Mesh3DNodeSchema = z.strictObject({
     triangles: z.number().int().nonnegative(),
     manifold: z.boolean().nullable(),
   }),
+  skinBinding: SkinBindingSchema.optional(),
   castShadow: z.boolean(),
   receiveShadow: z.boolean(),
 });
@@ -436,7 +504,9 @@ export type DesignNode =
   | z.infer<typeof Scene3DNodeSchema>
   | z.infer<typeof Group3DNodeSchema>
   | z.infer<typeof Model3DNodeSchema>
-  | z.infer<typeof Mesh3DNodeSchema>;
+  | z.infer<typeof Mesh3DNodeSchema>
+  | z.infer<typeof Rig3DNodeSchema>
+  | z.infer<typeof Bone3DNodeSchema>;
 const DesignNodeSchemaValue: z.ZodType<DesignNode> = z.discriminatedUnion("type", [
   PageNodeSchema,
   FrameNodeSchema,
@@ -455,6 +525,8 @@ const DesignNodeSchemaValue: z.ZodType<DesignNode> = z.discriminatedUnion("type"
   Group3DNodeSchema,
   Model3DNodeSchema,
   Mesh3DNodeSchema,
+  Rig3DNodeSchema,
+  Bone3DNodeSchema,
 ]);
 export const DesignNodeSchema: z.ZodType<DesignNode> = DesignNodeSchemaValue;
 

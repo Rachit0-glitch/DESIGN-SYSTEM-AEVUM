@@ -27,6 +27,17 @@ export function createBlenderIdentityBindings(
         node.importProvenance?.sourceNodeIndex !== undefined,
     )
     .map((node) => ({ kind: "OBJECT" as const, entityId: node.id, sourceName: node.name }));
+  // Locally constructed rigs do not have glTF node provenance. Their operation fingerprint is
+  // exported as a Blender custom property and is the durable lookup key; visible names are never
+  // used to identify a canonical rig.
+  const rigs = Object.values(document.nodes)
+    .filter((node) => node.type === "RIG_3D")
+    .flatMap((node) => {
+      const sourceFingerprint = node.metadata.customData["aevum.rig_fingerprint"];
+      return typeof sourceFingerprint === "string"
+        ? [{ kind: "OBJECT" as const, entityId: node.id, sourceName: node.name, sourceFingerprint }]
+        : [];
+    });
   const materials = Object.values(document.materials)
     .filter((value) => lineage.has(value.importProvenance?.sourceAssetId ?? ""))
     .map((value) => ({ kind: "MATERIAL" as const, entityId: value.id, sourceName: value.name }));
@@ -36,7 +47,7 @@ export function createBlenderIdentityBindings(
   const lights = Object.values(document.lights)
     .filter((value) => lineage.has(value.importProvenance?.sourceAssetId ?? ""))
     .map((value) => ({ kind: "LIGHT" as const, entityId: value.id, sourceName: value.name }));
-  return [...objects, ...materials, ...cameras, ...lights].sort((left, right) =>
+  return [...objects, ...rigs, ...materials, ...cameras, ...lights].sort((left, right) =>
     `${left.kind}:${left.entityId}`.localeCompare(`${right.kind}:${right.entityId}`),
   );
 }

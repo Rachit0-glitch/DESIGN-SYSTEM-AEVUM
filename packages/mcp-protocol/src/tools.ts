@@ -16,7 +16,7 @@ import { z } from "zod";
 import { McpPermissionSchema } from "./permissions.js";
 import { MCP_PROTOCOL_VERSION } from "./version.js";
 
-export const MCP_TOOL_VERSION = "1.6.0" as const;
+export const MCP_TOOL_VERSION = "1.7.0" as const;
 export const McpAuthModeSchema = z.enum(["development", "supabase", "disabled"]);
 export const McpToolNameSchema = z.enum([
   "system.get_capabilities",
@@ -41,6 +41,10 @@ export const McpToolNameSchema = z.enum([
   "three.multiview_analyze",
   "three.reconstruction_generate_candidate",
   "three.import_scene",
+  "three.rig_create",
+  "three.rig_inspect",
+  "three.skin_bind",
+  "three.skin_inspect",
   "blender.runtime_info",
   "blender.inspect_scene",
   "blender.inspect_object",
@@ -621,6 +625,29 @@ export const ThreeUnwrapUvInputSchema = BlenderWriteBaseSchema.extend({
 });
 export const ThreeUpdatePbrMaterialInputSchema = BlenderUpdateMaterialInputSchema;
 
+// Phase 19B: bounded rig/skin creation and inspection. Only rig.create, rig.inspect, skin.bind,
+// and skin.inspect are exposed — IK chains, constraints, and bone-level pose/rest editing remain
+// canonical-schema-and-validation-only for now (see packages/rigging), not yet round-tripped
+// through Blender. This is an explicit, disclosed scope boundary, not an oversight.
+const RigBoneSpecInputSchema = z.strictObject({
+  key: z.string().min(1).max(128),
+  parentKey: z.string().min(1).max(128).nullable(),
+  head: BlenderVector3Schema,
+  tail: BlenderVector3Schema,
+  deforming: z.boolean().default(true),
+});
+export const ThreeRigCreateInputSchema = BlenderWriteBaseSchema.extend({
+  targetId: EntityIdSchema,
+  name: z.string().trim().min(1).max(64),
+  bones: z.array(RigBoneSpecInputSchema).min(1).max(256),
+});
+export const ThreeRigInspectInputSchema = BlenderTargetInputSchema;
+export const ThreeSkinBindInputSchema = BlenderWriteBaseSchema.extend({
+  targetId: EntityIdSchema,
+  rigObjectId: EntityIdSchema,
+});
+export const ThreeSkinInspectInputSchema = BlenderTargetInputSchema;
+
 const BlenderDiagnosticOutputSchema = z.strictObject({
   code: z.string().min(1).max(128),
   severity: z.enum(["INFO", "WARNING", "ERROR", "BLOCKING"]),
@@ -723,6 +750,10 @@ export const TOOL_SCHEMAS = Object.freeze({
     output: ThreeReconstructionGenerateCandidateOutputSchema,
   },
   "three.import_scene": { input: ThreeImportSceneInputSchema, output: ThreeImportSceneOutputSchema },
+  "three.rig_create": { input: ThreeRigCreateInputSchema, output: BlenderWriteOutputSchema },
+  "three.rig_inspect": { input: ThreeRigInspectInputSchema, output: BlenderExecutionOutputSchema },
+  "three.skin_bind": { input: ThreeSkinBindInputSchema, output: BlenderWriteOutputSchema },
+  "three.skin_inspect": { input: ThreeSkinInspectInputSchema, output: BlenderExecutionOutputSchema },
   "document.rename": { input: DocumentRenameInputSchema, output: WriteToolOutputSchema },
   "node.create": { input: NodeCreateInputSchema, output: WriteToolOutputSchema },
   "node.update": { input: NodeUpdateInputSchema, output: WriteToolOutputSchema },

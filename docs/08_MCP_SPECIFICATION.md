@@ -1229,22 +1229,21 @@ lighting.validate
 
 ## 50. Rigging Tools
 
-Rigging tools shall use `rig.*`.
+The Phase 19B stabilization surface is intentionally limited to four versioned tools.
 
 ```text
-rig.create
-rig.inspect
-rig.bind
-rig.auto_weight
-rig.correct_weights
-rig.create_ik
-rig.create_fk
-rig.set_constraints
-rig.create_face_controls
-rig.retarget_animation
-rig.test_deformation
-rig.validate
+three.rig_create
+three.rig_inspect
+three.skin_bind
+three.skin_inspect
 ```
+
+Writes require `blender.write`, expected document version, idempotency, dry-run, lock enforcement,
+workspace isolation, audit, and Command Engine reconciliation. Reads require `blender.read`.
+`three.rig_create` validates hierarchy and non-degenerate rest bones before execution. Rig identity
+uses an exported AEVUM fingerprint custom property, never a visible Blender name. Arbitrary Python
+is not accepted. IK/FK, constraint execution, weight correction, retargeting, and deformation tests
+remain future Phase 19B tools.
 
 ---
 

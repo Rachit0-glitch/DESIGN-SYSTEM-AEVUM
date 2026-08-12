@@ -19,6 +19,7 @@ import {
   validateDocument,
   type CanonicalDesignDocument,
 } from "@aevum/document-model";
+import { buildMechanicalChainTemplate, buildRigNodes } from "@aevum/rigging";
 import { describe, expect, it } from "vitest";
 
 const TIME = "2026-08-01T01:00:00.000Z";
@@ -67,6 +68,7 @@ describe("Command Engine", () => {
       "page.delete",
       "page.rename",
       "reference.register",
+      "rig.create",
       "scene3d.import",
       "timeline.create",
       "timeline.delete",
@@ -111,7 +113,7 @@ describe("Command Engine", () => {
   });
 
   it("serializes, deserializes, and freezes validated commands", () => {
-    const document = fixtures.empty();
+    const document = fixtures.landingPage();
     const command: Command = { ...base(document), type: "document.rename", payload: { name: "Serialized" } };
     const restored = deserializeCommand(serializeCommand(command, true));
 
@@ -184,6 +186,36 @@ describe("Command Engine", () => {
     expect(result.newDocument.nodes[parentId]?.childIds).not.toContain(text.id);
     expect(result.changeSet.removed).toContain(text.id);
     expect(document.nodes[text.id]).toBe(text);
+  });
+
+  it("rejects generic deletion of canonical rig state", () => {
+    const document = fixtures.landingPage();
+    const parentId = document.rootNodeIds[0];
+    if (!parentId) throw new Error("Expected fixture root.");
+    const built = buildRigNodes({
+      parentId,
+      rigName: "Protected Rig",
+      bones: buildMechanicalChainTemplate({ segmentCount: 1 }).bones,
+      rigMethod: "MANUAL",
+      scope: "delete-safety",
+    });
+    const parent = document.nodes[parentId];
+    if (!parent) throw new Error("Expected fixture parent.");
+    const withRig: CanonicalDesignDocument = {
+      ...document,
+      nodes: {
+        ...document.nodes,
+        [parentId]: { ...parent, childIds: [...parent.childIds, built.rig.id] },
+        [built.rig.id]: built.rig,
+        ...Object.fromEntries(built.bones.map((bone) => [bone.id, bone])),
+      },
+    };
+
+    expect(validateDocument(withRig).success).toBe(true);
+    expectCommandError(
+      () => executeCommand(withRig, { ...base(withRig), type: "node.delete", payload: { nodeId: built.rig.id } }),
+      "CONFLICT_ERROR",
+    );
   });
 
   it("rejects create, update, and delete operations that would modify locked nodes", () => {

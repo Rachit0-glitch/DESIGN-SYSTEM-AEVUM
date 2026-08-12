@@ -1046,6 +1046,30 @@ export function registerInitialTools(
       ["document.write", "blender.write"],
       "WRITE",
     ],
+    [
+      "three.rig_create",
+      "Create a real Blender armature from a bounded bone specification and reconcile it canonically.",
+      ["document.write", "blender.write"],
+      "WRITE",
+    ],
+    [
+      "three.rig_inspect",
+      "Inspect a canonical armature's real bone hierarchy through the controlled Blender runtime.",
+      ["asset.read", "blender.read"],
+      "READ",
+    ],
+    [
+      "three.skin_bind",
+      "Bind a canonical mesh to a canonical armature using Blender's real automatic-weight heuristic.",
+      ["document.write", "blender.write"],
+      "WRITE",
+    ],
+    [
+      "three.skin_inspect",
+      "Inspect a canonical mesh's real skin binding and vertex-weight state through Blender.",
+      ["asset.read", "blender.read"],
+      "READ",
+    ],
   ] as const satisfies readonly (readonly [McpToolName, string, readonly McpPermission[], "READ" | "WRITE"])[];
 
   for (const [name, description, permissions, classification] of blenderTools) {

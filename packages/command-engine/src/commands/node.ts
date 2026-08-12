@@ -14,18 +14,60 @@ import {
 import { registerCommand } from "../registry.js";
 import {
   CreateNodeCommandSchema,
+  CreateRigCommandSchema,
   DeleteNodeCommandSchema,
   DuplicateNodeCommandSchema,
   MoveNodeCommandSchema,
   ReparentNodeCommandSchema,
   UpdateNodeCommandSchema,
   type CreateNodeCommand,
+  type CreateRigCommand,
   type DeleteNodeCommand,
   type DuplicateNodeCommand,
   type MoveNodeCommand,
   type ReparentNodeCommand,
   type UpdateNodeCommand,
 } from "../schemas.js";
+
+registerCommand<CreateRigCommand>({
+  type: "rig.create",
+  schema: CreateRigCommandSchema,
+  canExecute(document, command) {
+    const source = requireDocument(document);
+    const { rig, bones } = command.payload;
+    if (rig.type !== "RIG_3D" || bones.some((bone) => bone.type !== "BONE_3D")) {
+      throw commandError("COMMAND_VALIDATION_ERROR", "rig.create requires one RIG_3D node and BONE_3D nodes.");
+    }
+    if (!rig.parentId) throw commandError("COMMAND_VALIDATION_ERROR", "A created rig requires a canonical parent.");
+    const parent = requireNode(source, rig.parentId);
+    if (parent.locked) throw commandError("LOCKED_ENTITY", `Node ${parent.id} is locked.`, { nodeId: parent.id });
+    const ids = [rig.id, ...bones.map((bone) => bone.id)];
+    if (new Set(ids).size !== ids.length) throw commandError("DUPLICATE_ID", "Rig and bone IDs must be unique.");
+    for (const id of ids) {
+      if (source.nodes[id]) throw commandError("DUPLICATE_ID", `Node ${id} already exists.`, { nodeId: id });
+    }
+    const boneIds = new Set(bones.map((bone) => bone.id));
+    if (rig.boneIds.length !== boneIds.size || rig.boneIds.some((id) => !boneIds.has(id))) {
+      throw commandError("COMMAND_VALIDATION_ERROR", "Rig boneIds must exactly match the supplied bones.");
+    }
+  },
+  apply(document, command) {
+    const source = requireDocument(document);
+    const rig = command.payload.rig as Extract<DesignNode, { type: "RIG_3D" }>;
+    const parent = requireNode(source, rig.parentId ?? "");
+    const nodes = {
+      ...source.nodes,
+      [parent.id]: { ...parent, childIds: [...parent.childIds, rig.id] },
+      [rig.id]: rig,
+    };
+    for (const bone of command.payload.bones) nodes[bone.id] = bone;
+    return {
+      document: { ...source, nodes },
+      changes: { added: [rig.id, ...command.payload.bones.map((bone) => bone.id)], updated: [parent.id] },
+      event: { type: "RigCreated", entityIds: [rig.id, ...command.payload.bones.map((bone) => bone.id)] },
+    };
+  },
+});
 
 registerCommand<CreateNodeCommand>({
   type: "node.create",
@@ -69,6 +111,23 @@ registerCommand<DeleteNodeCommand>({
     const lockedNodeId = collectSubtreeIds(source, node.id).find((nodeId) => requireNode(source, nodeId).locked);
     if (lockedNodeId) {
       throw commandError("LOCKED_ENTITY", `Node ${lockedNodeId} is locked.`, { nodeId: lockedNodeId });
+    }
+    const subtreeIds = collectSubtreeIds(source, node.id);
+    const protectedRigIds = subtreeIds.filter((nodeId) => {
+      const candidate = requireNode(source, nodeId);
+      return (
+        candidate.type === "RIG_3D" ||
+        candidate.type === "BONE_3D" ||
+        candidate.type === "MODEL_3D" ||
+        (candidate.type === "MESH_3D" && candidate.skinBinding !== undefined)
+      );
+    });
+    if (protectedRigIds.length > 0) {
+      throw commandError(
+        "CONFLICT_ERROR",
+        "Generic node deletion cannot remove rig, bone, rig-linked model, or skinned-mesh state. Use an explicit rig-aware command.",
+        { nodeId: node.id, protectedRigIds },
+      );
     }
     if (node.parentId) {
       const parent = requireNode(source, node.parentId);

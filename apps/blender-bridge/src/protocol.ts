@@ -52,6 +52,11 @@ export const BlenderDiagnosticCodeSchema = z.enum([
   "MATERIAL_VALUE_INVALID",
   "MATERIAL_ROUNDTRIP_LOSS",
   "OPTIMIZATION_TARGET_UNREACHABLE",
+  "RIG_HIERARCHY_INVALID",
+  "RIG_DANGLING_REFERENCE",
+  "RIG_BONE_MISSING",
+  "RIG_REST_POSE_INVALID",
+  "SKIN_BINDING_MISSING",
 ]);
 export const BlenderDiagnosticSchema = z.strictObject({
   code: BlenderDiagnosticCodeSchema,
@@ -133,6 +138,10 @@ export const BlenderOperationKindSchema = z.enum([
   "light.update",
   "optimization.analyze",
   "optimization.generate_lod",
+  "rig.create",
+  "rig.inspect",
+  "skin.bind",
+  "skin.inspect",
   "bridge.test_delay",
 ]);
 
@@ -485,6 +494,32 @@ export const BlenderOperationSchema = z.discriminatedUnion("kind", [
   }),
   z.strictObject({
     ...BaseOperationShape,
+    ...MeshTargetShape,
+    kind: z.literal("rig.create"),
+    name: z.string().trim().min(1).max(64),
+    bones: z
+      .array(
+        z.strictObject({
+          key: z.string().min(1).max(128),
+          parentKey: z.string().min(1).max(128).nullable(),
+          head: BlenderVector3Schema,
+          tail: BlenderVector3Schema,
+          deforming: z.boolean(),
+        }),
+      )
+      .min(1)
+      .max(256),
+  }),
+  z.strictObject({ ...BaseOperationShape, kind: z.literal("rig.inspect"), objectId: TargetIdSchema }),
+  z.strictObject({
+    ...BaseOperationShape,
+    ...MeshTargetShape,
+    kind: z.literal("skin.bind"),
+    rigObjectId: TargetIdSchema,
+  }),
+  z.strictObject({ ...BaseOperationShape, ...MeshTargetShape, kind: z.literal("skin.inspect") }),
+  z.strictObject({
+    ...BaseOperationShape,
     kind: z.literal("bridge.test_delay"),
     durationMs: z.number().int().min(100).max(10_000),
   }),
@@ -509,6 +544,10 @@ export const BlenderIdentityBindingSchema = z.strictObject({
   kind: z.enum(["OBJECT", "MATERIAL", "CAMERA", "LIGHT"]),
   entityId: EntityIdSchema,
   sourceName: z.string().min(1).max(255),
+  sourceFingerprint: z
+    .string()
+    .regex(/^sha256:[0-9a-f]{64}$/i)
+    .optional(),
 });
 export const BlenderJobStateSchema = z.enum([
   "CREATED",

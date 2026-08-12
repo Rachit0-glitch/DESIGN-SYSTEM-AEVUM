@@ -14,6 +14,7 @@ export type CommandEventType =
   | "NodeReparented"
   | "NodeDuplicated"
   | "NodeUpdated"
+  | "RigCreated"
   | "AssetRegistered"
   | "AssetRemoved"
   | "ReferenceRegistered"
