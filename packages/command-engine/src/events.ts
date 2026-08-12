@@ -3,6 +3,8 @@ export type CommandEventType =
   | "MaterialUpdated"
   | "CameraUpdated"
   | "LightUpdated"
+  | "LightingRigApplied"
+  | "LightingBakeRegistered"
   | "DocumentCreated"
   | "DocumentRenamed"
   | "PageCreated"

@@ -22,6 +22,7 @@ import {
   runReconstructionSession,
 } from "@aevum/geometry-reconstruction";
 import { analyzeMultiView, createMultiViewTask } from "@aevum/multiview-reconstruction";
+import { analyzeReferenceLighting, resolveLighting, validateLighting } from "@aevum/lighting";
 import { compile3DImportTransaction, create3DImportProposal, create3DRenderPlan } from "@aevum/renderer-3d";
 import { createRuntimeViewport, project3DScene, projectScene, type RuntimeViewport } from "@aevum/scene-runtime";
 import {
@@ -250,6 +251,49 @@ export function registerInitialTools(
   config: McpServerRuntimeConfig,
   adapters: { readonly blender?: BlenderToolAdapter; readonly assetBytes?: AssetBytesResolver } = {},
 ): void {
+  registry.registerTool(
+    definition(
+      "lighting.analyze_reference",
+      "Analyze bounded reference pixels into a deterministic structured lighting estimate.",
+      ["lighting.read"],
+      "READ",
+      async (raw) => ({ data: analyzeReferenceLighting(TOOL_SCHEMAS["lighting.analyze_reference"].input.parse(raw)) }),
+      config,
+    ),
+  );
+
+  registry.registerTool(
+    definition(
+      "lighting.resolve_profile",
+      "Resolve a canonical lighting rig for realtime, offline, or mobile delivery.",
+      ["document.read", "lighting.read"],
+      "READ",
+      async (raw, context) => {
+        const input = TOOL_SCHEMAS["lighting.resolve_profile"].input.parse(raw);
+        return { data: resolveLighting(await currentDocument(context), input.sceneId, input.target) };
+      },
+      config,
+    ),
+  );
+
+  registry.registerTool(
+    definition(
+      "lighting.validate",
+      "Validate canonical lighting, shadows, reflections, and environment separately from materials.",
+      ["document.read", "lighting.read", "validation.read"],
+      "READ",
+      async (raw, context) => {
+        const input = TOOL_SCHEMAS["lighting.validate"].input.parse(raw);
+        const document = await currentDocument(context);
+        if (!document.assets[input.assetId])
+          fail(context, "MCP_INPUT_INVALID", "The lighting source asset is not registered.");
+        const resolved = resolveLighting(document, input.sceneId, input.target);
+        const expected = input.reference ? analyzeReferenceLighting(input.reference) : undefined;
+        return { data: validateLighting({ resolved, ...(expected ? { expected } : {}) }) };
+      },
+      config,
+    ),
+  );
   registry.registerTool(
     definition(
       "system.get_capabilities",
@@ -972,6 +1016,24 @@ export function registerInitialTools(
   );
 
   const blenderTools = [
+    [
+      "lighting.inspect",
+      "Inspect real Blender lights, shadows, environment, and render engine state.",
+      ["asset.read", "lighting.read", "blender.read"],
+      "READ",
+    ],
+    [
+      "lighting.create_rig",
+      "Create and verify a bounded canonical lighting rig through Blender before atomic reconciliation.",
+      ["document.write", "lighting.write", "blender.write"],
+      "WRITE",
+    ],
+    [
+      "lighting.bake",
+      "Render and register a bounded Blender lighting bake derivative with canonical provenance.",
+      ["document.write", "asset.write", "lighting.write", "blender.write"],
+      "WRITE",
+    ],
     ["blender.runtime_info", "Inspect the configured Blender runtime and compatibility.", ["blender.read"], "READ"],
     [
       "blender.inspect_scene",

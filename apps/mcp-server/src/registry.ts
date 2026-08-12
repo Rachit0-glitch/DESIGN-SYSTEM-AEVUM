@@ -64,6 +64,9 @@ export interface BlenderToolAdapter {
       | "three.ik_update"
       | "three.constraint_update"
       | "three.deformation_validate"
+      | "lighting.inspect"
+      | "lighting.create_rig"
+      | "lighting.bake"
     >;
     readonly payload: unknown;
     readonly document: CanonicalDesignDocument;

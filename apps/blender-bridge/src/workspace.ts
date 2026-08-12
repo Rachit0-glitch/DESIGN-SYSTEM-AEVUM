@@ -14,6 +14,7 @@ export interface BlenderJobWorkspace {
   readonly logsDir: string;
   readonly inputPath: string;
   readonly outputPath: string;
+  readonly lightingOutputPath: string;
   readonly manifestPath: string;
   readonly resultPath: string;
 }
@@ -89,10 +90,22 @@ export async function createBlenderWorkspace(
   const extension = job.inputAsset.mimeType === "model/gltf+json" ? ".gltf" : ".glb";
   const inputPath = path.join(inputDir, `source${extension}`);
   const outputPath = path.join(outputDir, "result.glb");
+  const lightingOutputPath = path.join(outputDir, "lighting-bake.png");
   const manifestPath = path.join(root, "job.json");
   const resultPath = path.join(root, "result.json");
   await writeFile(inputPath, inputBytes, { flag: "wx" });
-  return { root, inputDir, outputDir, workingDir, logsDir, inputPath, outputPath, manifestPath, resultPath };
+  return {
+    root,
+    inputDir,
+    outputDir,
+    workingDir,
+    logsDir,
+    inputPath,
+    outputPath,
+    lightingOutputPath,
+    manifestPath,
+    resultPath,
+  };
 }
 
 export async function readBoundedFile(filePath: string, maximumBytes: number): Promise<Uint8Array> {

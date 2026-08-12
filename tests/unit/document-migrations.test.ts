@@ -37,7 +37,7 @@ describe("document migrations", () => {
     expect(migrated.assets).toEqual(current.assets);
   });
 
-  it("migrates 1.4 directly to 1.5 losslessly and deterministically", () => {
+  it("migrates 1.4 through 1.6 losslessly and deterministically", () => {
     const current = fixtures.assetDemo();
     const legacy = { ...current, schemaVersion: "1.4.0", migrationVersion: 4 };
 
@@ -45,8 +45,9 @@ describe("document migrations", () => {
     const second = migrate(legacy);
 
     expect(first).toEqual(second);
-    expect(first.schemaVersion).toBe("1.5.0");
-    expect(first.migrationVersion).toBe(5);
+    expect(first.schemaVersion).toBe("1.6.0");
+    expect(first.migrationVersion).toBe(6);
+    expect(first.lightingRigs).toEqual({});
     expect(first.nodes).toEqual(current.nodes);
     expect(first.assets).toEqual(current.assets);
     expect(first.metadata).toEqual(current.metadata);

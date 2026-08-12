@@ -30,6 +30,7 @@ const adapter: BlenderToolAdapter = {
         "three.pose_inspect",
         "three.weight_inspect",
         "three.deformation_validate",
+        "lighting.inspect",
       ].includes(tool)
     ) {
       return {
@@ -213,6 +214,53 @@ describe("MCP Blender authorization boundary", () => {
     const viewer = createMcpTestFixture({ role: "VIEWER", blenderAdapter: adapter });
     expect(
       await viewer.execute("three.pose_update", input, { dryRun: true, idempotencyKey: "viewer-pose" }),
+    ).toMatchObject({ success: false, errors: [{ code: "MCP_AUTHORIZATION_DENIED" }] });
+  });
+
+  it("exposes bounded lighting reads and idempotent dry-run-first writes", async () => {
+    const fixture = createMcpTestFixture({ blenderAdapter: adapter });
+    const descriptors = fixture.registry.listTools();
+    expect(descriptors.find((entry) => entry.name === "lighting.inspect")?.classification).toBe("READ");
+    expect(descriptors.find((entry) => entry.name === "lighting.create_rig")).toMatchObject({
+      classification: "WRITE",
+      supportsDryRun: true,
+      supportsIdempotency: true,
+    });
+    const assetId = "asset_11111111-1111-4111-8111-111111111111";
+    expect(await fixture.execute("lighting.inspect", { assetId })).toMatchObject({
+      success: true,
+      data: { stage: "EXECUTED" },
+    });
+    const input = {
+      assetId,
+      sceneId: "scene_11111111-1111-4111-8111-111111111111",
+      expectedDocumentVersion: fixture.document.documentVersion,
+      name: "Product studio",
+      preset: "PRODUCT",
+      target: "REALTIME",
+    };
+    const before = vi.mocked(adapter.execute).mock.calls.length;
+    const first = await fixture.execute("lighting.create_rig", input, {
+      dryRun: true,
+      idempotencyKey: "phase20-lighting-rig",
+    });
+    const replay = await fixture.execute("lighting.create_rig", input, {
+      dryRun: true,
+      idempotencyKey: "phase20-lighting-rig",
+    });
+    expect(first).toMatchObject({ success: true, data: { dryRun: true, stage: "VALIDATED" } });
+    expect(replay.data).toEqual(first.data);
+    expect(vi.mocked(adapter.execute).mock.calls.length).toBe(before + 1);
+    expect(
+      fixture.registry.getTool("lighting.create_rig")?.inputSchema.safeParse({ ...input, python: "import bpy" })
+        .success,
+    ).toBe(false);
+    const viewer = createMcpTestFixture({ role: "VIEWER", blenderAdapter: adapter });
+    expect(
+      await viewer.execute("lighting.create_rig", input, {
+        dryRun: true,
+        idempotencyKey: "phase20-viewer-denied",
+      }),
     ).toMatchObject({ success: false, errors: [{ code: "MCP_AUTHORIZATION_DENIED" }] });
   });
 });

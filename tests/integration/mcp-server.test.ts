@@ -18,7 +18,7 @@ describe("MCP server integration", () => {
     const version = await fixture.execute("document.get_version", { version: 1, projection: "summary" });
 
     expect(capabilities.success).toBe(true);
-    expect((capabilities.data as { enabledTools: string[] }).enabledTools).toHaveLength(18);
+    expect((capabilities.data as { enabledTools: string[] }).enabledTools).toHaveLength(21);
     expect(project.data).toMatchObject({ projectId: fixture.projectId, currentDocumentVersion: 1 });
     expect(document.data).toMatchObject({ id: fixture.document.metadata.id, documentVersion: 1 });
     expect((hierarchy.data as { nodes: unknown[] }).nodes.length).toBe(Object.keys(fixture.document.nodes).length);

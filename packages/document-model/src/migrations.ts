@@ -184,10 +184,20 @@ defaultRegistry.registerMigration("1.3.0", "1.4.0", (document, context) => {
 // (Model3DNode) fields. No existing document has rig data to backfill — this is a structural
 // passthrough, not a data transformation, mirroring how the "1.3.0" migration synthesizes
 // coordinateSystem/geometry only for nodes that already carry the relevant type.
-defaultRegistry.registerMigration("1.4.0", CURRENT_SCHEMA_VERSION, (document, context) => ({
+defaultRegistry.registerMigration("1.4.0", "1.5.0", (document, context) => ({
   ...document,
   schemaVersion: context.toVersion,
   migrationVersion: 5,
+}));
+defaultRegistry.registerMigration("1.5.0", CURRENT_SCHEMA_VERSION, (document, context) => ({
+  ...document,
+  schemaVersion: context.toVersion,
+  migrationVersion: 6,
+  environments: {},
+  lightingRigs: {},
+  lightingProfiles: {},
+  reflectionProbes: {},
+  lightingBakes: {},
 }));
 
 export function currentSchema(): string {

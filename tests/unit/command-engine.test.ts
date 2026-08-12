@@ -57,6 +57,8 @@ describe("Command Engine", () => {
       "document.create",
       "document.rename",
       "light.update",
+      "lighting.apply_rig",
+      "lighting.register_bake",
       "material.update",
       "node.create",
       "node.delete",

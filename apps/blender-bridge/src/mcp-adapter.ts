@@ -1,5 +1,6 @@
 import type { TransactionCommitResult } from "@aevum/command-engine";
 import type { AssetRecord, CanonicalDesignDocument } from "@aevum/document-model";
+import { analyzeReferenceLighting, buildLightingRig, resolveLighting } from "@aevum/lighting";
 import { validateBoneHierarchy } from "@aevum/rigging";
 import {
   McpProtocolError,
@@ -14,7 +15,11 @@ import { blenderError } from "./errors.js";
 import { createBlenderIdentityBindings } from "./identity.js";
 import { estimateTopologyGrowth, validateGrowthEstimate } from "./professional.js";
 import { BlenderOperationSchema, createBlenderJob, type BlenderJob, type BlenderOperation } from "./protocol.js";
-import { applyBlenderReconciliation, createBlenderReconciliationProposal } from "./reconciliation.js";
+import {
+  applyBlenderReconciliation,
+  createBlenderReconciliationProposal,
+  createLightingBakeReconciliationProposal,
+} from "./reconciliation.js";
 import type { BlenderExecution, BlenderJobRunner } from "./runner.js";
 
 type BlenderToolName = Extract<
@@ -41,6 +46,9 @@ type BlenderToolName = Extract<
   | "three.ik_update"
   | "three.constraint_update"
   | "three.deformation_validate"
+  | "lighting.inspect"
+  | "lighting.create_rig"
+  | "lighting.bake"
 >;
 
 export interface BlenderAssetResolverContext {
@@ -88,7 +96,11 @@ function commandActor(actor: McpActor) {
   };
 }
 
-function operationFor(tool: BlenderToolName, payload: Record<string, unknown>): BlenderOperation | undefined {
+function operationFor(
+  tool: BlenderToolName,
+  payload: Record<string, unknown>,
+  document: CanonicalDesignDocument,
+): BlenderOperation | undefined {
   const base = { operationVersion: "1.0.0" };
   switch (tool) {
     case "blender.runtime_info":
@@ -127,6 +139,58 @@ function operationFor(tool: BlenderToolName, payload: Record<string, unknown>): 
       return BlenderOperationSchema.parse({ ...base, kind: "camera.inspect", cameraId: payload.targetId });
     case "blender.inspect_light":
       return BlenderOperationSchema.parse({ ...base, kind: "light.inspect", lightId: payload.targetId });
+    case "lighting.inspect":
+      return BlenderOperationSchema.parse({ ...base, kind: "lighting.inspect" });
+    case "lighting.create_rig": {
+      const scene = document.nodes[String(payload.sceneId)];
+      if (scene?.type !== "SCENE_3D") {
+        throw blenderError("BLENDER_INPUT_INVALID", "The lighting target must be a canonical 3D scene.");
+      }
+      const hdriAssetId = typeof payload.hdriAssetId === "string" ? payload.hdriAssetId : undefined;
+      if (hdriAssetId && !document.assets[hdriAssetId]) {
+        throw blenderError("BLENDER_INPUT_INVALID", "The requested HDRI asset is not registered.");
+      }
+      const reference = payload.reference
+        ? analyzeReferenceLighting(payload.reference as Parameters<typeof analyzeReferenceLighting>[0])
+        : undefined;
+      const built = buildLightingRig({
+        sceneId: scene.id,
+        name: String(payload.name),
+        type: payload.preset as Parameters<typeof buildLightingRig>[0]["type"],
+        ...(reference ? { estimate: reference } : {}),
+        ...(reference && document.references[reference.referenceId] ? { referenceId: reference.referenceId } : {}),
+        ...(hdriAssetId ? { hdriAssetId } : {}),
+      });
+      return BlenderOperationSchema.parse({
+        ...base,
+        kind: "lighting.apply_rig",
+        sceneId: scene.id,
+        rig: built.rig,
+        lights: built.lights,
+        environment: built.environment,
+        profiles: built.profiles,
+        reflectionProbes: built.reflectionProbes,
+        target: payload.target,
+      });
+    }
+    case "lighting.bake": {
+      const resolved = resolveLighting(
+        document,
+        String(payload.sceneId),
+        payload.target as "REALTIME" | "OFFLINE" | "MOBILE",
+      );
+      return BlenderOperationSchema.parse({
+        ...base,
+        kind: "lighting.bake",
+        sceneId: resolved.sceneId,
+        lightingRigId: resolved.rigId,
+        profileId: resolved.profile.id,
+        cameraId: payload.cameraId,
+        resolution: payload.resolution,
+        samples: payload.samples,
+        bakeType: payload.bakeType,
+      });
+    }
     case "blender.update_object_transform":
       return BlenderOperationSchema.parse({
         ...base,
@@ -340,6 +404,7 @@ const READ_OPERATION_KINDS = new Set<BlenderOperation["kind"]>([
   "skin.inspect",
   "pose.inspect",
   "deformation.validate",
+  "lighting.inspect",
 ]);
 
 function selectionCount(operation: BlenderOperation, vertices: number, faces: number): number {
@@ -546,7 +611,8 @@ function jobFor(
     },
     expectedOutputs: {
       inspection: true,
-      glb: !READ_OPERATION_KINDS.has(operation.kind),
+      glb: !READ_OPERATION_KINDS.has(operation.kind) && operation.kind !== "lighting.bake",
+      lightingBake: operation.kind === "lighting.bake",
     },
   });
 }
@@ -602,7 +668,7 @@ export function createBlenderMcpAdapter(options: BlenderMcpAdapterOptions): Blen
       }
       const assetId = String(payload.assetId);
       const asset = sourceAsset(input.document, assetId);
-      const operation = operationFor(input.tool, payload);
+      const operation = operationFor(input.tool, payload, input.document);
       if (!operation)
         throw blenderError("BLENDER_OPERATION_UNSUPPORTED", "The requested Blender operation is unsupported.");
       assertOperationTarget(input.document, asset.id, operation);
@@ -668,7 +734,52 @@ export function createBlenderMcpAdapter(options: BlenderMcpAdapterOptions): Blen
         );
       }
       if (classification === "READ") return { data: executionOutput(execution) };
-      if (!execution.outputGlb || !execution.result.runtime) {
+      if (!execution.result.runtime) {
+        throw blenderError("BLENDER_OUTPUT_MISSING", "The Blender write did not return runtime evidence.");
+      }
+      if (operation.kind === "lighting.bake") {
+        if (!execution.outputLightingBake) {
+          throw blenderError("BLENDER_OUTPUT_MISSING", "The Blender lighting bake did not produce a PNG artifact.");
+        }
+        const proposal = createLightingBakeReconciliationProposal({
+          document: input.document,
+          job: { ...job, operation },
+          runtime: execution.result.runtime,
+          outputPng: execution.outputLightingBake,
+          actor: commandActor(input.actor),
+          timestamp: input.timestamp,
+        });
+        const commit = applyBlenderReconciliation(input.document, proposal);
+        if (options.persistArtifact) {
+          await options.persistArtifact(proposal.outputAsset, execution.outputLightingBake, {
+            workspaceId,
+            projectId,
+            documentId: input.document.metadata.id,
+            actorId: input.actor.id,
+          });
+        }
+        return {
+          data: {
+            dryRun: false,
+            stage: "EXECUTED",
+            baseVersion: input.document.documentVersion,
+            operation: operation.kind,
+            manifestFingerprint: job.fingerprint,
+            execution: executionOutput(execution),
+            canonical: canonicalOutput(input.document, commit),
+            reconciliation: {
+              unchangedEntityIds: proposal.unchangedEntityIds,
+              modifiedEntityIds: proposal.modifiedEntityIds,
+              newEntityIds: proposal.newEntityIds,
+              deletedEntityIds: proposal.deletedEntityIds,
+              outputAssetId: proposal.outputAsset.id,
+              outputAssetHash: proposal.outputAsset.hash,
+            },
+          },
+          mutation: { commit, sourceDocument: input.document },
+        };
+      }
+      if (!execution.outputGlb) {
         throw blenderError("BLENDER_OUTPUT_MISSING", "The Blender write did not produce a reconcilable GLB artifact.");
       }
       const proposal = await createBlenderReconciliationProposal({

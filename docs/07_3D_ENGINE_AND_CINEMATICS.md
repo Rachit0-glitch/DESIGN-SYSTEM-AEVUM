@@ -1150,6 +1150,30 @@ Scale inconsistencies shall be reported.
 
 ## 49. Lighting System
 
+### Phase 20 Implemented Runtime
+
+`@aevum/lighting` owns deterministic reference-sample analysis, canonical rig construction,
+realtime/offline/mobile profile resolution, and lighting-specific validation. Canonical intent
+supports directional, point, spot, area, hemisphere, environment, emissive, volumetric, and HDRI
+lighting. The real Blender adapter executes directional, point, spot, and area lights; other types
+remain renderer-ready contracts and must produce unsupported diagnostics when a backend cannot
+execute them.
+
+Scene Runtime resolves one delivery profile before Renderer 3D plan generation. Renderer 3D emits
+`LIGHTING_PROFILE_BIND`, `ENVIRONMENT_BIND`, and `REFLECTION_PROBE_BIND` operations alongside
+resolved `LIGHT_BIND` operations. The Blender path applies a finite rig, validates it, exports the
+scene, and can render a bounded PNG lighting bake.
+
+Rig presets produce key, fill, and rim roles plus an environment, realtime/offline/mobile profiles,
+and a reflection probe. `lighting.apply_rig` is the only canonical rig write;
+`lighting.register_bake` atomically registers the PNG derivative and versioned bake record. Original
+model assets are not overwritten.
+
+Reference matching analyzes caller-supplied bounded pixel samples. It estimates directions,
+key-to-fill ratio, color temperature, shadow softness, environment/reflection/contact-shadow and
+volumetric contribution, confidence, and evidence. This is deterministic image-statistics analysis,
+not a claimed vision-model inference.
+
 Supported lights shall include:
 
 - Directional

@@ -24,12 +24,12 @@ describe("MCP protocol", () => {
     ).toBe(false);
   });
 
-  it("registers the canonical MCP and Phase 14 3D tool surface with dedicated schemas", () => {
+  it("registers the canonical MCP and Phase 20 lighting tool surface with dedicated schemas", () => {
     const registry = createToolRegistry();
     registerInitialTools(registry, mcpTestConfig);
     const tools = registry.listTools();
 
-    expect(tools).toHaveLength(54);
+    expect(tools).toHaveLength(60);
     expect(tools.every((tool) => tool.version === MCP_TOOL_VERSION)).toBe(true);
     expect(tools.map((tool) => tool.name)).toEqual(Object.keys(TOOL_SCHEMAS).sort());
     expect(() => registerInitialTools(registry, mcpTestConfig)).toThrow(/already registered/);

@@ -178,8 +178,8 @@ describe("responsive reconstruction", () => {
     old.migrationVersion = 1;
     const migrated = migrate(old);
 
-    expect(migrated.schemaVersion).toBe("1.5.0");
-    expect(migrated.migrationVersion).toBe(5);
+    expect(migrated.schemaVersion).toBe("1.6.0");
+    expect(migrated.migrationVersion).toBe(6);
     expect(migrated.stateMachines).toEqual({});
     expect(validateDocument(migrated).success).toBe(true);
   });

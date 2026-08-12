@@ -6,6 +6,11 @@ import {
   DesignNodeSchema,
   EntityIdSchema,
   LightSchema,
+  EnvironmentSchema,
+  LightingProfileSchema,
+  LightingRigSchema,
+  LightingBakeSchema,
+  ReflectionProbeSchema,
   MaterialSchema,
   ReferenceRecordSchema,
   TimelineSchema,
@@ -168,6 +173,23 @@ export const UpdateLightCommandSchema = z.strictObject({
   type: z.literal("light.update"),
   payload: z.strictObject({ light: LightSchema }),
 });
+export const ApplyLightingRigCommandSchema = z.strictObject({
+  ...BaseCommandShape,
+  type: z.literal("lighting.apply_rig"),
+  payload: z.strictObject({
+    sceneId: EntityIdSchema,
+    rig: LightingRigSchema,
+    lights: z.array(LightSchema).min(1).max(256),
+    environment: EnvironmentSchema.optional(),
+    profiles: z.array(LightingProfileSchema).min(1).max(16),
+    reflectionProbes: z.array(ReflectionProbeSchema).max(64),
+  }),
+});
+export const RegisterLightingBakeCommandSchema = z.strictObject({
+  ...BaseCommandShape,
+  type: z.literal("lighting.register_bake"),
+  payload: z.strictObject({ asset: AssetSchema, bake: LightingBakeSchema }),
+});
 
 export type CreateDocumentCommand = z.infer<typeof CreateDocumentCommandSchema>;
 export type RenameDocumentCommand = z.infer<typeof RenameDocumentCommandSchema>;
@@ -191,6 +213,8 @@ export type ImportScene3DCommand = z.infer<typeof ImportScene3DCommandSchema>;
 export type UpdateMaterialCommand = z.infer<typeof UpdateMaterialCommandSchema>;
 export type UpdateCameraCommand = z.infer<typeof UpdateCameraCommandSchema>;
 export type UpdateLightCommand = z.infer<typeof UpdateLightCommandSchema>;
+export type ApplyLightingRigCommand = z.infer<typeof ApplyLightingRigCommandSchema>;
+export type RegisterLightingBakeCommand = z.infer<typeof RegisterLightingBakeCommandSchema>;
 export type Command =
   | CreateDocumentCommand
   | RenameDocumentCommand
@@ -213,7 +237,9 @@ export type Command =
   | ImportScene3DCommand
   | UpdateMaterialCommand
   | UpdateCameraCommand
-  | UpdateLightCommand;
+  | UpdateLightCommand
+  | ApplyLightingRigCommand
+  | RegisterLightingBakeCommand;
 
 export const CommandSchema: z.ZodType<Command> = z.discriminatedUnion("type", [
   CreateDocumentCommandSchema,
@@ -238,6 +264,8 @@ export const CommandSchema: z.ZodType<Command> = z.discriminatedUnion("type", [
   UpdateMaterialCommandSchema,
   UpdateCameraCommandSchema,
   UpdateLightCommandSchema,
+  ApplyLightingRigCommandSchema,
+  RegisterLightingBakeCommandSchema,
 ]);
 
 export type CommandType = Command["type"];

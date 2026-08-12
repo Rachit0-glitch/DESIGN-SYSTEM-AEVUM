@@ -1,6 +1,6 @@
 {
-  "name": "@aevum/mcp-server",
-  "version": "0.0.0",
+  "name": "@aevum/lighting",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -13,24 +13,12 @@
   },
   "scripts": {
     "build": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
-    "smoke:production": "node dist/production-smoke.js",
-    "start": "node dist/server.js",
     "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@aevum/command-engine": "workspace:*",
     "@aevum/document-model": "workspace:*",
-    "@aevum/geometry-reconstruction": "workspace:*",
-    "@aevum/mcp-protocol": "workspace:*",
-    "@aevum/lighting": "workspace:*",
-    "@aevum/multiview-reconstruction": "workspace:*",
-    "@aevum/project-store": "workspace:*",
-    "@aevum/renderer-3d": "workspace:*",
-    "@aevum/rigging": "workspace:*",
-    "@aevum/scene-runtime": "workspace:*",
     "@aevum/shared": "workspace:*",
-    "@supabase/supabase-js": "2.111.0",
-    "jose": "6.2.7",
     "zod": "4.4.3"
   }
 }

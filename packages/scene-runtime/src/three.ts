@@ -1,6 +1,7 @@
 import { evaluateTimeline } from "@aevum/animation-core";
 import type { Bounds3D, CameraRecord, CanonicalDesignDocument } from "@aevum/document-model";
 import { evaluatePose, type PoseDelta } from "@aevum/rigging";
+import { resolveLighting } from "@aevum/lighting";
 import { deepFreeze, immutableMap } from "./immutable.js";
 import { stableHash } from "./stable.js";
 import { transformBounds3D } from "./transforms.js";
@@ -139,6 +140,7 @@ export function project3DScene(
   const materials = new Map<string, CanonicalDesignDocument["materials"][string]>();
   const cameras = new Map<string, CameraRecord>();
   const lights = new Map<string, CanonicalDesignDocument["lights"][string]>();
+  const lighting = new Map<string, ReturnType<typeof resolveLighting>>();
   const scenes: RuntimeScene3D[] = [];
   for (const sceneNode of [...projection.nodes.values()].filter((node) => node.resolvedNode.type === "SCENE_3D")) {
     const source = sceneNode.resolvedNode;
@@ -218,9 +220,43 @@ export function project3DScene(
       ? resolvedCamera(document, projection, source.activeCameraId)
       : undefined;
     if (activeCamera) cameras.set(activeCamera.id, activeCamera);
-    for (const lightId of source.lightIds) {
-      const light = document.lights[lightId];
-      if (light) lights.set(lightId, light);
+    let resolvedLighting: ReturnType<typeof resolveLighting> | undefined;
+    if (source.lightingRigId) {
+      const target =
+        projection.viewport.category === "MOBILE"
+          ? "MOBILE"
+          : (projection.viewport.qualityMode ?? source.qualityProfile ?? projection.qualityMode) === "MAXIMUM_FIDELITY"
+            ? "OFFLINE"
+            : "REALTIME";
+      try {
+        resolvedLighting = resolveLighting(document, source.id, target);
+        lighting.set(source.id, resolvedLighting);
+        for (const light of resolvedLighting.lights) lights.set(light.id, light);
+        for (const entry of resolvedLighting.diagnostics) {
+          diagnostics.push({
+            code: "LIGHTING_PROFILE_DIAGNOSTIC",
+            severity: entry.severity === "BLOCKING" ? "CRITICAL" : entry.severity,
+            message: entry.message,
+            entityId: entry.entityId ?? source.id,
+            entityType: "SCENE_3D",
+            recoverable: entry.recoverable,
+          });
+        }
+      } catch (error) {
+        diagnostics.push({
+          code: "LIGHTING_RESOLUTION_FAILED",
+          severity: "ERROR",
+          message: error instanceof Error ? error.message : "Lighting resolution failed.",
+          entityId: source.id,
+          entityType: "SCENE_3D",
+          recoverable: true,
+        });
+      }
+    } else {
+      for (const lightId of source.lightIds) {
+        const light = document.lights[lightId];
+        if (light) lights.set(lightId, light);
+      }
     }
     if (source.activeCameraId && !activeCamera) {
       diagnostics.push({
@@ -240,7 +276,8 @@ export function project3DScene(
       nodeIds: children.map((node) => node.id),
       meshIds: sceneMeshIds,
       materialIds: [...materialIds].sort(),
-      lightIds: [...source.lightIds],
+      lightIds: resolvedLighting ? resolvedLighting.lights.map((light) => light.id) : [...source.lightIds],
+      ...(resolvedLighting ? { lightingRigId: resolvedLighting.rigId, lightingTarget: resolvedLighting.target } : {}),
       ...(activeCamera ? { activeCameraId: activeCamera.id } : {}),
       ...(bounds ? { bounds } : {}),
       qualityMode: projection.viewport.qualityMode ?? source.qualityProfile ?? projection.qualityMode,
@@ -256,6 +293,7 @@ export function project3DScene(
     materials: [...materials],
     cameras: [...cameras],
     lights: [...lights],
+    lighting: [...lighting],
     diagnostics,
   };
   return deepFreeze({
@@ -268,6 +306,7 @@ export function project3DScene(
     materials: immutableMap(materials),
     cameras: immutableMap(cameras),
     lights: immutableMap(lights),
+    lighting: immutableMap(lighting),
     diagnostics,
     fingerprint: `sha256:${stableHash(serializable)}`,
     complete: diagnostics.every((entry) => entry.severity !== "ERROR" && entry.severity !== "CRITICAL"),

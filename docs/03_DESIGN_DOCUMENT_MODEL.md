@@ -2369,3 +2369,15 @@ IDs after remesh or destructive topology work.
 
 Materials continue to use canonical PBR values and asset-backed texture bindings. Blender shader nodes, local texture
 paths, process state, selection state, modifiers, and temporary files are not canonical truth.
+
+## 95. Phase 20 Canonical Lighting And Environment Model
+
+CDD `1.6.0` adds canonical `environments`, `lightingRigs`, `lightingProfiles`,
+`reflectionProbes`, and `lightingBakes` registries. A `SCENE_3D` may reference one environment and
+one lighting rig; the rig references finite light, profile, environment, and reflection-probe
+records rather than renderer objects. Lighting bakes reference the source scene, rig, profile,
+document version, source lights, and registered derivative asset.
+
+The `1.5.0 -> 1.6.0` migration initializes these registries without changing existing nodes or
+assets. Document validation checks every scene, rig, profile, probe, HDRI asset, and bake reference.
+Renderer and Blender state remains regenerable and is not persisted in the CDD.

@@ -12,11 +12,17 @@ import {
   TransformSchema,
 } from "@aevum/document-model";
 import { WorkspaceIdSchema } from "@aevum/project-store";
+import {
+  LightingEstimateSchema,
+  ReferenceLightingInputSchema,
+  ResolvedLightingSchema,
+  LightingValidationReportSchema,
+} from "@aevum/lighting";
 import { z } from "zod";
 import { McpPermissionSchema } from "./permissions.js";
 import { MCP_PROTOCOL_VERSION } from "./version.js";
 
-export const MCP_TOOL_VERSION = "1.8.0" as const;
+export const MCP_TOOL_VERSION = "1.9.0" as const;
 export const McpAuthModeSchema = z.enum(["development", "supabase", "disabled"]);
 export const McpToolNameSchema = z.enum([
   "system.get_capabilities",
@@ -55,6 +61,12 @@ export const McpToolNameSchema = z.enum([
   "three.constraint_update",
   "three.deformation_validate",
   "three.retarget",
+  "lighting.analyze_reference",
+  "lighting.inspect",
+  "lighting.resolve_profile",
+  "lighting.create_rig",
+  "lighting.validate",
+  "lighting.bake",
   "blender.runtime_info",
   "blender.inspect_scene",
   "blender.inspect_object",
@@ -602,6 +614,45 @@ export const BlenderDeleteObjectInputSchema = BlenderWriteBaseSchema.extend({
   childPolicy: z.enum(["KEEP_WORLD", "DELETE_CHILDREN"]),
 });
 export const BlenderExportSceneInputSchema = BlenderWriteBaseSchema;
+export const LightingAnalyzeReferenceInputSchema = ReferenceLightingInputSchema;
+export const LightingInspectInputSchema = BlenderAssetInputSchema;
+export const LightingResolveProfileInputSchema = z.strictObject({
+  sceneId: EntityIdSchema,
+  target: z.enum(["REALTIME", "OFFLINE", "MOBILE"]),
+});
+export const LightingCreateRigInputSchema = BlenderWriteBaseSchema.extend({
+  sceneId: EntityIdSchema,
+  name: z.string().trim().min(1).max(128),
+  preset: z.enum([
+    "THREE_POINT",
+    "PRODUCT",
+    "CHARACTER",
+    "RIM",
+    "SOFTBOX",
+    "NEON",
+    "CINEMATIC",
+    "DAY",
+    "NIGHT",
+    "STUDIO",
+    "CUSTOM",
+  ]),
+  target: z.enum(["REALTIME", "OFFLINE", "MOBILE"]).default("REALTIME"),
+  reference: ReferenceLightingInputSchema.optional(),
+  hdriAssetId: EntityIdSchema.optional(),
+});
+export const LightingValidateInputSchema = BlenderAssetInputSchema.extend({
+  sceneId: EntityIdSchema,
+  target: z.enum(["REALTIME", "OFFLINE", "MOBILE"]),
+  reference: ReferenceLightingInputSchema.optional(),
+});
+export const LightingBakeInputSchema = BlenderWriteBaseSchema.extend({
+  sceneId: EntityIdSchema,
+  cameraId: EntityIdSchema,
+  target: z.enum(["REALTIME", "OFFLINE", "MOBILE"]),
+  resolution: z.number().int().min(64).max(512),
+  samples: z.number().int().min(1).max(64),
+  bakeType: z.enum(["LIGHTING_PREVIEW", "SHADOW_PREVIEW", "REFLECTION_PREVIEW"]),
+});
 
 export const ThreeInspectTopologyInputSchema = BlenderTargetInputSchema.extend({
   profile: TopologyProfileInputSchema.default("WEB_STATIC"),
@@ -847,6 +898,12 @@ export const TOOL_SCHEMAS = Object.freeze({
   "three.constraint_update": { input: ThreeConstraintUpdateInputSchema, output: BlenderWriteOutputSchema },
   "three.deformation_validate": { input: ThreeDeformationValidateInputSchema, output: BlenderExecutionOutputSchema },
   "three.retarget": { input: ThreeRetargetInputSchema, output: ThreeRetargetOutputSchema },
+  "lighting.analyze_reference": { input: LightingAnalyzeReferenceInputSchema, output: LightingEstimateSchema },
+  "lighting.inspect": { input: LightingInspectInputSchema, output: BlenderExecutionOutputSchema },
+  "lighting.resolve_profile": { input: LightingResolveProfileInputSchema, output: ResolvedLightingSchema },
+  "lighting.create_rig": { input: LightingCreateRigInputSchema, output: BlenderWriteOutputSchema },
+  "lighting.validate": { input: LightingValidateInputSchema, output: LightingValidationReportSchema },
+  "lighting.bake": { input: LightingBakeInputSchema, output: BlenderWriteOutputSchema },
   "document.rename": { input: DocumentRenameInputSchema, output: WriteToolOutputSchema },
   "node.create": { input: NodeCreateInputSchema, output: WriteToolOutputSchema },
   "node.update": { input: NodeUpdateInputSchema, output: WriteToolOutputSchema },

@@ -18,6 +18,7 @@ export type DocumentValidationIssueCode =
   | "MISSING_CHILD"
   | "HIERARCHY_MISMATCH"
   | "CIRCULAR_HIERARCHY"
+  | "VALUE_INVALID"
   | "INVALID_REFERENCE";
 
 export interface DocumentValidationIssue {
@@ -426,6 +427,8 @@ function validateReferences(document: CanonicalDesignDocument, issues: DocumentV
     if (node.type === "SCENE_3D") {
       requireRef(node.activeCameraId, document.cameras, `nodes.${id}.activeCameraId`, "Camera");
       requireRef(node.environmentAssetId, document.assets, `nodes.${id}.environmentAssetId`, "Environment asset");
+      requireRef(node.environmentId, document.environments, `nodes.${id}.environmentId`, "Environment");
+      requireRef(node.lightingRigId, document.lightingRigs, `nodes.${id}.lightingRigId`, "Lighting rig");
       for (const lightId of node.lightIds) requireRef(lightId, document.lights, `nodes.${id}.lightIds`, "Light");
       requireAssetType(node.sourceAssetId, ["GLB", "GLTF"], `nodes.${id}.sourceAssetId`);
     }
@@ -527,6 +530,7 @@ function validateReferences(document: CanonicalDesignDocument, issues: DocumentV
       ...document.nodes,
       ...document.cameras,
       ...document.lights,
+      ...document.environments,
       ...document.materials,
     };
     for (const track of timeline.tracks)
@@ -587,6 +591,45 @@ function validateReferences(document: CanonicalDesignDocument, issues: DocumentV
     if (light.importProvenance)
       requireAssetType(light.importProvenance.sourceAssetId, ["GLB", "GLTF"], `lights.${id}.importProvenance`);
   }
+  for (const [id, environment] of Object.entries(document.environments)) {
+    requireAssetType(environment.assetId, ["HDRI"], `environments.${id}.assetId`);
+    if (environment.fog && environment.fog.endDistance <= environment.fog.startDistance) {
+      issues.push(
+        issue("VALUE_INVALID", `environments.${id}.fog.endDistance`, "Fog end distance must exceed start distance."),
+      );
+    }
+  }
+  for (const [id, rig] of Object.entries(document.lightingRigs)) {
+    for (const lightId of rig.lightIds) requireRef(lightId, document.lights, `lightingRigs.${id}.lightIds`, "Light");
+    requireRef(rig.environmentId, document.environments, `lightingRigs.${id}.environmentId`, "Environment");
+    for (const probeId of rig.reflectionProbeIds)
+      requireRef(probeId, document.reflectionProbes, `lightingRigs.${id}.reflectionProbeIds`, "Reflection probe");
+    for (const profileId of rig.profileIds)
+      requireRef(profileId, document.lightingProfiles, `lightingRigs.${id}.profileIds`, "Lighting profile");
+    requireRef(rig.referenceId, document.references, `lightingRigs.${id}.referenceId`, "Reference");
+  }
+  for (const [id, profile] of Object.entries(document.lightingProfiles)) {
+    if (profile.maxShadowLights > profile.maxActiveLights) {
+      issues.push(
+        issue(
+          "VALUE_INVALID",
+          `lightingProfiles.${id}.maxShadowLights`,
+          "Shadow-light budget cannot exceed active-light budget.",
+        ),
+      );
+    }
+  }
+  for (const [id, probe] of Object.entries(document.reflectionProbes)) {
+    requireRef(probe.assetId, document.assets, `reflectionProbes.${id}.assetId`, "Reflection probe asset");
+  }
+  for (const [id, bake] of Object.entries(document.lightingBakes)) {
+    requireNodeType(bake.sceneId, "SCENE_3D", `lightingBakes.${id}.sceneId`);
+    requireRef(bake.lightingRigId, document.lightingRigs, `lightingBakes.${id}.lightingRigId`, "Lighting rig");
+    requireRef(bake.profileId, document.lightingProfiles, `lightingBakes.${id}.profileId`, "Lighting profile");
+    for (const lightId of bake.sourceLightIds)
+      requireRef(lightId, document.lights, `lightingBakes.${id}.sourceLightIds`, "Light");
+    requireRef(bake.assetId, document.assets, `lightingBakes.${id}.assetId`, "Lighting bake asset");
+  }
   for (const [id, validation] of Object.entries(document.validations)) {
     for (const referenceId of validation.referenceIds)
       requireRef(referenceId, document.references, `validations.${id}.referenceIds`, "Reference");
@@ -637,6 +680,11 @@ export function validateDocument(input: unknown): DocumentValidationResult {
   validateRegistry("stateMachines", document.stateMachines, seen, issues);
   validateRegistry("cameras", document.cameras, seen, issues);
   validateRegistry("lights", document.lights, seen, issues);
+  validateRegistry("environments", document.environments, seen, issues);
+  validateRegistry("lightingRigs", document.lightingRigs, seen, issues);
+  validateRegistry("lightingProfiles", document.lightingProfiles, seen, issues);
+  validateRegistry("reflectionProbes", document.reflectionProbes, seen, issues);
+  validateRegistry("lightingBakes", document.lightingBakes, seen, issues);
   validateRegistry("materials", document.materials, seen, issues);
   validateRegistry("references", document.references, seen, issues);
   validateRegistry("validations", document.validations, seen, issues);

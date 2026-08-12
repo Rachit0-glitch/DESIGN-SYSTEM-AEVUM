@@ -40,6 +40,22 @@ export function create3DRenderPlan(projection: Scene3DProjectionResult, sceneId?
     .filter((light) => light !== undefined)
     .sort((left, right) => left.id.localeCompare(right.id))
     .map((light) => push("LIGHT_BIND", light.id, [beginId], { light }));
+  const resolvedLighting = projection.lighting.get(scene.sceneId);
+  const lightingProfileId = resolvedLighting
+    ? push("LIGHTING_PROFILE_BIND", resolvedLighting.profile.id, [beginId], {
+        target: resolvedLighting.target,
+        profile: resolvedLighting.profile,
+        shadowLightIds: resolvedLighting.shadowLightIds,
+      })
+    : beginId;
+  const environmentId = resolvedLighting?.environment
+    ? push("ENVIRONMENT_BIND", resolvedLighting.environment.id, [lightingProfileId], {
+        environment: resolvedLighting.environment,
+      })
+    : lightingProfileId;
+  const reflectionOperations = (resolvedLighting?.reflectionProbes ?? []).map((probe) =>
+    push("REFLECTION_PROBE_BIND", probe.id, [environmentId], { probe }),
+  );
   for (const nodeId of scene.nodeIds) {
     const node = projection.nodes.get(nodeId);
     if (!node?.visible) continue;
@@ -66,14 +82,28 @@ export function create3DRenderPlan(projection: Scene3DProjectionResult, sceneId?
       .filter((material) => material !== undefined)
       .sort((left, right) => left.id.localeCompare(right.id))
       .map((material) => push("MATERIAL_BIND", material.id, [meshId], { material }));
-    push("DRAW_PRIMITIVE", mesh.nodeId, [meshId, skinId, ...materialOperations, cameraId, ...lightOperations], {
-      sourceAssetId: mesh.geometry.sourceAssetId,
-      sourceMeshIndex: mesh.geometry.sourceMeshIndex,
-      sourcePrimitiveIndex: mesh.geometry.sourcePrimitiveIndex,
-      primitiveMode: mesh.geometry.primitiveMode,
-      vertexCount: mesh.geometry.vertexCount,
-      indexCount: mesh.geometry.indexCount,
-    });
+    push(
+      "DRAW_PRIMITIVE",
+      mesh.nodeId,
+      [
+        meshId,
+        skinId,
+        ...materialOperations,
+        cameraId,
+        lightingProfileId,
+        environmentId,
+        ...reflectionOperations,
+        ...lightOperations,
+      ],
+      {
+        sourceAssetId: mesh.geometry.sourceAssetId,
+        sourceMeshIndex: mesh.geometry.sourceMeshIndex,
+        sourcePrimitiveIndex: mesh.geometry.sourcePrimitiveIndex,
+        primitiveMode: mesh.geometry.primitiveMode,
+        vertexCount: mesh.geometry.vertexCount,
+        indexCount: mesh.geometry.indexCount,
+      },
+    );
   }
   const drawIds = operations
     .filter((operation) => operation.kind === "DRAW_PRIMITIVE")

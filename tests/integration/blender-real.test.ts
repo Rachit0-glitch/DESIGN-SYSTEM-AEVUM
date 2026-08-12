@@ -7,12 +7,14 @@ import {
   createBlenderMcpAdapter,
   getBlenderBridgeReadiness,
   createBlenderReconciliationProposal,
+  createLightingBakeReconciliationProposal,
   type BlenderExecution,
   type BlenderOperation,
 } from "@aevum/blender-bridge";
 import { computeSha256 } from "@aevum/assets";
 import { createAsset, fixtures, type CanonicalDesignDocument } from "@aevum/document-model";
 import { createBoxGroundTruthFixture, runReconstructionSession } from "@aevum/geometry-reconstruction";
+import { buildLightingRig } from "@aevum/lighting";
 import { analyzeMultiView, createMultiViewTask } from "@aevum/multiview-reconstruction";
 import { apply3DImportProposal, create3DImportProposal } from "@aevum/renderer-3d";
 import { createRuntimeViewport, project3DScene, projectScene } from "@aevum/scene-runtime";
@@ -58,7 +60,13 @@ async function createFoundation(): Promise<Foundation> {
   return createFoundationFromBytes(fixture.glb);
 }
 
-function jobFor(foundation: Foundation, operation: BlenderOperation, expectedGlb = true, timeoutMs = 60_000) {
+function jobFor(
+  foundation: Foundation,
+  operation: BlenderOperation,
+  expectedGlb = true,
+  timeoutMs = 60_000,
+  expectedLightingBake = false,
+) {
   const source = foundation.document.assets[foundation.sourceAssetId];
   if (!source) throw new Error("Fixture source asset is missing.");
   return createBlenderJob({
@@ -93,7 +101,7 @@ function jobFor(foundation: Foundation, operation: BlenderOperation, expectedGlb
         maxModifiers: 64,
       },
     },
-    expectedOutputs: { inspection: true, glb: expectedGlb },
+    expectedOutputs: { inspection: true, glb: expectedGlb, lightingBake: expectedLightingBake },
   });
 }
 
@@ -1142,5 +1150,89 @@ describe.sequential("Phase 19B real Blender rigging execution", () => {
       expect(vertex.position.y).toBeCloseTo(expected.y, 4);
       expect(vertex.position.z).toBeCloseTo(expected.z, 4);
     }
+  });
+
+  it("applies, inspects, and validates a canonical lighting rig in real Blender", async () => {
+    const scene = Object.values(foundation.document.nodes).find((node) => node.type === "SCENE_3D");
+    if (scene?.type !== "SCENE_3D") throw new Error("Expected the real Blender fixture scene.");
+    const built = buildLightingRig({ sceneId: scene.id, name: "Phase 20 studio", type: "DAY" });
+    const operation: BlenderOperation = {
+      operationVersion: "1.0.0",
+      kind: "lighting.apply_rig",
+      sceneId: scene.id,
+      rig: built.rig,
+      lights: [...built.lights],
+      environment: built.environment,
+      profiles: [...built.profiles],
+      reflectionProbes: [...built.reflectionProbes],
+      target: "REALTIME",
+    };
+    const execution = await runner.execute(jobFor(foundation, operation), foundation.bytes);
+    expect(execution.result.diagnostics).toEqual([]);
+    expect(execution.result).toMatchObject({
+      state: "SUCCEEDED",
+      data: { rigId: built.rig.id, target: "REALTIME", lightCount: 3 },
+    });
+    const lit = await reconcileExecution(foundation, operation, execution);
+    expect(lit.document.lightingRigs[built.rig.id]).toEqual(built.rig);
+    expect(lit.document.nodes[scene.id]).toMatchObject({ lightingRigId: built.rig.id, lightIds: built.rig.lightIds });
+
+    const inspection = await runner.execute(
+      jobFor(lit, { operationVersion: "1.0.0", kind: "lighting.inspect" }, false),
+      lit.bytes,
+    );
+    expect(inspection.result).toMatchObject({ state: "SUCCEEDED", data: { lightCount: 3 } });
+    const validation = await runner.execute(
+      jobFor(lit, { operationVersion: "1.0.0", kind: "lighting.validate", target: "REALTIME" }, false),
+      lit.bytes,
+    );
+    expect(validation.result).toMatchObject({ state: "SUCCEEDED", data: { valid: true, lightCount: 3 } });
+    foundation = lit;
+  });
+
+  it("renders and canonically registers a bounded real Blender lighting bake", async () => {
+    const scene = Object.values(foundation.document.nodes).find(
+      (node) => node.type === "SCENE_3D" && node.lightingRigId,
+    );
+    if (scene?.type !== "SCENE_3D" || !scene.lightingRigId || !scene.activeCameraId) {
+      throw new Error("Expected the lit Blender fixture with an active camera.");
+    }
+    const rig = foundation.document.lightingRigs[scene.lightingRigId];
+    const profile = rig?.profileIds
+      .map((id) => foundation.document.lightingProfiles[id])
+      .find((entry) => entry?.target === "REALTIME");
+    if (!rig || !profile) throw new Error("Expected canonical lighting profile.");
+    const operation: BlenderOperation = {
+      operationVersion: "1.0.0",
+      kind: "lighting.bake",
+      sceneId: scene.id,
+      lightingRigId: rig.id,
+      profileId: profile.id,
+      cameraId: scene.activeCameraId,
+      resolution: 64,
+      samples: 1,
+      bakeType: "LIGHTING_PREVIEW",
+    };
+    const job = jobFor(foundation, operation, false, 60_000, true);
+    const execution = await runner.execute(job, foundation.bytes);
+    expect(execution.result.state).toBe("SUCCEEDED");
+    expect(Array.from(execution.outputLightingBake?.slice(0, 8) ?? [])).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
+    expect(execution.result.artifacts).toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: "LIGHTING_BAKE", mimeType: "image/png" })]),
+    );
+    if (!execution.outputLightingBake || !execution.result.runtime) throw new Error("Expected real bake evidence.");
+    const proposal = createLightingBakeReconciliationProposal({
+      document: foundation.document,
+      job: { ...job, operation },
+      runtime: execution.result.runtime,
+      outputPng: execution.outputLightingBake,
+      actor,
+      timestamp,
+    });
+    const committed = applyBlenderReconciliation(foundation.document, proposal).newDocument;
+    expect(committed.assets[proposal.outputAsset.id]).toMatchObject({ type: "IMAGE", mimeType: "image/png" });
+    expect(Object.values(committed.lightingBakes)).toEqual([
+      expect.objectContaining({ assetId: proposal.outputAsset.id, lightingRigId: rig.id, profileId: profile.id }),
+    ]);
   });
 });

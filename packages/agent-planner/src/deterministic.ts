@@ -168,6 +168,138 @@ function capabilityGaps(intent: AgentIntent, capabilities: AgentCapabilities): A
     }));
 }
 
+function lightingPlan(
+  intent: AgentIntent,
+  capabilities: AgentCapabilities,
+  policy: AgentApprovalPolicy,
+): AgentPlanStep[] {
+  const operation = String(intent.parameters.operation ?? "").toLowerCase();
+  const steps: AgentPlanStep[] = [];
+  let dependency: string | undefined;
+  let documentRead: AgentPlanStep | undefined;
+  const appendRead = (tool: string, type: AgentPlanStepType, label: string, data: unknown) => {
+    const current = step({
+      goalId: intent.goalId,
+      index: steps.length,
+      type,
+      label,
+      tool,
+      descriptor: findDescriptor(capabilities, tool),
+      dependencies: dependency ? [dependency] : [],
+      data,
+      approvalPolicy: policy,
+    });
+    steps.push(current);
+    dependency = current.id;
+    return current;
+  };
+
+  if (operation === "lighting_analyze_reference") {
+    appendRead(
+      "lighting.analyze_reference",
+      "ANALYZE",
+      "Analyze reference lighting",
+      intent.parameters.reference ?? intent.parameters,
+    );
+  } else if (operation === "lighting_inspect") {
+    appendRead("lighting.inspect", "INSPECT", "Inspect Blender lighting state", { assetId: intent.parameters.assetId });
+  } else if (operation === "lighting_resolve_profile") {
+    appendRead("lighting.resolve_profile", "READ", "Resolve canonical lighting profile", intent.parameters);
+  } else if (operation === "lighting_validate") {
+    appendRead(
+      "lighting.validate",
+      "VALIDATE",
+      "Validate lighting quality independently from materials",
+      intent.parameters,
+    );
+  } else {
+    if (operation === "lighting_match_reference") {
+      appendRead(
+        "lighting.analyze_reference",
+        "ANALYZE",
+        "Analyze bounded reference lighting evidence",
+        intent.parameters.reference,
+      );
+    }
+    if (operation !== "lighting_bake") {
+      appendRead("lighting.inspect", "INSPECT", "Inspect current Blender lighting", {
+        assetId: intent.parameters.assetId,
+      });
+    }
+    documentRead = appendRead("document.get", "READ", "Read canonical lighting document version", {
+      projection: "summary",
+    });
+    const writeTool = operation === "lighting_bake" ? "lighting.bake" : "lighting.create_rig";
+    const descriptor = findDescriptor(capabilities, writeTool);
+    const writeInput = { ...intent.parameters, expectedDocumentVersion: 1 };
+    const bindings: AgentPlanStep["inputBindings"] = [
+      {
+        targetPath: "expectedDocumentVersion",
+        sourceStepId: documentRead.id,
+        sourcePath: "data.documentVersion",
+      },
+    ];
+    const dryRun = step({
+      goalId: intent.goalId,
+      index: steps.length,
+      type: "DRY_RUN",
+      label: `Dry-run ${writeTool}`,
+      tool: writeTool,
+      descriptor,
+      dependencies: dependency ? [dependency] : [],
+      data: writeInput,
+      bindings,
+      approvalPolicy: policy,
+    });
+    steps.push(dryRun);
+    const write = step({
+      goalId: intent.goalId,
+      index: steps.length,
+      type: "WRITE",
+      label: `Execute ${writeTool} through MCP and Command Engine`,
+      tool: writeTool,
+      descriptor,
+      dependencies: [dryRun.id],
+      data: writeInput,
+      bindings,
+      failurePolicy: "REPLAN",
+      approvalPolicy: policy,
+    });
+    steps.push(write);
+    dependency = write.id;
+    if (operation !== "lighting_bake") {
+      appendRead("lighting.resolve_profile", "READ", "Resolve the committed delivery profile", {
+        sceneId: intent.parameters.sceneId,
+        target: intent.parameters.target ?? "REALTIME",
+      });
+      appendRead("lighting.validate", "VALIDATE", "Validate committed lighting and reference agreement", {
+        assetId: intent.parameters.assetId,
+        sceneId: intent.parameters.sceneId,
+        target: intent.parameters.target ?? "REALTIME",
+        ...(intent.parameters.reference ? { reference: intent.parameters.reference } : {}),
+      });
+    }
+  }
+
+  const terminal = dependency;
+  steps.push(
+    step({
+      goalId: intent.goalId,
+      index: steps.length,
+      type: "VERIFY",
+      label: "Verify the lighting workflow once",
+      dependencies: terminal ? [terminal] : [],
+      approvalPolicy: policy,
+      verification: {
+        required: true,
+        strategy: "STATE_ASSERTION",
+        assertions: terminal ? [{ sourceStepId: terminal, operator: "SUCCESS" }] : [],
+      },
+    }),
+  );
+  return steps;
+}
+
 function renamePlan(
   intent: AgentIntent,
   capabilities: AgentCapabilities,
@@ -1371,6 +1503,8 @@ export function generateDeterministicPlan(input: {
     steps = generateReconstructionCandidatePlan(input.intent, input.capabilities, policy);
   } else if (operation === "reconstruct_and_import") {
     steps = reconstructAndImportPlan(input.intent, input.capabilities, policy);
+  } else if (operation.startsWith("lighting_")) {
+    steps = lightingPlan(input.intent, input.capabilities, policy);
   } else if (
     [
       "rig_inspect",

@@ -9,6 +9,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from professional import ProfessionalFailure, SUPPORTED_PROFESSIONAL, execute_professional
 from rigging import RiggingFailure, SUPPORTED_RIGGING, execute_rigging
+from lighting import LightingFailure, SUPPORTED_LIGHTING, execute_lighting
 
 PROTOCOL_VERSION = "1.0.0"
 IDENTITY_KEY = "aevum.entity_id"
@@ -19,7 +20,7 @@ SUPPORTED = {
     "mesh.inspect", "material.inspect", "material.update_pbr",
     "camera.inspect", "camera.update", "camera.activate",
     "light.inspect", "light.update", "bridge.test_delay",
-} | SUPPORTED_PROFESSIONAL | SUPPORTED_RIGGING
+} | SUPPORTED_PROFESSIONAL | SUPPORTED_RIGGING | SUPPORTED_LIGHTING
 C = Matrix(((1.0, 0.0, 0.0), (0.0, 0.0, -1.0), (0.0, 1.0, 0.0)))
 C_INV = C.inverted()
 
@@ -351,8 +352,10 @@ def look_at(obj, target):
     obj.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
 
 
-def execute(operation, budget):
+def execute(operation, budget, lighting_output_path=None):
     kind = operation["kind"]
+    if kind in SUPPORTED_LIGHTING:
+        return execute_lighting(operation, lighting_output_path)
     if kind in SUPPORTED_PROFESSIONAL:
         return execute_professional(operation, budget)
     if kind in SUPPORTED_RIGGING:
@@ -496,7 +499,7 @@ def main():
             raise BridgeFailure("BLENDER_OPERATION_UNSUPPORTED", "Operation is not registered by this bridge runtime.")
         import_scene(manifest["inputPath"])
         apply_identity_bindings(manifest["identityBindings"])
-        data = execute(operation, manifest["resourceBudget"])
+        data = execute(operation, manifest["resourceBudget"], manifest.get("lightingOutputPath"))
         validation = validate_scene(False, manifest["resourceBudget"])
         if not validation["valid"]:
             raise BridgeFailure("BLENDER_SCENE_INVALID", "Scene failed controlled post-operation validation.")
@@ -511,7 +514,7 @@ def main():
             "diagnostics": [],
             "durationMs": int((time.time() - started) * 1000),
         }
-    except (BridgeFailure, ProfessionalFailure, RiggingFailure) as error:
+    except (BridgeFailure, ProfessionalFailure, RiggingFailure, LightingFailure) as error:
         result = {
             "protocolVersion": PROTOCOL_VERSION,
             "jobId": job_id,
@@ -520,13 +523,13 @@ def main():
             "diagnostics": [{"code": error.code, "severity": "ERROR", "message": str(error), "recoverable": False}],
             "durationMs": int((time.time() - started) * 1000),
         }
-    except Exception:
+    except Exception as error:
         result = {
             "protocolVersion": PROTOCOL_VERSION,
             "jobId": job_id,
             "state": "FAILED",
             "operation": operation_kind,
-            "diagnostics": [{"code": "BLENDER_PROCESS_FAILED", "severity": "ERROR", "message": "Controlled Blender operation failed.", "recoverable": False}],
+            "diagnostics": [{"code": "BLENDER_PROCESS_FAILED", "severity": "ERROR", "message": "Controlled Blender operation failed (%s)." % type(error).__name__, "recoverable": False}],
             "durationMs": int((time.time() - started) * 1000),
         }
     with open(result_path, "x", encoding="utf-8") as handle:

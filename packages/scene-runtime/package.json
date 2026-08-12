@@ -18,6 +18,7 @@
   "dependencies": {
     "@aevum/animation-core": "workspace:*",
     "@aevum/document-model": "workspace:*",
+    "@aevum/lighting": "workspace:*",
     "@aevum/rigging": "workspace:*",
     "@aevum/shared": "workspace:*",
     "gl-matrix": "3.4.4",

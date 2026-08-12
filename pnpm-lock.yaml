@@ -57,6 +57,9 @@ importers:
       '@aevum/geometry-reconstruction':
         specifier: workspace:*
         version: link:packages/geometry-reconstruction
+      '@aevum/lighting':
+        specifier: workspace:*
+        version: link:packages/lighting
       '@aevum/mcp-protocol':
         specifier: workspace:*
         version: link:packages/mcp-protocol
@@ -186,6 +189,9 @@ importers:
       '@aevum/document-model':
         specifier: workspace:*
         version: link:../../packages/document-model
+      '@aevum/lighting':
+        specifier: workspace:*
+        version: link:../../packages/lighting
       '@aevum/mcp-protocol':
         specifier: workspace:*
         version: link:../../packages/mcp-protocol
@@ -246,6 +252,9 @@ importers:
       '@aevum/geometry-reconstruction':
         specifier: workspace:*
         version: link:../../packages/geometry-reconstruction
+      '@aevum/lighting':
+        specifier: workspace:*
+        version: link:../../packages/lighting
       '@aevum/mcp-protocol':
         specifier: workspace:*
         version: link:../../packages/mcp-protocol
@@ -634,6 +643,21 @@ importers:
         specifier: workspace:*
         version: link:../shared
 
+  packages/lighting:
+    dependencies:
+      '@aevum/command-engine':
+        specifier: workspace:*
+        version: link:../command-engine
+      '@aevum/document-model':
+        specifier: workspace:*
+        version: link:../document-model
+      '@aevum/shared':
+        specifier: workspace:*
+        version: link:../shared
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
+
   packages/mcp-protocol:
     dependencies:
       '@aevum/command-engine':
@@ -642,6 +666,9 @@ importers:
       '@aevum/document-model':
         specifier: workspace:*
         version: link:../document-model
+      '@aevum/lighting':
+        specifier: workspace:*
+        version: link:../lighting
       '@aevum/project-store':
         specifier: workspace:*
         version: link:../project-store
@@ -825,6 +852,9 @@ importers:
       '@aevum/document-model':
         specifier: workspace:*
         version: link:../document-model
+      '@aevum/lighting':
+        specifier: workspace:*
+        version: link:../lighting
       '@aevum/rigging':
         specifier: workspace:*
         version: link:../rigging

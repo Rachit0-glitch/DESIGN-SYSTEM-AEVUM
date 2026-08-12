@@ -2159,3 +2159,18 @@ bytes themselves. Without a configured resolver, `three.import_scene` reports `e
 `system.get_capabilities` and fails any invocation with `MCP_TOOL_DISABLED` — the same honest-disablement pattern
 already used for the Blender-dependent tools when no Blender adapter is configured. No test or production deployment
 in this repository currently ships a real (non-in-memory) resolver; building one is out of scope for this phase.
+
+## 97. Phase 20 Lighting Tool Surface
+
+MCP tool version `1.9.0` adds six strict tools:
+
+- `lighting.analyze_reference` - READ, `lighting.read`
+- `lighting.inspect` - READ, `asset.read`, `lighting.read`, `blender.read`
+- `lighting.resolve_profile` - READ, `document.read`, `lighting.read`
+- `lighting.create_rig` - WRITE, `document.write`, `lighting.write`, `blender.write`
+- `lighting.validate` - READ, `document.read`, `lighting.read`, `validation.read`
+- `lighting.bake` - WRITE, `document.write`, `asset.write`, `lighting.write`, `blender.write`
+
+Both writes require an expected document version, dry-run support, idempotency, audit, workspace
+authorization, bounded payloads, real Blender success, and Command Engine reconciliation. The
+surface accepts no Python, shell, arbitrary path, or renderer code.

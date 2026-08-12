@@ -1,5 +1,12 @@
 import { EntityIdSchema, JsonValueSchema } from "@aevum/document-model";
 import { z } from "zod";
+import {
+  EnvironmentSchema,
+  LightingProfileSchema,
+  LightingRigSchema,
+  LightSchema,
+  ReflectionProbeSchema,
+} from "@aevum/document-model";
 import { MeshSelectionSchema, ProfessionalResourceLimitsSchema } from "./professional.js";
 import { blenderFingerprint, deepFreeze } from "./stable.js";
 
@@ -63,6 +70,9 @@ export const BlenderDiagnosticCodeSchema = z.enum([
   "IK_TARGET_UNREACHABLE",
   "CONSTRAINT_TARGET_INVALID",
   "DEFORMATION_INVALID",
+  "LIGHTING_INVALID",
+  "LIGHTING_BAKE_FAILED",
+  "LIGHTING_ENVIRONMENT_UNSUPPORTED",
 ]);
 export const BlenderDiagnosticSchema = z.strictObject({
   code: BlenderDiagnosticCodeSchema,
@@ -156,6 +166,10 @@ export const BlenderOperationKindSchema = z.enum([
   "skin.weight_update",
   "skin.weight_normalize",
   "deformation.validate",
+  "lighting.inspect",
+  "lighting.apply_rig",
+  "lighting.validate",
+  "lighting.bake",
   "bridge.test_delay",
 ]);
 
@@ -599,6 +613,34 @@ export const BlenderOperationSchema = z.discriminatedUnion("kind", [
     kind: z.literal("deformation.validate"),
     maxDisplacementRatio: z.number().finite().positive().max(100).default(10),
   }),
+  z.strictObject({ ...BaseOperationShape, kind: z.literal("lighting.inspect") }),
+  z.strictObject({
+    ...BaseOperationShape,
+    kind: z.literal("lighting.apply_rig"),
+    sceneId: TargetIdSchema,
+    rig: LightingRigSchema,
+    lights: z.array(LightSchema).min(1).max(64),
+    environment: EnvironmentSchema.optional(),
+    profiles: z.array(LightingProfileSchema).min(1).max(8),
+    reflectionProbes: z.array(ReflectionProbeSchema).max(16),
+    target: z.enum(["REALTIME", "OFFLINE", "MOBILE"]),
+  }),
+  z.strictObject({
+    ...BaseOperationShape,
+    kind: z.literal("lighting.validate"),
+    target: z.enum(["REALTIME", "OFFLINE", "MOBILE"]),
+  }),
+  z.strictObject({
+    ...BaseOperationShape,
+    kind: z.literal("lighting.bake"),
+    sceneId: TargetIdSchema,
+    lightingRigId: TargetIdSchema,
+    profileId: TargetIdSchema,
+    cameraId: TargetIdSchema,
+    resolution: z.number().int().min(64).max(512),
+    samples: z.number().int().min(1).max(64),
+    bakeType: z.enum(["LIGHTING_PREVIEW", "SHADOW_PREVIEW", "REFLECTION_PREVIEW"]),
+  }),
   z.strictObject({
     ...BaseOperationShape,
     kind: z.literal("bridge.test_delay"),
@@ -653,7 +695,11 @@ export const BlenderJobSchema = z.strictObject({
   identityBindings: z.array(BlenderIdentityBindingSchema).max(100_000),
   operation: BlenderOperationSchema,
   resourceBudget: BlenderResourceBudgetSchema,
-  expectedOutputs: z.strictObject({ inspection: z.boolean(), glb: z.boolean() }),
+  expectedOutputs: z.strictObject({
+    inspection: z.boolean(),
+    glb: z.boolean(),
+    lightingBake: z.boolean().default(false),
+  }),
   fingerprint: z.string().regex(/^sha256:[0-9a-f]{64}$/i),
 });
 
@@ -673,7 +719,7 @@ export const BlenderRuntimeInfoSchema = z.strictObject({
 export const BlenderArtifactSchema = z.strictObject({
   id: z.string().regex(/^blender-artifact:[0-9a-f]{32}$/),
   jobId: BlenderJobSchema.shape.id,
-  type: z.enum(["GLB", "INSPECTION_JSON", "DIAGNOSTIC_LOG"]),
+  type: z.enum(["GLB", "INSPECTION_JSON", "DIAGNOSTIC_LOG", "LIGHTING_BAKE"]),
   hash: z.string().regex(/^sha256:[0-9a-f]{64}$/i),
   byteSize: z.number().int().nonnegative(),
   mimeType: z.string().min(1),

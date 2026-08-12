@@ -39,6 +39,7 @@ const InternalResultSchema = z.strictObject({
 export interface BlenderExecution {
   readonly result: BlenderJobResult;
   readonly outputGlb?: Uint8Array;
+  readonly outputLightingBake?: Uint8Array;
   readonly inspectionJson?: Uint8Array;
   readonly diagnosticLog?: Uint8Array;
 }
@@ -86,13 +87,15 @@ function artifact(
     type,
     hash,
     byteSize: bytes.byteLength,
-    mimeType: type === "GLB" ? "model/gltf-binary" : "application/json",
+    mimeType: type === "GLB" ? "model/gltf-binary" : type === "LIGHTING_BAKE" ? "image/png" : "application/json",
     logicalPath:
       type === "GLB"
         ? "/output/result.glb"
-        : type === "DIAGNOSTIC_LOG"
-          ? "/logs/process.json"
-          : "/output/inspection.json",
+        : type === "LIGHTING_BAKE"
+          ? "/output/lighting-bake.png"
+          : type === "DIAGNOSTIC_LOG"
+            ? "/logs/process.json"
+            : "/output/inspection.json",
     createdAt,
     provenance: {
       sourceAssetId: job.inputAsset.assetId,
@@ -171,6 +174,7 @@ export function createBlenderJobRunner(config: BlenderBridgeConfig): BlenderJobR
           jobId: job.id,
           inputPath: workspace.inputPath,
           outputPath: workspace.outputPath,
+          lightingOutputPath: workspace.lightingOutputPath,
           identityBindings: job.identityBindings,
           operation: job.operation,
           resourceBudget: {
@@ -306,6 +310,7 @@ export function createBlenderJobRunner(config: BlenderBridgeConfig): BlenderJobR
           artifacts.push(artifact(job, runtime, "INSPECTION_JSON", inspectionJson, completedAt));
         artifacts.push(artifact(job, runtime, "DIAGNOSTIC_LOG", diagnosticLog, completedAt));
         let outputGlb: Uint8Array | undefined;
+        let outputLightingBake: Uint8Array | undefined;
         if (job.expectedOutputs.glb) {
           try {
             outputGlb = await readBoundedFile(workspace.outputPath, job.resourceBudget.maxOutputBytes);
@@ -313,6 +318,14 @@ export function createBlenderJobRunner(config: BlenderBridgeConfig): BlenderJobR
             throw blenderError("BLENDER_OUTPUT_MISSING", "Expected GLB artifact was not produced.");
           }
           artifacts.push(artifact(job, runtime, "GLB", outputGlb, completedAt));
+        }
+        if (job.expectedOutputs.lightingBake) {
+          try {
+            outputLightingBake = await readBoundedFile(workspace.lightingOutputPath, job.resourceBudget.maxOutputBytes);
+          } catch {
+            throw blenderError("BLENDER_OUTPUT_MISSING", "Expected lighting bake artifact was not produced.");
+          }
+          artifacts.push(artifact(job, runtime, "LIGHTING_BAKE", outputLightingBake, completedAt));
         }
         transition(transitions, "SUCCEEDED");
         const result = createBlenderJobResult({
@@ -329,7 +342,13 @@ export function createBlenderJobRunner(config: BlenderBridgeConfig): BlenderJobR
           artifacts,
           diagnostics: internal.diagnostics,
         });
-        return deepFreeze({ result, ...(outputGlb ? { outputGlb } : {}), inspectionJson, diagnosticLog });
+        return deepFreeze({
+          result,
+          ...(outputGlb ? { outputGlb } : {}),
+          ...(outputLightingBake ? { outputLightingBake } : {}),
+          inspectionJson,
+          diagnosticLog,
+        });
       } catch (error) {
         const code = error instanceof BlenderBridgeError ? error.code : "BLENDER_PROCESS_FAILED";
         const state = code === "BLENDER_CANCELLED" ? "CANCELLED" : code === "BLENDER_TIMEOUT" ? "TIMED_OUT" : "FAILED";

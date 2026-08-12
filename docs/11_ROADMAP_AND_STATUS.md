@@ -2547,7 +2547,7 @@ Support controllable and bakeable physics systems for professional 3D scenes.
 ### Status
 
 ```text
-PLANNED
+VALIDATED
 ```
 
 ### Scope
@@ -2591,7 +2591,7 @@ Create and match professional lighting, HDRI, shadows, reflections, and environm
 ### Status
 
 ```text
-PLANNED
+VALIDATED
 ```
 
 ### Scope
@@ -2619,6 +2619,53 @@ PLANNED
 - Shadows and reflections validate
 - Real-time and offline variants exist
 - Mobile lighting profile exists
+
+### Validation Record - 2026-08-12
+
+- Previous status: `PLANNED`
+- New status: `VALIDATED`
+- Implementation evidence:
+  - CDD `1.6.0` adds canonical environments, lighting rigs, delivery profiles, reflection probes,
+    lighting bakes, cross-reference validation, and the lossless `1.5.0 -> 1.6.0` migration.
+  - `@aevum/lighting` implements bounded deterministic reference-sample analysis, professional rig
+    presets, realtime/offline/mobile resolution, and lighting-specific quality reports with material
+    attribution kept separate.
+  - Command Engine adds atomic `lighting.apply_rig` and `lighting.register_bake` writes with version
+    conflicts, locked-scene enforcement, rollback, audit metadata, and immutable derivative lineage.
+  - Scene Runtime resolves target profiles before Renderer 3D emits light, profile, environment, and
+    reflection-probe operations.
+  - The Blender 5.1.2 adapter executes finite semantic lighting operations and renders a bounded real
+    PNG bake; no arbitrary Python, shell, path, or remote asset loading is exposed.
+  - MCP tool surface `1.9.0` adds six strict permissioned lighting tools. Writes are dry-run capable,
+    idempotent, audited, workspace-scoped, expected-version checked, and reconciled through Command
+    Engine only.
+  - Agent planning supports reference analysis, inspection, rig creation/matching, profile resolution,
+    validation, and baking with dry-run before writes and exactly one terminal `VERIFY`.
+- Test results:
+  - 358/358 repository unit and integration tests passed.
+  - 26/26 real Blender tests passed, preserving all 24 Phase 19 regression tests and adding real rig
+    application/inspection/validation plus real PNG bake/reconciliation coverage.
+  - 84/84 typecheck tasks and 61/61 build tasks passed.
+  - 12/12 canonical documentation files and 61/61 dependency packages validated.
+  - `pnpm validate`, `pnpm validate:docker`, formatting, lint, and `git diff --check` passed.
+- Security and resources: reference analysis is limited to 65,536 samples; rigs to 64 active lights,
+  16 shadow lights, eight profiles, and 16 probes; MCP bake input is limited to 512 px and 64 samples;
+  backend output remains constrained by existing Blender job byte/time/object budgets. Diagnostics are
+  sanitized and temporary paths are controlled.
+- Production health: Railway API and MCP health/readiness/version endpoints returned HTTP 200; Vercel
+  production returned HTTP 200 and `READY`; linked Supabase project reported `ACTIVE_HEALTHY`.
+- Deployment state: Railway Blender Bridge and Agent Worker remain intentionally inactive. Phase 20
+  did not require deployment. Production MCP remains at generation `c4e3d51`, so repository MCP
+  `1.9.0` capabilities are not falsely claimed as deployed.
+- Remaining warnings: hemisphere, emissive, volumetric, and environment light types are canonical and
+  renderer-ready but are not directly executed by the current Blender adapter. HDRI environment
+  records are canonical, but remote loading/upload and GPU reflection/lightmap backends remain
+  deferred. Reference matching uses deterministic bounded pixel statistics, not an external vision
+  provider.
+- Blockers: none for the defined Phase 20 scope.
+- Decision: keep canonical lighting backend-neutral; Blender remains an execution backend, and baked
+  outputs remain immutable derivative assets.
+- Next action: begin Phase 21 - Camera and Cinematics only when explicitly requested.
 
 ---
 
@@ -3687,7 +3734,7 @@ if the two ever disagree again.
 The next repository action should be:
 
 ```text
-Phase 19B is complete. Do not begin Phase 20 automatically; await its explicit scope.
+Phase 20 is complete. Do not begin Phase 21 automatically; await its explicit scope.
 ```
 
 Phase 18 (§24) delivered the first real local reconstruction execution — candidate geometry
@@ -3702,6 +3749,11 @@ now validates the complete canonical rigging and deformation foundation: immutab
 poses, FK/IK and constraints, CPU skinning, weight editing, deformation quality gates, retargeting,
 Animation Core and Scene Runtime integration, semantic Blender execution, MCP tools, and Agent
 workflows.
+
+Phase 20 now validates canonical lighting and environments, deterministic reference estimates,
+realtime/offline/mobile delivery profiles, renderer-ready operations, real Blender lighting and PNG
+bakes, lighting-specific validation, MCP control, and bounded Agent workflows. Phase 21 has not been
+started.
 
 ---
 

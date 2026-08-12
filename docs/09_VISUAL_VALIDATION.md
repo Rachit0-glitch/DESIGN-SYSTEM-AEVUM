@@ -2043,3 +2043,13 @@ The Visual Validation system shall be implementation-ready when it can:
 Visual Validation is the measurement and quality-control system of the AEVUM AI Reconstruction Engine.
 
 It shall provide deterministic, region-aware, typography-aware, responsive, motion-aware, and multi-angle 3D comparison while producing immutable evidence, actionable issue attribution, export verification, and completion decisions for the Maximum Fidelity workflow.
+
+## 101. Phase 20 Lighting Validation Implementation
+
+Phase 20 provides a dedicated deterministic lighting report with separate lighting and material
+scores. It measures key direction, color temperature, key-to-fill ratio, active and shadow light
+counts, reflection probes, environment availability, shadow quality, and reflection quality.
+Material issues are attributed to the material domain and do not silently reduce the lighting score.
+
+Correction entries are bounded proposals only. They identify the canonical light and property; they
+never mutate the document and must be applied through the Command Engine by an approved workflow.

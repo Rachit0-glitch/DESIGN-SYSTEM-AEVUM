@@ -8,6 +8,7 @@ import {
 import {
   AssetSchema,
   CameraSchema,
+  LightingBakeSchema,
   LightSchema,
   MaterialSchema,
   type CanonicalDesignDocument,
@@ -42,6 +43,15 @@ export interface CreateBlenderReconciliationInput {
   readonly job: BlenderJob;
   readonly runtime: BlenderRuntimeInfo;
   readonly outputGlb: Uint8Array;
+  readonly actor: Command["actor"];
+  readonly timestamp: string;
+}
+
+export interface CreateLightingBakeReconciliationInput {
+  readonly document: CanonicalDesignDocument;
+  readonly job: BlenderJob & { readonly operation: Extract<BlenderOperation, { kind: "lighting.bake" }> };
+  readonly runtime: BlenderRuntimeInfo;
+  readonly outputPng: Uint8Array;
   readonly actor: Command["actor"];
   readonly timestamp: string;
 }
@@ -300,6 +310,26 @@ export async function createBlenderReconciliationProposal(
     const light = LightSchema.parse({ ...candidate, id: current.id, importProvenance: current.importProvenance });
     modified.add(current.id);
     commands.push({ ...commandBase(input, transactionId, commands.length), type: "light.update", payload: { light } });
+  } else if (operation.kind === "lighting.apply_rig") {
+    const scene = input.document.nodes[operation.sceneId];
+    if (scene?.type !== "SCENE_3D") throw new Error("Blender lighting scene could not be reconciled.");
+    commands.push({
+      ...commandBase(input, transactionId, commands.length),
+      type: "lighting.apply_rig",
+      payload: {
+        sceneId: scene.id,
+        rig: operation.rig,
+        lights: operation.lights,
+        ...(operation.environment ? { environment: operation.environment } : {}),
+        profiles: operation.profiles,
+        reflectionProbes: operation.reflectionProbes,
+      },
+    });
+    modified.add(scene.id);
+    added.add(operation.rig.id);
+    for (const record of [...operation.lights, ...operation.profiles, ...operation.reflectionProbes])
+      added.add(record.id);
+    if (operation.environment) added.add(operation.environment.id);
   } else if (operation.kind === "object.delete") {
     if (!input.document.nodes[operation.objectId]) throw new Error("Deleted Blender object is not canonical.");
     const removedIds = new Set(subtree(input.document, operation.objectId));
@@ -453,6 +483,94 @@ export async function createBlenderReconciliationProposal(
     newEntityIds: [...added].sort(),
     deletedEntityIds: [...deleted].sort(),
     commands,
+    diagnostics: [],
+  };
+  const fingerprint = blenderFingerprint(content);
+  return deepFreeze(
+    BlenderReconciliationProposalSchema.parse({
+      ...content,
+      id: `blender-reconciliation:${fingerprint.slice(7, 39)}`,
+      fingerprint,
+    }) as BlenderReconciliationProposal,
+  );
+}
+
+export function createLightingBakeReconciliationProposal(
+  input: CreateLightingBakeReconciliationInput,
+): BlenderReconciliationProposal {
+  const outputHash = computeSha256(input.outputPng);
+  const outputAsset = AssetSchema.parse({
+    id: assetIdFromHash(outputHash),
+    type: "IMAGE",
+    name: `Lighting bake ${input.job.id.slice(-8)}.png`,
+    hash: outputHash,
+    source: {
+      kind: "DERIVED",
+      uri: `blender://${input.job.id}/lighting-bake.png`,
+      originalAssetId: input.job.inputAsset.assetId,
+    },
+    mimeType: "image/png",
+    byteSize: input.outputPng.byteLength,
+    dimensions: { width: input.job.operation.resolution, height: input.job.operation.resolution },
+    metadata: {
+      "aevum.blender": {
+        protocolVersion: input.job.protocolVersion,
+        jobId: input.job.id,
+        blenderVersion: input.runtime.blenderVersion,
+        operationFingerprint: blenderFingerprint(input.job.operation),
+        sourceAssetHash: input.job.inputAsset.hash,
+        outputAssetHash: outputHash,
+        correlationId: input.job.correlationId,
+        actorId: input.actor.id,
+      },
+    },
+  });
+  const bakeId = deterministicBlenderId("bake", { jobId: input.job.id, outputHash });
+  const bake = LightingBakeSchema.parse({
+    id: bakeId,
+    name: `Lighting bake ${input.job.id.slice(-8)}`,
+    type:
+      input.job.operation.bakeType === "SHADOW_PREVIEW"
+        ? "SHADOW"
+        : input.job.operation.bakeType === "REFLECTION_PREVIEW"
+          ? "REFLECTION_PROBE"
+          : "LIGHTMAP",
+    sceneId: input.job.operation.sceneId,
+    lightingRigId: input.job.operation.lightingRigId,
+    profileId: input.job.operation.profileId,
+    sourceDocumentVersion: input.document.documentVersion,
+    sourceLightIds: input.document.lightingRigs[input.job.operation.lightingRigId]?.lightIds ?? [],
+    assetId: outputAsset.id,
+    fingerprint: blenderFingerprint({
+      operation: input.job.operation,
+      outputHash,
+      documentVersion: input.document.documentVersion,
+    }),
+    metadata: { classification: "REAL_BLENDER_RENDER", samples: input.job.operation.samples },
+  });
+  const transactionId = deterministicBlenderId("tx", { jobId: input.job.id, outputHash });
+  const command: Command = {
+    id: deterministicBlenderId("cmd", { jobId: input.job.id, index: 0 }),
+    commandVersion: CURRENT_COMMAND_VERSION,
+    documentId: input.document.metadata.id,
+    expectedDocumentVersion: input.document.documentVersion,
+    timestamp: input.timestamp,
+    actor: input.actor,
+    correlationId: input.job.correlationId,
+    transactionId,
+    type: "lighting.register_bake",
+    payload: { asset: outputAsset, bake },
+  };
+  const content = {
+    version: "1.0.0" as const,
+    jobId: input.job.id,
+    sourceAssetId: input.job.inputAsset.assetId,
+    outputAsset,
+    unchangedEntityIds: [],
+    modifiedEntityIds: [],
+    newEntityIds: [outputAsset.id, bake.id].sort(),
+    deletedEntityIds: [],
+    commands: [command],
     diagnostics: [],
   };
   const fingerprint = blenderFingerprint(content);

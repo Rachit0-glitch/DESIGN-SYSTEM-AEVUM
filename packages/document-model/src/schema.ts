@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { EntityIdSchema } from "./ids.js";
 
-export const CURRENT_SCHEMA_VERSION = "1.5.0" as const;
-export const CURRENT_MIGRATION_VERSION = 5 as const;
+export const CURRENT_SCHEMA_VERSION = "1.6.0" as const;
+export const CURRENT_MIGRATION_VERSION = 6 as const;
 
 export const JsonValueSchema: z.ZodType<unknown> = z.lazy(() =>
   z.union([
@@ -385,6 +385,8 @@ const Scene3DNodeSchema = z.strictObject({
   activeCameraId: EntityIdSchema.optional(),
   lightIds: z.array(EntityIdSchema),
   environmentAssetId: EntityIdSchema.optional(),
+  environmentId: EntityIdSchema.optional(),
+  lightingRigId: EntityIdSchema.optional(),
   coordinateSystem: CoordinateSystem3DSchema,
   sourceAssetId: EntityIdSchema.optional(),
   qualityProfile: z.enum(["DRAFT", "HIGH_QUALITY", "MAXIMUM_FIDELITY"]).optional(),
@@ -792,10 +794,12 @@ export const CameraSchema = z.strictObject({
 export const LightSchema = z.strictObject({
   id: EntityIdSchema,
   name: z.string().min(1),
-  type: z.enum(["DIRECTIONAL", "POINT", "SPOT", "HDRI"]),
+  type: z.enum(["DIRECTIONAL", "POINT", "SPOT", "AREA", "HEMISPHERE", "ENVIRONMENT", "EMISSIVE", "VOLUMETRIC", "HDRI"]),
   transform: TransformSchema,
   color: ColorSchema,
   intensity: NonNegativeSchema,
+  temperatureKelvin: z.number().finite().min(1_000).max(40_000).optional(),
+  exposure: z.number().finite().min(-20).max(20).optional(),
   assetId: EntityIdSchema.optional(),
   targetNodeId: EntityIdSchema.optional(),
   range: z.number().finite().positive().optional(),
@@ -812,7 +816,117 @@ export const LightSchema = z.strictObject({
     .max(Math.PI / 2)
     .optional(),
   castShadow: z.boolean().optional(),
+  shape: z.enum(["RECTANGLE", "DISK", "ELLIPSE", "SPHERE"]).optional(),
+  size: z.strictObject({ width: z.number().finite().positive(), height: z.number().finite().positive() }).optional(),
+  shadow: z
+    .strictObject({
+      enabled: z.boolean(),
+      mode: z.enum(["DYNAMIC", "BAKED", "HYBRID"]),
+      mapSize: z.number().int().min(128).max(16_384),
+      bias: z.number().finite().min(-1).max(1),
+      normalBias: z.number().finite().min(0).max(10),
+      radius: z.number().finite().nonnegative().max(100),
+      contact: z.boolean(),
+      cascadeCount: z.number().int().min(1).max(8).optional(),
+    })
+    .optional(),
+  volumetric: z
+    .strictObject({
+      enabled: z.boolean(),
+      density: z.number().finite().nonnegative().max(100),
+      anisotropy: z.number().finite().min(-1).max(1),
+    })
+    .optional(),
+  metadata: JsonObjectSchema.default({}),
   importProvenance: ImportProvenanceSchema.optional(),
+});
+
+export const EnvironmentSchema = z.strictObject({
+  id: EntityIdSchema,
+  name: z.string().min(1),
+  type: z.enum(["HDRI", "SKY", "STUDIO", "FOG", "VOLUME", "GROUND"]),
+  assetId: EntityIdSchema.optional(),
+  color: ColorSchema,
+  intensity: NonNegativeSchema,
+  rotation: Vector3Schema,
+  backgroundIntensity: NonNegativeSchema,
+  reflectionIntensity: NonNegativeSchema,
+  visibleToCamera: z.boolean(),
+  fog: z
+    .strictObject({
+      density: z.number().finite().nonnegative().max(100),
+      startDistance: z.number().finite().nonnegative(),
+      endDistance: z.number().finite().positive(),
+      color: ColorSchema,
+    })
+    .optional(),
+  metadata: JsonObjectSchema,
+});
+
+export const LightingProfileSchema = z.strictObject({
+  id: EntityIdSchema,
+  name: z.string().min(1),
+  target: z.enum(["REALTIME", "OFFLINE", "MOBILE"]),
+  maxActiveLights: z.number().int().min(1).max(256),
+  maxShadowLights: z.number().int().min(0).max(64),
+  shadowMapSize: z.number().int().min(128).max(16_384),
+  shadowMode: z.enum(["DISABLED", "DYNAMIC", "BAKED", "HYBRID", "PATH_TRACED"]),
+  reflectionMode: z.enum(["DISABLED", "ENVIRONMENT", "PROBES", "PLANAR", "SCREEN_SPACE", "PATH_TRACED"]),
+  volumetrics: z.boolean(),
+  environmentResolution: z.number().int().min(64).max(16_384),
+  bakePolicy: z.enum(["NONE", "OPTIONAL", "REQUIRED"]),
+  metadata: JsonObjectSchema,
+});
+
+export const ReflectionProbeSchema = z.strictObject({
+  id: EntityIdSchema,
+  name: z.string().min(1),
+  type: z.enum(["CUBEMAP", "PLANAR", "IRRADIANCE"]),
+  transform: TransformSchema,
+  bounds: Bounds3DSchema.optional(),
+  resolution: z.number().int().min(64).max(8_192),
+  updateMode: z.enum(["BAKED", "ON_DEMAND", "REALTIME"]),
+  assetId: EntityIdSchema.optional(),
+  influence: UnitIntervalSchema,
+  metadata: JsonObjectSchema,
+});
+
+export const LightingRigSchema = z.strictObject({
+  id: EntityIdSchema,
+  name: z.string().min(1),
+  type: z.enum([
+    "THREE_POINT",
+    "PRODUCT",
+    "CHARACTER",
+    "RIM",
+    "SOFTBOX",
+    "NEON",
+    "CINEMATIC",
+    "DAY",
+    "NIGHT",
+    "STUDIO",
+    "CUSTOM",
+  ]),
+  lightIds: z.array(EntityIdSchema).min(1).max(256),
+  environmentId: EntityIdSchema.optional(),
+  reflectionProbeIds: z.array(EntityIdSchema).max(64),
+  profileIds: z.array(EntityIdSchema).min(1).max(16),
+  referenceId: EntityIdSchema.optional(),
+  metadata: JsonObjectSchema,
+});
+
+export const LightingBakeSchema = z.strictObject({
+  id: EntityIdSchema,
+  name: z.string().min(1),
+  type: z.enum(["LIGHTMAP", "REFLECTION_PROBE", "AMBIENT_OCCLUSION", "SHADOW", "EMISSION"]),
+  sceneId: EntityIdSchema,
+  lightingRigId: EntityIdSchema,
+  profileId: EntityIdSchema,
+  sourceDocumentVersion: z.number().int().positive(),
+  sourceLightIds: z.array(EntityIdSchema).max(256),
+  assetId: EntityIdSchema,
+  fingerprint: z.string().regex(/^sha256:[0-9a-f]{64}$/i),
+  metadata: JsonObjectSchema,
 });
 export const MaterialSchema = z.strictObject({
   id: EntityIdSchema,
@@ -976,6 +1090,11 @@ export interface CanonicalDesignDocument {
   stateMachines: Record<string, z.infer<typeof AnimationStateMachineSchema>>;
   cameras: Record<string, z.infer<typeof CameraSchema>>;
   lights: Record<string, z.infer<typeof LightSchema>>;
+  environments: Record<string, z.infer<typeof EnvironmentSchema>>;
+  lightingRigs: Record<string, z.infer<typeof LightingRigSchema>>;
+  lightingProfiles: Record<string, z.infer<typeof LightingProfileSchema>>;
+  reflectionProbes: Record<string, z.infer<typeof ReflectionProbeSchema>>;
+  lightingBakes: Record<string, z.infer<typeof LightingBakeSchema>>;
   materials: Record<string, z.infer<typeof MaterialSchema>>;
   references: Record<string, z.infer<typeof ReferenceRecordSchema>>;
   validations: Record<string, z.infer<typeof ValidationRecordSchema>>;
@@ -1000,6 +1119,11 @@ const CanonicalDesignDocumentSchemaValue: z.ZodType<CanonicalDesignDocument> = z
   stateMachines: z.record(z.string(), AnimationStateMachineSchema),
   cameras: z.record(z.string(), CameraSchema),
   lights: z.record(z.string(), LightSchema),
+  environments: z.record(z.string(), EnvironmentSchema).default({}),
+  lightingRigs: z.record(z.string(), LightingRigSchema).default({}),
+  lightingProfiles: z.record(z.string(), LightingProfileSchema).default({}),
+  reflectionProbes: z.record(z.string(), ReflectionProbeSchema).default({}),
+  lightingBakes: z.record(z.string(), LightingBakeSchema).default({}),
   materials: z.record(z.string(), MaterialSchema),
   references: z.record(z.string(), ReferenceRecordSchema),
   validations: z.record(z.string(), ValidationRecordSchema),
@@ -1018,6 +1142,11 @@ export type CoordinateSystem3D = z.infer<typeof CoordinateSystem3DSchema>;
 export type GeometryReference = z.infer<typeof GeometryReferenceSchema>;
 export type CameraRecord = z.infer<typeof CameraSchema>;
 export type LightRecord = z.infer<typeof LightSchema>;
+export type EnvironmentRecord = z.infer<typeof EnvironmentSchema>;
+export type LightingRigRecord = z.infer<typeof LightingRigSchema>;
+export type LightingProfileRecord = z.infer<typeof LightingProfileSchema>;
+export type ReflectionProbeRecord = z.infer<typeof ReflectionProbeSchema>;
+export type LightingBakeRecord = z.infer<typeof LightingBakeSchema>;
 export type MaterialRecord = z.infer<typeof MaterialSchema>;
 export type Timeline = z.infer<typeof TimelineSchema>;
 export type TimelineTrack = z.infer<typeof TrackSchema>;

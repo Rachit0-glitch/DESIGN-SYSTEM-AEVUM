@@ -5,7 +5,7 @@ describe("dependency boundary validator", () => {
   it("accepts the Phase 0 workspace package graph", () => {
     const result = validateDependencyBoundaries();
 
-    expect(result.packageCount).toBe(60);
+    expect(result.packageCount).toBe(61);
     expect(result.issues).toEqual([]);
     expect(result.ok).toBe(true);
   });

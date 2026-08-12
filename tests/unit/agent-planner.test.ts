@@ -169,4 +169,62 @@ describe("agent planner", () => {
     expect(plan.steps.some((step) => step.type === "DRY_RUN" || step.type === "WRITE")).toBe(false);
     expect(validatePlan(plan).valid).toBe(true);
   });
+
+  it("plans lighting mutation through MCP with dry-run and exactly one terminal verification", () => {
+    const fixture = plannerFixture();
+    const goal = createAgentGoal({
+      category: "CUSTOM_3D",
+      request: "Match this product reference lighting.",
+      parameters: {
+        operation: "lighting_match_reference",
+        assetId: "asset_11111111-1111-4111-8111-111111111111",
+        sceneId: "scene_11111111-1111-4111-8111-111111111111",
+        name: "Matched product rig",
+        preset: "PRODUCT",
+        target: "REALTIME",
+        reference: {
+          referenceId: "reference_11111111-1111-4111-8111-111111111111",
+          width: 4,
+          height: 4,
+          samples: Array.from({ length: 16 }, (_, index) => ({
+            x: index % 4,
+            y: Math.floor(index / 4),
+            r: 0.5,
+            g: 0.4,
+            b: 0.3,
+            a: 1,
+          })),
+        },
+      },
+    });
+    const session = createAgentSession({
+      actorId: "actor",
+      workspaceId: "workspace",
+      projectId: "project",
+      documentId: "document",
+      goal,
+      createdAt: NOW,
+    });
+    const context = assembleAgentContext({ goal, records: [] });
+    const provider = createDeterministicReasoningProvider();
+    const intent = provider.analyzeIntent({ session, context });
+    const capabilities = createAgentCapabilities(
+      fixture.capabilities.tools.map((tool) =>
+        intent.requiredCapabilities.includes(tool.name) ? { ...tool, enabled: true } : tool,
+      ),
+      fixture.capabilities.actorPermissions,
+    );
+    const plan = provider.generatePlan({ session, context, intent, capabilities });
+    const dryRun = plan.steps.find((entry) => entry.type === "DRY_RUN");
+    const write = plan.steps.find((entry) => entry.type === "WRITE");
+    expect(intent.requiredPermissions).toEqual(
+      expect.arrayContaining(["lighting.read", "lighting.write", "document.write", "blender.write"]),
+    );
+    expect(plan.capabilityGaps).toEqual([]);
+    expect(dryRun?.tool).toBe("lighting.create_rig");
+    expect(write?.dependencies).toContain(dryRun?.id);
+    expect(plan.steps.filter((entry) => entry.type === "VERIFY")).toHaveLength(1);
+    expect(plan.steps.at(-1)?.type).toBe("VERIFY");
+    expect(validatePlan(plan).valid).toBe(true);
+  });
 });

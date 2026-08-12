@@ -26,6 +26,30 @@ function initialCapabilities(session: AgentSession): string[] {
   if (goal.parameters.operation === "reconstruct_and_import") {
     return ["three.multiview_analyze", "three.reconstruction_generate_candidate", "document.get", "three.import_scene"];
   }
+  const lightingCapabilities: Readonly<Record<string, readonly string[]>> = {
+    lighting_analyze_reference: ["lighting.analyze_reference"],
+    lighting_inspect: ["lighting.inspect"],
+    lighting_resolve_profile: ["lighting.resolve_profile"],
+    lighting_validate: ["lighting.validate"],
+    lighting_create_rig: [
+      "lighting.inspect",
+      "document.get",
+      "lighting.create_rig",
+      "lighting.resolve_profile",
+      "lighting.validate",
+    ],
+    lighting_match_reference: [
+      "lighting.analyze_reference",
+      "lighting.inspect",
+      "document.get",
+      "lighting.create_rig",
+      "lighting.resolve_profile",
+      "lighting.validate",
+    ],
+    lighting_bake: ["document.get", "lighting.bake"],
+  };
+  const lighting = lightingCapabilities[String(goal.parameters.operation ?? "").toLowerCase()];
+  if (lighting) return [...lighting];
   const riggingCapabilities: Readonly<Record<string, readonly string[]>> = {
     rig_inspect: ["three.rig_inspect"],
     rig_create: ["document.get", "three.rig_create", "three.rig_inspect"],
@@ -158,6 +182,16 @@ function requiredPermissions(capabilities: readonly string[]): AgentIntent["requ
       );
       if (write || capability === "blender.export_scene") permissions.add("document.write");
       if (capability === "blender.delete_object") permissions.add("blender.destructive");
+    }
+    if (capability.startsWith("lighting.")) {
+      const write = capability === "lighting.create_rig" || capability === "lighting.bake";
+      permissions.add(write ? "lighting.write" : "lighting.read");
+      permissions.add("blender.read");
+      if (write) {
+        permissions.add("document.write");
+        permissions.add("blender.write");
+      }
+      if (capability === "lighting.bake") permissions.add("asset.write");
     }
     if (capability.startsWith("validation.")) permissions.add("validation.read");
     if (capability.startsWith("correction.")) permissions.add("correction.read");

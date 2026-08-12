@@ -56,6 +56,8 @@ export type RuntimeDiagnosticCode =
   | "UNSORTED_KEYFRAMES"
   | "MISSING_CAMERA"
   | "MISSING_LIGHT"
+  | "LIGHTING_PROFILE_DIAGNOSTIC"
+  | "LIGHTING_RESOLUTION_FAILED"
   | "MISSING_MATERIAL"
   | "INVALID_RESPONSIVE_OVERRIDE"
   | "INVALID_TRANSFORM"
@@ -239,6 +241,8 @@ export interface RuntimeScene3D {
   readonly meshIds: readonly string[];
   readonly materialIds: readonly string[];
   readonly lightIds: readonly string[];
+  readonly lightingRigId?: string;
+  readonly lightingTarget?: "REALTIME" | "OFFLINE" | "MOBILE";
   readonly activeCameraId?: string;
   readonly bounds?: import("@aevum/document-model").Bounds3D;
   readonly qualityMode: RuntimeQualityMode;
@@ -254,6 +258,7 @@ export interface Scene3DProjectionResult {
   readonly materials: ReadonlyMap<string, Readonly<CanonicalDesignDocument["materials"][string]>>;
   readonly cameras: ReadonlyMap<string, Readonly<CanonicalDesignDocument["cameras"][string]>>;
   readonly lights: ReadonlyMap<string, Readonly<CanonicalDesignDocument["lights"][string]>>;
+  readonly lighting: ReadonlyMap<string, import("@aevum/lighting").ResolvedLighting>;
   readonly diagnostics: readonly RuntimeDiagnostic[];
   readonly fingerprint: string;
   readonly complete: boolean;

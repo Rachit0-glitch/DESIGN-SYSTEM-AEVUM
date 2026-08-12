@@ -20,6 +20,7 @@
     "@aevum/assets": "workspace:*",
     "@aevum/command-engine": "workspace:*",
     "@aevum/document-model": "workspace:*",
+    "@aevum/lighting": "workspace:*",
     "@aevum/mcp-protocol": "workspace:*",
     "@aevum/renderer-3d": "workspace:*",
     "@aevum/rigging": "workspace:*",
