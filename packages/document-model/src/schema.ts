@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { EntityIdSchema } from "./ids.js";
 
-export const CURRENT_SCHEMA_VERSION = "1.6.0" as const;
-export const CURRENT_MIGRATION_VERSION = 6 as const;
+export const CURRENT_SCHEMA_VERSION = "1.7.0" as const;
+export const CURRENT_MIGRATION_VERSION = 7 as const;
 
 export const JsonValueSchema: z.ZodType<unknown> = z.lazy(() =>
   z.union([
@@ -771,6 +771,21 @@ export const CameraSchema = z.strictObject({
   focalLength: z.number().finite().positive().optional(),
   verticalFieldOfView: z.number().finite().positive().max(Math.PI).optional(),
   aspectRatio: z.number().finite().positive().optional(),
+  sensor: z
+    .strictObject({
+      width: z.number().finite().positive().max(100),
+      height: z.number().finite().positive().max(100),
+      fit: z.enum(["AUTO", "HORIZONTAL", "VERTICAL"]),
+    })
+    .default({ width: 36, height: 24, fit: "AUTO" }),
+  lensShift: Vector2Schema.default({ x: 0, y: 0 }),
+  roll: z
+    .number()
+    .finite()
+    .min(-Math.PI * 2)
+    .max(Math.PI * 2)
+    .default(0),
+  anamorphicRatio: z.number().finite().min(0.25).max(4).default(1),
   orthographicSize: z.number().finite().positive().optional(),
   orthographicBounds: z
     .strictObject({
@@ -786,10 +801,95 @@ export const CameraSchema = z.strictObject({
     enabled: z.boolean(),
     aperture: z.number().finite().positive(),
     focusDistance: z.number().finite().nonnegative(),
+    focusTargetNodeId: EntityIdSchema.optional(),
+    bladeCount: z.number().int().min(3).max(16).default(6),
   }),
+  targetingMode: z
+    .enum(["EXPLICIT_ORIENTATION", "LOOK_AT_POINT", "LOOK_AT_NODE", "TRACKED_NODE"])
+    .default("EXPLICIT_ORIENTATION"),
   targetNodeId: EntityIdSchema.optional(),
   target: Vector3Schema.optional(),
+  upVector: Vector3Schema.default({ x: 0, y: 1, z: 0 }),
+  framing: z
+    .strictObject({
+      safeArea: z.strictObject({ x: UnitIntervalSchema, y: UnitIntervalSchema }).default({ x: 0.9, y: 0.9 }),
+      guide: z.enum(["NONE", "CENTER", "RULE_OF_THIRDS", "HEADROOM", "LOOK_ROOM"]).default("NONE"),
+      outputAspectRatio: z.number().finite().positive().optional(),
+    })
+    .default({ safeArea: { x: 0.9, y: 0.9 }, guide: "NONE" }),
+  matchProvenance: z
+    .strictObject({
+      referenceId: EntityIdSchema.optional(),
+      sourceViewId: z.string().min(1),
+      method: z.enum(["USER_PROVIDED", "ROLE_ASSUMED_TURNTABLE", "GEOMETRIC", "UNKNOWN"]),
+      confidence: UnitIntervalSchema,
+      evidence: z.array(z.string().min(1)).max(128),
+    })
+    .optional(),
+  metadata: JsonObjectSchema.default({}),
   importProvenance: ImportProvenanceSchema.optional(),
+});
+
+export const CameraPathSchema = z.strictObject({
+  id: EntityIdSchema,
+  name: z.string().min(1),
+  cameraId: EntityIdSchema,
+  type: z.enum(["TIMELINE", "ORBIT", "DOLLY", "STATIC"]),
+  timelineId: EntityIdSchema.optional(),
+  targetNodeId: EntityIdSchema.optional(),
+  target: Vector3Schema.optional(),
+  startPosition: Vector3Schema.optional(),
+  endPosition: Vector3Schema.optional(),
+  orbit: z
+    .strictObject({
+      radius: z.number().finite().positive().max(1_000_000),
+      startAzimuth: z.number().finite(),
+      endAzimuth: z.number().finite(),
+      elevation: z
+        .number()
+        .finite()
+        .min(-Math.PI / 2)
+        .max(Math.PI / 2),
+    })
+    .optional(),
+  easing: EasingSchema.default({ type: "LINEAR" }),
+  metadata: JsonObjectSchema.default({}),
+});
+
+export const CinematicTransitionSchema = z.strictObject({
+  type: z.enum(["CUT", "DISSOLVE", "FADE"]),
+  duration: NonNegativeSchema.max(10),
+  easing: EasingSchema.default({ type: "LINEAR" }),
+});
+export const CinematicShotSchema = z.strictObject({
+  id: EntityIdSchema,
+  name: z.string().min(1),
+  cameraId: EntityIdSchema,
+  startTime: NonNegativeSchema,
+  duration: z.number().finite().positive().max(86_400),
+  timelineId: EntityIdSchema.optional(),
+  cameraPathId: EntityIdSchema.optional(),
+  transitionIn: CinematicTransitionSchema.default({ type: "CUT", duration: 0, easing: { type: "LINEAR" } }),
+  composition: z
+    .strictObject({
+      subjectNodeId: EntityIdSchema.optional(),
+      guide: z.enum(["NONE", "CENTER", "RULE_OF_THIRDS", "HEADROOM", "LOOK_ROOM"]),
+      desiredCoverage: UnitIntervalSchema.optional(),
+      safeMargin: UnitIntervalSchema.default(0.05),
+    })
+    .default({ guide: "NONE", safeMargin: 0.05 }),
+  lightingRigId: EntityIdSchema.optional(),
+  metadata: JsonObjectSchema.default({}),
+});
+export const CinematicSequenceSchema = z.strictObject({
+  id: EntityIdSchema,
+  version: SemverSchema,
+  name: z.string().min(1),
+  sceneId: EntityIdSchema,
+  shotIds: z.array(EntityIdSchema).min(1).max(256),
+  duration: z.number().finite().positive().max(86_400),
+  allowGaps: z.boolean().default(false),
+  metadata: JsonObjectSchema.default({}),
 });
 export const LightSchema = z.strictObject({
   id: EntityIdSchema,
@@ -1089,6 +1189,9 @@ export interface CanonicalDesignDocument {
   timelines: Record<string, z.infer<typeof TimelineSchema>>;
   stateMachines: Record<string, z.infer<typeof AnimationStateMachineSchema>>;
   cameras: Record<string, z.infer<typeof CameraSchema>>;
+  cameraPaths: Record<string, z.infer<typeof CameraPathSchema>>;
+  cinematicShots: Record<string, z.infer<typeof CinematicShotSchema>>;
+  cinematicSequences: Record<string, z.infer<typeof CinematicSequenceSchema>>;
   lights: Record<string, z.infer<typeof LightSchema>>;
   environments: Record<string, z.infer<typeof EnvironmentSchema>>;
   lightingRigs: Record<string, z.infer<typeof LightingRigSchema>>;
@@ -1118,6 +1221,9 @@ const CanonicalDesignDocumentSchemaValue: z.ZodType<CanonicalDesignDocument> = z
   timelines: z.record(z.string(), TimelineSchema),
   stateMachines: z.record(z.string(), AnimationStateMachineSchema),
   cameras: z.record(z.string(), CameraSchema),
+  cameraPaths: z.record(z.string(), CameraPathSchema).default({}),
+  cinematicShots: z.record(z.string(), CinematicShotSchema).default({}),
+  cinematicSequences: z.record(z.string(), CinematicSequenceSchema).default({}),
   lights: z.record(z.string(), LightSchema),
   environments: z.record(z.string(), EnvironmentSchema).default({}),
   lightingRigs: z.record(z.string(), LightingRigSchema).default({}),
@@ -1141,6 +1247,9 @@ export type Bounds3D = z.infer<typeof Bounds3DSchema>;
 export type CoordinateSystem3D = z.infer<typeof CoordinateSystem3DSchema>;
 export type GeometryReference = z.infer<typeof GeometryReferenceSchema>;
 export type CameraRecord = z.infer<typeof CameraSchema>;
+export type CameraPathRecord = z.infer<typeof CameraPathSchema>;
+export type CinematicShotRecord = z.infer<typeof CinematicShotSchema>;
+export type CinematicSequenceRecord = z.infer<typeof CinematicSequenceSchema>;
 export type LightRecord = z.infer<typeof LightSchema>;
 export type EnvironmentRecord = z.infer<typeof EnvironmentSchema>;
 export type LightingRigRecord = z.infer<typeof LightingRigSchema>;

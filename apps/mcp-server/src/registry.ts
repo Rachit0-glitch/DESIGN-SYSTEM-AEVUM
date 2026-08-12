@@ -67,6 +67,9 @@ export interface BlenderToolAdapter {
       | "lighting.inspect"
       | "lighting.create_rig"
       | "lighting.bake"
+      | "camera.create"
+      | "camera.update"
+      | "cinematic.apply_sequence"
     >;
     readonly payload: unknown;
     readonly document: CanonicalDesignDocument;

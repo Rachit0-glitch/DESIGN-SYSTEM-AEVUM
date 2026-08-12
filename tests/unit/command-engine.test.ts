@@ -53,7 +53,9 @@ describe("Command Engine", () => {
     expect(listCommands()).toEqual([
       "asset.register",
       "asset.remove",
+      "camera.create",
       "camera.update",
+      "cinematic.apply_sequence",
       "document.create",
       "document.rename",
       "light.update",

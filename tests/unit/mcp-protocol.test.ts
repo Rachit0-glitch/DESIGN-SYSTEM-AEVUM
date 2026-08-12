@@ -24,12 +24,12 @@ describe("MCP protocol", () => {
     ).toBe(false);
   });
 
-  it("registers the canonical MCP and Phase 20 lighting tool surface with dedicated schemas", () => {
+  it("registers the canonical MCP through Phase 21 with dedicated schemas", () => {
     const registry = createToolRegistry();
     registerInitialTools(registry, mcpTestConfig);
     const tools = registry.listTools();
 
-    expect(tools).toHaveLength(60);
+    expect(tools).toHaveLength(67);
     expect(tools.every((tool) => tool.version === MCP_TOOL_VERSION)).toBe(true);
     expect(tools.map((tool) => tool.name)).toEqual(Object.keys(TOOL_SCHEMAS).sort());
     expect(() => registerInitialTools(registry, mcpTestConfig)).toThrow(/already registered/);
@@ -75,6 +75,41 @@ describe("MCP protocol", () => {
     for (const [tool, payload] of attemptedPayloads) {
       expect(TOOL_SCHEMAS[tool].input.safeParse(payload).success).toBe(false);
     }
+  });
+
+  it("keeps professional camera writes bounded, versioned, and free of arbitrary execution fields", () => {
+    const camera = {
+      id: "camera_11111111-1111-4111-8111-111111111111",
+      name: "Hero camera",
+      projection: "PERSPECTIVE",
+      transform: {
+        position: { x: 0, y: 0, z: 5 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale: { x: 1, y: 1, z: 1 },
+        skew: { x: 0, y: 0 },
+        anchor: { x: 0, y: 0 },
+        pivot: { x: 0, y: 0, z: 0 },
+        opacity: 1,
+        clipping: false,
+        maskIds: [],
+        coordinateSpace: "WORLD",
+      },
+      focalLength: 50,
+      sensor: { width: 36, height: 24, fit: "VERTICAL" },
+      nearClip: 0.1,
+      farClip: 1_000,
+      depthOfField: { enabled: false, aperture: 2.8, focusDistance: 5 },
+    };
+    const input = {
+      assetId: "asset_11111111-1111-4111-8111-111111111111",
+      expectedDocumentVersion: 3,
+      sceneId: "scene_11111111-1111-4111-8111-111111111111",
+      camera,
+    };
+    expect(TOOL_SCHEMAS["camera.update"].input.safeParse(input).success).toBe(true);
+    expect(TOOL_SCHEMAS["camera.update"].input.safeParse({ ...input, python: "import bpy" }).success).toBe(false);
+    expect(TOOL_SCHEMAS["camera.update"].input.safeParse({ ...input, expectedDocumentVersion: 0 }).success).toBe(false);
+    expect(TOOL_SCHEMAS["camera.validate"].input.safeParse({ cameraId: camera.id, time: 1.25 }).success).toBe(true);
   });
 
   it("rejects unknown and structurally invalid write payloads before command execution", () => {

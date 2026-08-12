@@ -1,5 +1,17 @@
 # AEVUM AI Reconstruction Engine — Visual Validation
 
+## Phase 21 Camera And Cinematic Validation
+
+Phase 21 validates resolved cameras at fixed sample times and attributes every issue to a camera, shot, category, and
+recoverability state. Measurements cover subject projection, frame center, coverage, safe margin, clipping, rule-of-
+thirds error, lens/projection coherence, target availability, and shot continuity. Overall, composition, lens, and
+continuity scores remain separate so camera errors are not mislabeled as geometry, material, or lighting failures.
+
+Deterministic correction entries identify camera, optional shot, category, property path, proposed value, confidence,
+reason, and expected document version. They are proposals only. Automatic collision solving, rendered reference
+pixel comparison, lens-distortion estimation, and autonomous multi-pass 3D camera correction remain deferred to the
+next approved validation/fidelity phase.
+
 ## 1. Purpose
 
 This document defines the Visual Validation system of the AEVUM AI Reconstruction Engine.

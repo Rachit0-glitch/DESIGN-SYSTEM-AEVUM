@@ -189,7 +189,7 @@ defaultRegistry.registerMigration("1.4.0", "1.5.0", (document, context) => ({
   schemaVersion: context.toVersion,
   migrationVersion: 5,
 }));
-defaultRegistry.registerMigration("1.5.0", CURRENT_SCHEMA_VERSION, (document, context) => ({
+defaultRegistry.registerMigration("1.5.0", "1.6.0", (document, context) => ({
   ...document,
   schemaVersion: context.toVersion,
   migrationVersion: 6,
@@ -199,6 +199,48 @@ defaultRegistry.registerMigration("1.5.0", CURRENT_SCHEMA_VERSION, (document, co
   reflectionProbes: {},
   lightingBakes: {},
 }));
+defaultRegistry.registerMigration("1.6.0", CURRENT_SCHEMA_VERSION, (document, context) => {
+  const cameras = Object.fromEntries(
+    Object.entries((document.cameras as Record<string, Record<string, unknown>> | undefined) ?? {}).map(
+      ([id, camera]) => {
+        const verticalFieldOfView =
+          typeof camera.verticalFieldOfView === "number" ? camera.verticalFieldOfView : undefined;
+        return [
+          id,
+          {
+            ...camera,
+            ...(verticalFieldOfView !== undefined ? { focalLength: 24 / (2 * Math.tan(verticalFieldOfView / 2)) } : {}),
+            sensor: { width: 36, height: 24, fit: "AUTO" },
+            lensShift: { x: 0, y: 0 },
+            roll: 0,
+            anamorphicRatio: 1,
+            depthOfField: {
+              ...((camera.depthOfField as Record<string, unknown> | undefined) ?? {}),
+              bladeCount: 6,
+            },
+            targetingMode: camera.targetNodeId
+              ? "LOOK_AT_NODE"
+              : camera.target
+                ? "LOOK_AT_POINT"
+                : "EXPLICIT_ORIENTATION",
+            upVector: { x: 0, y: 1, z: 0 },
+            framing: { safeArea: { x: 0.9, y: 0.9 }, guide: "NONE" },
+            metadata: {},
+          },
+        ];
+      },
+    ),
+  );
+  return {
+    ...document,
+    schemaVersion: context.toVersion,
+    migrationVersion: 7,
+    cameras,
+    cameraPaths: {},
+    cinematicShots: {},
+    cinematicSequences: {},
+  };
+});
 
 export function currentSchema(): string {
   return defaultRegistry.currentSchema();

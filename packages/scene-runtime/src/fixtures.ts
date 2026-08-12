@@ -119,9 +119,17 @@ export function createMixedSceneFixture(): CanonicalDesignDocument {
     projection: "PERSPECTIVE",
     transform: createTransform(),
     focalLength: 50,
+    sensor: { width: 36, height: 24, fit: "AUTO" },
+    lensShift: { x: 0, y: 0 },
+    roll: 0,
+    anamorphicRatio: 1,
     nearClip: 0.1,
     farClip: 1_000,
-    depthOfField: { enabled: false, aperture: 2.8, focusDistance: 5 },
+    depthOfField: { enabled: false, aperture: 2.8, focusDistance: 5, bladeCount: 6 },
+    targetingMode: "EXPLICIT_ORIENTATION",
+    upVector: { x: 0, y: 1, z: 0 },
+    framing: { safeArea: { x: 0.9, y: 0.9 }, guide: "NONE" },
+    metadata: {},
   };
   const sceneId = createEntityId("scene");
   const meshId = createEntityId("mesh");

@@ -17,6 +17,7 @@
     "smoke": "node dist/smoke.js"
   },
   "dependencies": {
+    "@aevum/camera-cinematics": "workspace:*",
     "@aevum/assets": "workspace:*",
     "@aevum/command-engine": "workspace:*",
     "@aevum/document-model": "workspace:*",

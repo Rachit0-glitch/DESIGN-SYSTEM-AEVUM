@@ -108,7 +108,7 @@ export function createResponsiveFixture(): ResponsiveFixture {
     focalLength: 50,
     nearClip: 0.1,
     farClip: 1_000,
-    depthOfField: { enabled: false, aperture: 2.8, focusDistance: 4 },
+    depthOfField: { enabled: false, aperture: 2.8, focusDistance: 4, bladeCount: 6 },
   };
   document.cameras[mobileCameraId] = {
     id: mobileCameraId,
@@ -118,7 +118,7 @@ export function createResponsiveFixture(): ResponsiveFixture {
     focalLength: 70,
     nearClip: 0.1,
     farClip: 1_000,
-    depthOfField: { enabled: false, aperture: 2.8, focusDistance: 4 },
+    depthOfField: { enabled: false, aperture: 2.8, focusDistance: 4, bladeCount: 6 },
   };
   const sceneId = createEntityId("scene");
   const scene: DesignNode = {

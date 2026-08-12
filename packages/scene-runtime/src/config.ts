@@ -41,6 +41,7 @@ export const runtimeViewportSchema = z.strictObject({
       active: z.boolean().optional(),
       playbackState: z.enum(["IDLE", "RUNNING", "PAUSED", "COMPLETED", "CANCELLED", "REVERSED"]).optional(),
       timelineIds: z.array(z.string().min(1)).optional(),
+      sequenceId: z.string().min(1).optional(),
     })
     .optional(),
 });
@@ -70,6 +71,7 @@ export function validateProjectionInput(viewport: RuntimeViewport): RuntimeViewp
             ...(parsed.animation.active !== undefined ? { active: parsed.animation.active } : {}),
             ...(parsed.animation.playbackState ? { playbackState: parsed.animation.playbackState } : {}),
             ...(parsed.animation.timelineIds ? { timelineIds: parsed.animation.timelineIds } : {}),
+            ...(parsed.animation.sequenceId ? { sequenceId: parsed.animation.sequenceId } : {}),
           },
         }
       : {}),

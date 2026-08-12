@@ -1,5 +1,17 @@
 # AEVUM AI Reconstruction Engine — Reconstruction Pipeline
 
+## Phase 21 Reference Camera Handoff
+
+Phase 17 multi-view `CameraEstimate` records can be converted into canonical Phase 21 camera proposals without
+inventing certainty. Position, quaternion, target, field of view, aspect ratio, and principal point are mapped into
+canonical transform, physical lens, and lens-shift fields. Estimator method, confidence, source view, and diagnostics
+remain attached as match provenance. Unknown or geometrically incomplete estimates are rejected rather than promoted
+to finished cameras.
+
+Motion Reconstruction remains responsible for inferred motion evidence and Animation Core timeline proposals. Phase
+21 consumes those canonical timelines and adds camera-path and shot sequencing semantics; it does not duplicate frame
+tracking, optical flow, video decoding, or motion inference.
+
 ## 1. Purpose
 
 This document defines the end-to-end Reconstruction Pipeline of the AEVUM AI Reconstruction Engine.

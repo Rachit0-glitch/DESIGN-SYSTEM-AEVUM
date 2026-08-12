@@ -142,7 +142,7 @@ describe("Phase 20 lighting system", () => {
       delete legacy[key];
     const migrated = migrate(legacy);
     expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
-    expect(migrated.migrationVersion).toBe(6);
+    expect(migrated.migrationVersion).toBe(7);
     expect(migrated.lightingRigs).toEqual({});
     expect(validateDocument(migrated).success).toBe(true);
   });

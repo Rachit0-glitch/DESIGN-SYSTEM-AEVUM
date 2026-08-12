@@ -39,6 +39,9 @@ importers:
       '@aevum/blender-bridge':
         specifier: workspace:*
         version: link:apps/blender-bridge
+      '@aevum/camera-cinematics':
+        specifier: workspace:*
+        version: link:packages/camera-cinematics
       '@aevum/command-engine':
         specifier: workspace:*
         version: link:packages/command-engine
@@ -183,6 +186,9 @@ importers:
       '@aevum/assets':
         specifier: workspace:*
         version: link:../../packages/assets
+      '@aevum/camera-cinematics':
+        specifier: workspace:*
+        version: link:../../packages/camera-cinematics
       '@aevum/command-engine':
         specifier: workspace:*
         version: link:../../packages/command-engine
@@ -243,6 +249,9 @@ importers:
 
   apps/mcp-server:
     dependencies:
+      '@aevum/camera-cinematics':
+        specifier: workspace:*
+        version: link:../../packages/camera-cinematics
       '@aevum/command-engine':
         specifier: workspace:*
         version: link:../../packages/command-engine
@@ -562,6 +571,24 @@ importers:
         specifier: 4.4.3
         version: 4.4.3
 
+  packages/camera-cinematics:
+    dependencies:
+      '@aevum/animation-core':
+        specifier: workspace:*
+        version: link:../animation-core
+      '@aevum/document-model':
+        specifier: workspace:*
+        version: link:../document-model
+      '@aevum/multiview-reconstruction':
+        specifier: workspace:*
+        version: link:../multiview-reconstruction
+      '@aevum/shared':
+        specifier: workspace:*
+        version: link:../shared
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
+
   packages/command-engine:
     dependencies:
       '@aevum/document-model':
@@ -660,6 +687,9 @@ importers:
 
   packages/mcp-protocol:
     dependencies:
+      '@aevum/camera-cinematics':
+        specifier: workspace:*
+        version: link:../camera-cinematics
       '@aevum/command-engine':
         specifier: workspace:*
         version: link:../command-engine
@@ -849,6 +879,9 @@ importers:
       '@aevum/animation-core':
         specifier: workspace:*
         version: link:../animation-core
+      '@aevum/camera-cinematics':
+        specifier: workspace:*
+        version: link:../camera-cinematics
       '@aevum/document-model':
         specifier: workspace:*
         version: link:../document-model

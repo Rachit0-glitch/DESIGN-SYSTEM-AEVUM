@@ -6,6 +6,7 @@ import {
   executeCommand,
   type Command,
 } from "@aevum/command-engine";
+import { evaluateCamera, validateCinematics } from "@aevum/camera-cinematics";
 import { CURRENT_SCHEMA_VERSION, type CanonicalDesignDocument, type DesignNode } from "@aevum/document-model";
 import {
   MCP_PROTOCOL_VERSION,
@@ -290,6 +291,111 @@ export function registerInitialTools(
         const resolved = resolveLighting(document, input.sceneId, input.target);
         const expected = input.reference ? analyzeReferenceLighting(input.reference) : undefined;
         return { data: validateLighting({ resolved, ...(expected ? { expected } : {}) }) };
+      },
+      config,
+    ),
+  );
+  registry.registerTool(
+    definition(
+      "camera.inspect",
+      "Inspect one canonical professional camera without invoking a renderer or Blender.",
+      ["document.read", "camera.read"],
+      "READ",
+      async (raw, context) => {
+        const input = TOOL_SCHEMAS["camera.inspect"].input.parse(raw);
+        const camera = (await currentDocument(context)).cameras[input.cameraId];
+        if (!camera) fail(context, "MCP_INPUT_INVALID", "The requested canonical camera does not exist.");
+        return { data: camera };
+      },
+      config,
+    ),
+  );
+  registry.registerTool(
+    definition(
+      "camera.evaluate",
+      "Resolve canonical camera, shot, path, target, lens, and depth-of-field state at a fixed time.",
+      ["document.read", "camera.read"],
+      "READ",
+      async (raw, context) => {
+        const input = TOOL_SCHEMAS["camera.evaluate"].input.parse(raw);
+        const document = await currentDocument(context);
+        try {
+          return {
+            data: evaluateCamera({
+              document,
+              time: input.time,
+              ...(input.cameraId ? { cameraId: input.cameraId } : {}),
+              ...(input.sequenceId ? { sequenceId: input.sequenceId } : {}),
+              ...(input.viewportAspectRatio ? { viewportAspectRatio: input.viewportAspectRatio } : {}),
+              nodePositions: Object.fromEntries(
+                Object.values(document.nodes).map((node) => [node.id, node.transform.position]),
+              ),
+            }),
+          };
+        } catch (error) {
+          fail(context, "MCP_INPUT_INVALID", error instanceof Error ? error.message : "Camera evaluation failed.");
+        }
+      },
+      config,
+    ),
+  );
+  registry.registerTool(
+    definition(
+      "camera.validate",
+      "Validate deterministic camera evaluation, composition, lens, clipping, and cinematic continuity.",
+      ["document.read", "camera.read", "validation.read"],
+      "READ",
+      async (raw, context) => {
+        const input = TOOL_SCHEMAS["camera.validate"].input.parse(raw);
+        const document = await currentDocument(context);
+        const nodePositions = Object.fromEntries(
+          Object.values(document.nodes).map((node) => [node.id, node.transform.position]),
+        );
+        try {
+          const resolvedCameras = (input.sampleTimes ?? [input.time]).map((time) =>
+            evaluateCamera({
+              document,
+              time,
+              ...(input.cameraId ? { cameraId: input.cameraId } : {}),
+              ...(input.sequenceId ? { sequenceId: input.sequenceId } : {}),
+              ...(input.viewportAspectRatio ? { viewportAspectRatio: input.viewportAspectRatio } : {}),
+              nodePositions,
+            }),
+          );
+          return {
+            data: validateCinematics({
+              document,
+              resolvedCameras,
+              ...(input.sequenceId ? { sequenceId: input.sequenceId } : {}),
+            }),
+          };
+        } catch (error) {
+          fail(context, "MCP_INPUT_INVALID", error instanceof Error ? error.message : "Camera validation failed.");
+        }
+      },
+      config,
+    ),
+  );
+  registry.registerTool(
+    definition(
+      "cinematic.inspect",
+      "Inspect a canonical cinematic sequence with its ordered shots and camera paths.",
+      ["document.read", "camera.read", "timeline.read"],
+      "READ",
+      async (raw, context) => {
+        const input = TOOL_SCHEMAS["cinematic.inspect"].input.parse(raw);
+        const document = await currentDocument(context);
+        const sequence = document.cinematicSequences[input.sequenceId];
+        if (!sequence) fail(context, "MCP_INPUT_INVALID", "The requested cinematic sequence does not exist.");
+        const shots = sequence.shotIds.map((id) => document.cinematicShots[id]).filter((shot) => shot !== undefined);
+        const pathIds = [...new Set(shots.flatMap((shot) => (shot.cameraPathId ? [shot.cameraPathId] : [])))];
+        return {
+          data: {
+            sequence,
+            shots,
+            paths: pathIds.map((id) => document.cameraPaths[id]).filter((path) => path !== undefined),
+          },
+        };
       },
       config,
     ),
@@ -1016,6 +1122,24 @@ export function registerInitialTools(
   );
 
   const blenderTools = [
+    [
+      "camera.create",
+      "Create and verify a professional canonical camera through Blender before atomic reconciliation.",
+      ["document.write", "camera.write", "blender.write"],
+      "WRITE",
+    ],
+    [
+      "camera.update",
+      "Update and verify a professional canonical camera through Blender before atomic reconciliation.",
+      ["document.write", "camera.write", "blender.write"],
+      "WRITE",
+    ],
+    [
+      "cinematic.apply_sequence",
+      "Apply a bounded cinematic sequence and sampled camera animation through Blender before atomic reconciliation.",
+      ["document.write", "timeline.write", "camera.write", "blender.write"],
+      "WRITE",
+    ],
     [
       "lighting.inspect",
       "Inspect real Blender lights, shadows, environment, and render engine state.",

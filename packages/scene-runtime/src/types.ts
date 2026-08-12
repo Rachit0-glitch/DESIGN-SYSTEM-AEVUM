@@ -23,6 +23,7 @@ export interface RuntimeViewport {
     readonly active?: boolean;
     readonly playbackState?: "IDLE" | "RUNNING" | "PAUSED" | "COMPLETED" | "CANCELLED" | "REVERSED";
     readonly timelineIds?: readonly string[];
+    readonly sequenceId?: string;
   };
 }
 
@@ -55,6 +56,8 @@ export type RuntimeDiagnosticCode =
   | "TIMELINE_TARGET_MISSING"
   | "UNSORTED_KEYFRAMES"
   | "MISSING_CAMERA"
+  | "CAMERA_RESOLUTION_FAILED"
+  | "CAMERA_DIAGNOSTIC"
   | "MISSING_LIGHT"
   | "LIGHTING_PROFILE_DIAGNOSTIC"
   | "LIGHTING_RESOLUTION_FAILED"
@@ -244,6 +247,8 @@ export interface RuntimeScene3D {
   readonly lightingRigId?: string;
   readonly lightingTarget?: "REALTIME" | "OFFLINE" | "MOBILE";
   readonly activeCameraId?: string;
+  readonly activeShotId?: string;
+  readonly cinematicSequenceId?: string;
   readonly bounds?: import("@aevum/document-model").Bounds3D;
   readonly qualityMode: RuntimeQualityMode;
 }
@@ -257,6 +262,7 @@ export interface Scene3DProjectionResult {
   readonly rigs: ReadonlyMap<string, RuntimeRig3D>;
   readonly materials: ReadonlyMap<string, Readonly<CanonicalDesignDocument["materials"][string]>>;
   readonly cameras: ReadonlyMap<string, Readonly<CanonicalDesignDocument["cameras"][string]>>;
+  readonly cameraStates: ReadonlyMap<string, import("@aevum/camera-cinematics").ResolvedCamera>;
   readonly lights: ReadonlyMap<string, Readonly<CanonicalDesignDocument["lights"][string]>>;
   readonly lighting: ReadonlyMap<string, import("@aevum/lighting").ResolvedLighting>;
   readonly diagnostics: readonly RuntimeDiagnostic[];

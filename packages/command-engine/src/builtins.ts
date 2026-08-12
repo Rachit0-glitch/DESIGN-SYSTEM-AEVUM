@@ -1,6 +1,7 @@
 import "./commands/asset.js";
 import "./commands/document.js";
 import "./commands/entity3d.js";
+import "./commands/camera.js";
 import "./commands/lighting.js";
 import "./commands/node.js";
 import "./commands/page.js";

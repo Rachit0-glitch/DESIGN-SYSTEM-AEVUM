@@ -12,7 +12,14 @@ import {
   type BlenderOperation,
 } from "@aevum/blender-bridge";
 import { computeSha256 } from "@aevum/assets";
-import { createAsset, fixtures, type CanonicalDesignDocument } from "@aevum/document-model";
+import {
+  CameraPathSchema,
+  CinematicSequenceSchema,
+  CinematicShotSchema,
+  createAsset,
+  fixtures,
+  type CanonicalDesignDocument,
+} from "@aevum/document-model";
 import { createBoxGroundTruthFixture, runReconstructionSession } from "@aevum/geometry-reconstruction";
 import { buildLightingRig } from "@aevum/lighting";
 import { analyzeMultiView, createMultiViewTask } from "@aevum/multiview-reconstruction";
@@ -1150,6 +1157,115 @@ describe.sequential("Phase 19B real Blender rigging execution", () => {
       expect(vertex.position.y).toBeCloseTo(expected.y, 4);
       expect(vertex.position.z).toBeCloseTo(expected.z, 4);
     }
+  });
+
+  it("round-trips professional camera lens, sensor, shift, clipping, and depth of field through real Blender", async () => {
+    const scene = Object.values(foundation.document.nodes).find((node) => node.type === "SCENE_3D");
+    const source = Object.values(foundation.document.cameras)[0];
+    if (scene?.type !== "SCENE_3D" || !source) throw new Error("Expected the real Blender fixture camera.");
+    const camera = {
+      ...source,
+      name: "Phase 21 production camera",
+      focalLength: 72,
+      verticalFieldOfView: 2 * Math.atan(24 / (2 * 72)),
+      sensor: { width: 36, height: 24, fit: "VERTICAL" as const },
+      lensShift: { x: 0.08, y: -0.04 },
+      nearClip: 0.05,
+      farClip: 2_500,
+      depthOfField: { enabled: true, aperture: 2, focusDistance: 3.5, bladeCount: 9 },
+    };
+    const operation: BlenderOperation = {
+      operationVersion: "1.0.0",
+      kind: "camera.apply",
+      sceneId: scene.id,
+      camera,
+      create: false,
+    };
+    const execution = await runner.execute(jobFor(foundation, operation), foundation.bytes);
+    expect(execution.result).toMatchObject({
+      state: "SUCCEEDED",
+      data: {
+        entityId: camera.id,
+        focalLength: 72,
+        sensor: { width: 36, height: 24, fit: "VERTICAL" },
+        depthOfField: { enabled: true, focusDistance: 3.5, aperture: 2, bladeCount: 9 },
+      },
+    });
+    const cameraData = execution.result.data as { lensShift: { x: number; y: number } };
+    expect(cameraData.lensShift.x).toBeCloseTo(0.08, 6);
+    expect(cameraData.lensShift.y).toBeCloseTo(-0.04, 6);
+    const reconciled = await reconcileExecution(foundation, operation, execution);
+    expect(reconciled.document.cameras[camera.id]).toMatchObject({
+      focalLength: 72,
+      sensor: { width: 36, height: 24 },
+      lensShift: { x: 0.08, y: -0.04 },
+      depthOfField: { enabled: true, focusDistance: 3.5, bladeCount: 9 },
+    });
+    foundation = reconciled;
+  });
+
+  it("keys and reconciles a deterministic cinematic camera sequence through real Blender", async () => {
+    const scene = Object.values(foundation.document.nodes).find((node) => node.type === "SCENE_3D");
+    const camera = Object.values(foundation.document.cameras)[0];
+    if (scene?.type !== "SCENE_3D" || !camera) throw new Error("Expected the real Blender fixture camera.");
+    const path = CameraPathSchema.parse({
+      id: "camera-path_11111111-1111-4111-8111-111111111111",
+      name: "Phase 21 dolly",
+      cameraId: camera.id,
+      type: "DOLLY",
+      target: { x: 0, y: 0, z: 0 },
+      startPosition: camera.transform.position,
+      endPosition: { ...camera.transform.position, z: camera.transform.position.z - 1 },
+    });
+    const shot = CinematicShotSchema.parse({
+      id: "shot_11111111-1111-4111-8111-111111111111",
+      name: "Phase 21 dolly shot",
+      cameraId: camera.id,
+      cameraPathId: path.id,
+      startTime: 0,
+      duration: 1,
+      transitionIn: { type: "CUT", duration: 0 },
+    });
+    const sequence = CinematicSequenceSchema.parse({
+      id: "sequence_11111111-1111-4111-8111-111111111111",
+      version: "1.0.0",
+      name: "Phase 21 sequence",
+      sceneId: scene.id,
+      shotIds: [shot.id],
+      duration: 1,
+      allowGaps: false,
+    });
+    const endCamera = {
+      ...camera,
+      transform: {
+        ...camera.transform,
+        position: { ...camera.transform.position, z: camera.transform.position.z - 1 },
+      },
+    };
+    const operation: BlenderOperation = {
+      operationVersion: "1.0.0",
+      kind: "cinematic.apply_sequence",
+      sequenceId: sequence.id,
+      sequence,
+      shots: [shot],
+      paths: [path],
+      timelines: [],
+      frameRate: 30,
+      samples: [
+        { time: 0, camera, create: false },
+        { time: 1, camera: endCamera, create: false },
+      ],
+    };
+    const execution = await runner.execute(jobFor(foundation, operation), foundation.bytes);
+    expect(execution.result).toMatchObject({
+      state: "SUCCEEDED",
+      data: { sequenceId: sequence.id, sampleCount: 2, frameStart: 0, frameEnd: 30, cameraIds: [camera.id] },
+    });
+    const reconciled = await reconcileExecution(foundation, operation, execution);
+    expect(reconciled.document.cinematicSequences[sequence.id]).toEqual(sequence);
+    expect(reconciled.document.cinematicShots[shot.id]).toEqual(shot);
+    expect(reconciled.document.cameraPaths[path.id]).toEqual(path);
+    foundation = reconciled;
   });
 
   it("applies, inspects, and validates a canonical lighting rig in real Blender", async () => {

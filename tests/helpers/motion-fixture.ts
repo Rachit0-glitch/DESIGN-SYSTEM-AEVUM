@@ -32,7 +32,7 @@ export function createMotionFixture(
       focalLength: 50,
       nearClip: 0.1,
       farClip: 10_000,
-      depthOfField: { enabled: false, aperture: 2.8, focusDistance: 10 },
+      depthOfField: { enabled: false, aperture: 2.8, focusDistance: 10, bladeCount: 6 },
     };
   } else {
     const target = Object.values(document.nodes).find((node) => node.type === "TEXT");

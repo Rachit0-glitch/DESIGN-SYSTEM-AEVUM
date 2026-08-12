@@ -16,6 +16,7 @@
     "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@aevum/camera-cinematics": "workspace:*",
     "@aevum/command-engine": "workspace:*",
     "@aevum/document-model": "workspace:*",
     "@aevum/lighting": "workspace:*",

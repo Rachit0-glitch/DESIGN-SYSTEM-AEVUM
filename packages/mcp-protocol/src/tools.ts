@@ -2,8 +2,12 @@ import { CURRENT_COMMAND_VERSION, type ChangeSet } from "@aevum/command-engine";
 import {
   AssetSchema,
   Bounds3DSchema,
+  CameraPathSchema,
+  CameraSchema,
   CURRENT_SCHEMA_VERSION,
   CanonicalDesignDocumentSchema,
+  CinematicSequenceSchema,
+  CinematicShotSchema,
   CoordinateSystem3DSchema,
   DesignNodeSchema,
   EntityIdSchema,
@@ -11,6 +15,7 @@ import {
   TimelineSchema,
   TransformSchema,
 } from "@aevum/document-model";
+import { CameraValidationReportSchema, ResolvedCameraSchema } from "@aevum/camera-cinematics";
 import { WorkspaceIdSchema } from "@aevum/project-store";
 import {
   LightingEstimateSchema,
@@ -22,7 +27,7 @@ import { z } from "zod";
 import { McpPermissionSchema } from "./permissions.js";
 import { MCP_PROTOCOL_VERSION } from "./version.js";
 
-export const MCP_TOOL_VERSION = "1.9.0" as const;
+export const MCP_TOOL_VERSION = "1.10.0" as const;
 export const McpAuthModeSchema = z.enum(["development", "supabase", "disabled"]);
 export const McpToolNameSchema = z.enum([
   "system.get_capabilities",
@@ -67,6 +72,13 @@ export const McpToolNameSchema = z.enum([
   "lighting.create_rig",
   "lighting.validate",
   "lighting.bake",
+  "camera.inspect",
+  "camera.evaluate",
+  "camera.validate",
+  "camera.create",
+  "camera.update",
+  "cinematic.inspect",
+  "cinematic.apply_sequence",
   "blender.runtime_info",
   "blender.inspect_scene",
   "blender.inspect_object",
@@ -653,6 +665,37 @@ export const LightingBakeInputSchema = BlenderWriteBaseSchema.extend({
   samples: z.number().int().min(1).max(64),
   bakeType: z.enum(["LIGHTING_PREVIEW", "SHADOW_PREVIEW", "REFLECTION_PREVIEW"]),
 });
+export const CameraInspectInputSchema = z.strictObject({ cameraId: EntityIdSchema });
+export const CameraEvaluateInputSchema = z.strictObject({
+  cameraId: EntityIdSchema.optional(),
+  sequenceId: EntityIdSchema.optional(),
+  time: z.number().finite().nonnegative().max(86_400),
+  viewportAspectRatio: z.number().finite().positive().max(100).optional(),
+});
+export const CameraValidateInputSchema = CameraEvaluateInputSchema.extend({
+  sampleTimes: z.array(z.number().finite().nonnegative().max(86_400)).min(1).max(256).optional(),
+});
+export const CameraCreateInputSchema = BlenderWriteBaseSchema.extend({
+  sceneId: EntityIdSchema,
+  camera: CameraSchema,
+});
+export const CameraUpdateInputSchema = BlenderWriteBaseSchema.extend({
+  sceneId: EntityIdSchema,
+  camera: CameraSchema,
+});
+export const CinematicInspectInputSchema = z.strictObject({ sequenceId: EntityIdSchema });
+export const CinematicInspectOutputSchema = z.strictObject({
+  sequence: CinematicSequenceSchema,
+  shots: z.array(CinematicShotSchema),
+  paths: z.array(CameraPathSchema),
+});
+export const CinematicApplySequenceInputSchema = BlenderWriteBaseSchema.extend({
+  sequence: CinematicSequenceSchema,
+  shots: z.array(CinematicShotSchema).min(1).max(256),
+  paths: z.array(CameraPathSchema).max(256),
+  timelines: z.array(TimelineSchema).max(256),
+  sampleTimes: z.array(z.number().finite().nonnegative().max(86_400)).min(2).max(256),
+});
 
 export const ThreeInspectTopologyInputSchema = BlenderTargetInputSchema.extend({
   profile: TopologyProfileInputSchema.default("WEB_STATIC"),
@@ -904,6 +947,13 @@ export const TOOL_SCHEMAS = Object.freeze({
   "lighting.create_rig": { input: LightingCreateRigInputSchema, output: BlenderWriteOutputSchema },
   "lighting.validate": { input: LightingValidateInputSchema, output: LightingValidationReportSchema },
   "lighting.bake": { input: LightingBakeInputSchema, output: BlenderWriteOutputSchema },
+  "camera.inspect": { input: CameraInspectInputSchema, output: CameraSchema },
+  "camera.evaluate": { input: CameraEvaluateInputSchema, output: ResolvedCameraSchema },
+  "camera.validate": { input: CameraValidateInputSchema, output: CameraValidationReportSchema },
+  "camera.create": { input: CameraCreateInputSchema, output: BlenderWriteOutputSchema },
+  "camera.update": { input: CameraUpdateInputSchema, output: BlenderWriteOutputSchema },
+  "cinematic.inspect": { input: CinematicInspectInputSchema, output: CinematicInspectOutputSchema },
+  "cinematic.apply_sequence": { input: CinematicApplySequenceInputSchema, output: BlenderWriteOutputSchema },
   "document.rename": { input: DocumentRenameInputSchema, output: WriteToolOutputSchema },
   "node.create": { input: NodeCreateInputSchema, output: WriteToolOutputSchema },
   "node.update": { input: NodeUpdateInputSchema, output: WriteToolOutputSchema },

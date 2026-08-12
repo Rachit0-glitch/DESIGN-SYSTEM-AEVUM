@@ -1,5 +1,25 @@
 # AEVUM AI Reconstruction Engine — 3D Engine and Cinematics
 
+## Phase 21 Production Camera And Cinematic Implementation
+
+The implemented camera model supports perspective and orthographic projection, stable identity, transform and
+look-at orientation, focal length/field-of-view derivation, sensor fit, lens shift, clipping, aperture, focus distance
+or focus target, bokeh blade count, roll, anamorphic metadata, aspect/framing guides, reference provenance, and
+responsive/runtime evaluation. Paths currently execute deterministic `ORBIT`, `DOLLY`, `TIMELINE`, and `STATIC`
+semantics. Shots coordinate camera, path, timeline, optional lighting rig, transition, and composition metadata;
+sequences provide deterministic ordering, duration, cuts, and gap/overlap validation.
+
+The Blender 5.1 backend implements finite `camera.apply` and `cinematic.apply_sequence` manifests. It applies stable
+AEVUM identity to camera object and data, converts canonical coordinates, writes physical camera/DOF settings, samples
+canonical camera state into location/quaternion/lens/shift/focus keyframes, sets frame range and frame rate, exports a
+GLB derivative, and reconciles through Command Engine. This path is REAL and covered by headless Blender acceptance
+tests. Blender does not own sequences or canonical truth.
+
+Collision avoidance, Bezier/Catmull-Rom control points, target blending, automatic camera-path replanning, rack-focus
+generation, cursor/scroll input binding, rendered dissolve/fade compositing, motion blur, and cinematic video output
+remain DEFERRED. Composition measurement and bounded correction proposals are implemented, but proposals never apply
+themselves.
+
 ## 1. Purpose
 
 This document defines the complete 3D production, runtime, reconstruction, validation, and cinematography systems of the AEVUM AI Reconstruction Engine.

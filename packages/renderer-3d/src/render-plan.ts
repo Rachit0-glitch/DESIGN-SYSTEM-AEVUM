@@ -33,7 +33,40 @@ export function create3DRenderPlan(projection: Scene3DProjectionResult, sceneId?
   let cameraId = beginId;
   if (scene.activeCameraId) {
     const camera = projection.cameras.get(scene.activeCameraId);
-    if (camera) cameraId = push("CAMERA_BIND", camera.id, [beginId], { camera });
+    const state = projection.cameraStates.get(scene.activeCameraId);
+    if (camera) {
+      cameraId = push("CAMERA_BIND", camera.id, [beginId], { cameraId: camera.id });
+      const transformId = push("CAMERA_TRANSFORM", camera.id, [cameraId], {
+        transform: camera.transform,
+        target: state?.target ?? null,
+      });
+      const projectionId = push("CAMERA_PROJECTION", camera.id, [transformId], {
+        projection: camera.projection,
+        aspectRatio: camera.aspectRatio ?? null,
+        orthographicSize: camera.orthographicSize ?? null,
+        orthographicBounds: camera.orthographicBounds ?? null,
+      });
+      const lensId = push("CAMERA_LENS", camera.id, [projectionId], {
+        focalLength: camera.focalLength ?? null,
+        verticalFieldOfView: state?.effectiveVerticalFieldOfView ?? camera.verticalFieldOfView ?? null,
+        sensor: camera.sensor,
+        lensShift: camera.lensShift,
+        anamorphicRatio: camera.anamorphicRatio,
+        nearClip: camera.nearClip,
+        farClip: camera.farClip,
+      });
+      cameraId = push("CAMERA_DOF", camera.id, [lensId], {
+        depthOfField: camera.depthOfField,
+        focusDistance: state?.focusDistance ?? camera.depthOfField.focusDistance,
+      });
+      if (scene.activeShotId)
+        cameraId = push("SHOT_ACTIVATE", scene.activeShotId, [cameraId], {
+          sequenceId: scene.cinematicSequenceId ?? null,
+          cameraId: camera.id,
+          transition: state?.transition ?? { type: "CUT", progress: 1 },
+          localTime: state?.localTime ?? 0,
+        });
+    }
   }
   const lightOperations = scene.lightIds
     .map((lightId) => projection.lights.get(lightId))

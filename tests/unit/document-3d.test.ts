@@ -49,7 +49,7 @@ describe("2D and 3D coexistence", () => {
       focalLength: 50,
       nearClip: 0.1,
       farClip: 1000,
-      depthOfField: { enabled: true, aperture: 2.8, focusDistance: 5 },
+      depthOfField: { enabled: true, aperture: 2.8, focusDistance: 5, bladeCount: 6 },
     };
     const lightId = createEntityId("light");
     document.lights[lightId] = {

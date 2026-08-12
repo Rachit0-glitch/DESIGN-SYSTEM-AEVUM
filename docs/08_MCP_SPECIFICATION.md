@@ -1,5 +1,24 @@
 # AEVUM AI Reconstruction Engine — MCP Specification
 
+## Phase 21 Camera And Cinematic Tool Surface
+
+MCP tool version `1.10.0` adds seven strict tools:
+
+- `camera.inspect` - READ, `document.read`, `camera.read`
+- `camera.evaluate` - READ, `document.read`, `camera.read`
+- `camera.validate` - READ, `document.read`, `camera.read`, `validation.read`
+- `camera.create` - WRITE, `document.write`, `camera.write`, `blender.write`
+- `camera.update` - WRITE, `document.write`, `camera.write`, `blender.write`
+- `cinematic.inspect` - READ, `document.read`, `camera.read`, `timeline.read`
+- `cinematic.apply_sequence` - WRITE, `document.write`, `camera.write`, `timeline.write`, `blender.write`
+
+Reads resolve only canonical project state at caller-supplied times. Writes require a registered source asset,
+expected document version, workspace authorization, dry-run, idempotency, audit, finite payloads, real Blender
+verification, and atomic Command Engine reconciliation. Camera ownership is checked against source-asset lineage and
+locked scenes cannot be changed. The schemas accept no arbitrary Python, shell, path, environment, or renderer code.
+Blender-backed tools remain honestly disabled when the local adapter is absent; the production Railway MCP service is
+not claimed to expose repository `1.10.0` until separately deployed.
+
 ## 1. Purpose
 
 This document defines the Model Context Protocol integration for the AEVUM AI Reconstruction Engine.

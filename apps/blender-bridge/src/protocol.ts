@@ -1,4 +1,12 @@
-import { EntityIdSchema, JsonValueSchema } from "@aevum/document-model";
+import {
+  CameraPathSchema,
+  CameraSchema,
+  CinematicSequenceSchema,
+  CinematicShotSchema,
+  EntityIdSchema,
+  JsonValueSchema,
+  TimelineSchema,
+} from "@aevum/document-model";
 import { z } from "zod";
 import {
   EnvironmentSchema,
@@ -148,8 +156,10 @@ export const BlenderOperationKindSchema = z.enum([
   "material.update_pbr",
   "material.validate_pbr",
   "camera.inspect",
+  "camera.apply",
   "camera.update",
   "camera.activate",
+  "cinematic.apply_sequence",
   "light.inspect",
   "light.update",
   "optimization.analyze",
@@ -481,6 +491,33 @@ export const BlenderOperationSchema = z.discriminatedUnion("kind", [
   }),
   z.strictObject({ ...BaseOperationShape, kind: z.literal("material.validate_pbr"), materialId: TargetIdSchema }),
   z.strictObject({ ...BaseOperationShape, kind: z.literal("camera.inspect"), cameraId: TargetIdSchema }),
+  z.strictObject({
+    ...BaseOperationShape,
+    kind: z.literal("camera.apply"),
+    sceneId: TargetIdSchema,
+    camera: CameraSchema,
+    create: z.boolean(),
+  }),
+  z.strictObject({
+    ...BaseOperationShape,
+    kind: z.literal("cinematic.apply_sequence"),
+    sequenceId: TargetIdSchema,
+    sequence: CinematicSequenceSchema,
+    shots: z.array(CinematicShotSchema).min(1).max(256),
+    paths: z.array(CameraPathSchema).max(256),
+    timelines: z.array(TimelineSchema).max(256),
+    frameRate: z.number().finite().positive().max(240),
+    samples: z
+      .array(
+        z.strictObject({
+          time: z.number().finite().nonnegative().max(86_400),
+          camera: CameraSchema,
+          create: z.boolean(),
+        }),
+      )
+      .min(2)
+      .max(256),
+  }),
   z.strictObject({
     ...BaseOperationShape,
     kind: z.literal("camera.update"),

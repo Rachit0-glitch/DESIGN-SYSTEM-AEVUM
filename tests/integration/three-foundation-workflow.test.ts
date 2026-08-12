@@ -83,7 +83,7 @@ describe("Phase 14 canonical 3D workflow", () => {
       verticalFieldOfView: Math.PI / 3,
       nearClip: 0.1,
       farClip: 1000,
-      depthOfField: { enabled: false, aperture: 2.8, focusDistance: 0 },
+      depthOfField: { enabled: false, aperture: 2.8, focusDistance: 0, bladeCount: 6 },
     };
     document.cameras[camera.id] = camera;
     const framed = frameCameraToBounds(camera, {

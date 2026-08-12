@@ -50,6 +50,28 @@ function initialCapabilities(session: AgentSession): string[] {
   };
   const lighting = lightingCapabilities[String(goal.parameters.operation ?? "").toLowerCase()];
   if (lighting) return [...lighting];
+  const cameraCapabilities: Readonly<Record<string, readonly string[]>> = {
+    camera_inspect: ["camera.inspect"],
+    camera_evaluate: ["camera.evaluate"],
+    camera_validate: ["camera.validate"],
+    cinematic_inspect: ["cinematic.inspect"],
+    camera_create: ["document.get", "camera.create", "camera.inspect", "camera.validate"],
+    camera_update: ["camera.inspect", "document.get", "camera.update", "camera.evaluate", "camera.validate"],
+    camera_match_reference: ["camera.inspect", "document.get", "camera.update", "camera.evaluate", "camera.validate"],
+    camera_frame_subject: ["camera.inspect", "document.get", "camera.update", "camera.evaluate", "camera.validate"],
+    cinematic_apply_sequence: [
+      "cinematic.inspect",
+      "document.get",
+      "cinematic.apply_sequence",
+      "cinematic.inspect",
+      "camera.validate",
+    ],
+    camera_orbit: ["document.get", "cinematic.apply_sequence", "cinematic.inspect", "camera.validate"],
+    camera_dolly: ["document.get", "cinematic.apply_sequence", "cinematic.inspect", "camera.validate"],
+    camera_zoom: ["document.get", "cinematic.apply_sequence", "cinematic.inspect", "camera.validate"],
+  };
+  const camera = cameraCapabilities[String(goal.parameters.operation ?? "").toLowerCase()];
+  if (camera) return [...camera];
   const riggingCapabilities: Readonly<Record<string, readonly string[]>> = {
     rig_inspect: ["three.rig_inspect"],
     rig_create: ["document.get", "three.rig_create", "three.rig_inspect"],
@@ -192,6 +214,17 @@ function requiredPermissions(capabilities: readonly string[]): AgentIntent["requ
         permissions.add("blender.write");
       }
       if (capability === "lighting.bake") permissions.add("asset.write");
+    }
+    if (capability.startsWith("camera.") || capability.startsWith("cinematic.")) {
+      const write = ["camera.create", "camera.update", "cinematic.apply_sequence"].includes(capability);
+      permissions.add(write ? "camera.write" : "camera.read");
+      permissions.add("document.read");
+      if (capability === "camera.validate") permissions.add("validation.read");
+      if (capability.startsWith("cinematic.")) permissions.add(write ? "timeline.write" : "timeline.read");
+      if (write) {
+        permissions.add("document.write");
+        permissions.add("blender.write");
+      }
     }
     if (capability.startsWith("validation.")) permissions.add("validation.read");
     if (capability.startsWith("correction.")) permissions.add("correction.read");

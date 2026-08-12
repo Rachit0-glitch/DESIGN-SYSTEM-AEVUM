@@ -1,5 +1,18 @@
 # AEVUM AI Reconstruction Engine — System Architecture
 
+## Phase 21 Camera And Cinematics Ownership
+
+`packages/camera-cinematics` owns deterministic camera geometry, physical lens derivation, fixed-time shot and
+path evaluation, composition measurements, reference-camera proposals, and attributed correction proposals. It
+depends on the Canonical Design Document, Animation Core, and the existing Phase 17 multi-view camera mathematics.
+It does not persist state, execute rendering, or own Blender, MCP, or Agent transport.
+
+Canonical ownership remains split by responsibility: `document-model` stores cameras, paths, shots, and sequences;
+`animation-core` interpolates timeline properties; `scene-runtime` composes responsive/global animation and
+shot-local state at one explicit time; `renderer-3d` emits backend-neutral camera operations; Blender executes a
+bounded semantic manifest; MCP authenticates and authorizes tools; Agent planning selects those tools. Every write
+reconciles through Command Engine. No camera state is stored only in Blender or a renderer cache.
+
 ## 1. Purpose
 
 This document defines the technical architecture of the AEVUM AI Reconstruction Engine.

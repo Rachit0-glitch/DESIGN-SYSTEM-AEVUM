@@ -2,7 +2,10 @@ import {
   ActorRefSchema,
   AssetSchema,
   CameraSchema,
+  CameraPathSchema,
   CanonicalDesignDocumentSchema,
+  CinematicSequenceSchema,
+  CinematicShotSchema,
   DesignNodeSchema,
   EntityIdSchema,
   LightSchema,
@@ -168,6 +171,25 @@ export const UpdateCameraCommandSchema = z.strictObject({
   type: z.literal("camera.update"),
   payload: z.strictObject({ camera: CameraSchema }),
 });
+export const CreateCameraCommandSchema = z.strictObject({
+  ...BaseCommandShape,
+  type: z.literal("camera.create"),
+  payload: z.strictObject({
+    camera: CameraSchema,
+    sceneId: EntityIdSchema.optional(),
+    makeActive: z.boolean().default(false),
+  }),
+});
+export const ApplyCinematicSequenceCommandSchema = z.strictObject({
+  ...BaseCommandShape,
+  type: z.literal("cinematic.apply_sequence"),
+  payload: z.strictObject({
+    sequence: CinematicSequenceSchema,
+    shots: z.array(CinematicShotSchema).min(1).max(256),
+    paths: z.array(CameraPathSchema).max(256),
+    timelines: z.array(TimelineSchema).max(256),
+  }),
+});
 export const UpdateLightCommandSchema = z.strictObject({
   ...BaseCommandShape,
   type: z.literal("light.update"),
@@ -212,6 +234,8 @@ export type DeleteTimelineCommand = z.infer<typeof DeleteTimelineCommandSchema>;
 export type ImportScene3DCommand = z.infer<typeof ImportScene3DCommandSchema>;
 export type UpdateMaterialCommand = z.infer<typeof UpdateMaterialCommandSchema>;
 export type UpdateCameraCommand = z.infer<typeof UpdateCameraCommandSchema>;
+export type CreateCameraCommand = z.infer<typeof CreateCameraCommandSchema>;
+export type ApplyCinematicSequenceCommand = z.infer<typeof ApplyCinematicSequenceCommandSchema>;
 export type UpdateLightCommand = z.infer<typeof UpdateLightCommandSchema>;
 export type ApplyLightingRigCommand = z.infer<typeof ApplyLightingRigCommandSchema>;
 export type RegisterLightingBakeCommand = z.infer<typeof RegisterLightingBakeCommandSchema>;
@@ -237,6 +261,8 @@ export type Command =
   | ImportScene3DCommand
   | UpdateMaterialCommand
   | UpdateCameraCommand
+  | CreateCameraCommand
+  | ApplyCinematicSequenceCommand
   | UpdateLightCommand
   | ApplyLightingRigCommand
   | RegisterLightingBakeCommand;
@@ -263,6 +289,8 @@ export const CommandSchema: z.ZodType<Command> = z.discriminatedUnion("type", [
   ImportScene3DCommandSchema,
   UpdateMaterialCommandSchema,
   UpdateCameraCommandSchema,
+  CreateCameraCommandSchema,
+  ApplyCinematicSequenceCommandSchema,
   UpdateLightCommandSchema,
   ApplyLightingRigCommandSchema,
   RegisterLightingBakeCommandSchema,

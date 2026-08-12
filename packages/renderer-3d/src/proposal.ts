@@ -526,12 +526,15 @@ export async function create3DImportProposal(input: Create3DImportProposalInput)
       const camera = sourceNode.getCamera();
       if (camera) {
         const sourceCameraIndex = cameraIndexes.get(camera) ?? 0;
-        const cameraId = deterministicEntityId("camera", {
-          asset: parsed.input.asset.hash,
-          sceneIndex,
-          sourceNodeIndex,
-          sourceCameraIndex,
-        });
+        const cameraIdentity = EntityIdSchema.safeParse(camera.getExtras()["aevum.entity_id"]);
+        const cameraId = cameraIdentity.success
+          ? cameraIdentity.data
+          : deterministicEntityId("camera", {
+              asset: parsed.input.asset.hash,
+              sceneIndex,
+              sourceNodeIndex,
+              sourceCameraIndex,
+            });
         const cameraTransform = transformFor(sourceNode, true);
         cameras.push(
           CameraSchema.parse({
@@ -543,7 +546,7 @@ export async function create3DImportProposal(input: Create3DImportProposalInput)
               ? {
                   verticalFieldOfView: camera.getYFov(),
                   ...(camera.getAspectRatio() === null ? {} : { aspectRatio: camera.getAspectRatio() }),
-                  focalLength: 0.5 / Math.tan(camera.getYFov() / 2),
+                  focalLength: 24 / (2 * Math.tan(camera.getYFov() / 2)),
                 }
               : {
                   orthographicSize: camera.getYMag() * 2,
@@ -556,7 +559,7 @@ export async function create3DImportProposal(input: Create3DImportProposalInput)
                 }),
             nearClip: camera.getZNear(),
             farClip: camera.getZFar() || 1_000_000,
-            depthOfField: { enabled: false, aperture: 2.8, focusDistance: 0 },
+            depthOfField: { enabled: false, aperture: 2.8, focusDistance: 0, bladeCount: 6 },
             importProvenance: provenance(parsed, { sourceSceneIndex: sceneIndex, sourceNodeIndex, sourceCameraIndex }),
           }),
         );

@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from professional import ProfessionalFailure, SUPPORTED_PROFESSIONAL, execute_professional
 from rigging import RiggingFailure, SUPPORTED_RIGGING, execute_rigging
 from lighting import LightingFailure, SUPPORTED_LIGHTING, execute_lighting
+from cameras import CameraFailure, SUPPORTED_CAMERAS, execute_cameras
 
 PROTOCOL_VERSION = "1.0.0"
 IDENTITY_KEY = "aevum.entity_id"
@@ -20,7 +21,7 @@ SUPPORTED = {
     "mesh.inspect", "material.inspect", "material.update_pbr",
     "camera.inspect", "camera.update", "camera.activate",
     "light.inspect", "light.update", "bridge.test_delay",
-} | SUPPORTED_PROFESSIONAL | SUPPORTED_RIGGING | SUPPORTED_LIGHTING
+} | SUPPORTED_PROFESSIONAL | SUPPORTED_RIGGING | SUPPORTED_LIGHTING | SUPPORTED_CAMERAS
 C = Matrix(((1.0, 0.0, 0.0), (0.0, 0.0, -1.0), (0.0, 1.0, 0.0)))
 C_INV = C.inverted()
 
@@ -354,6 +355,8 @@ def look_at(obj, target):
 
 def execute(operation, budget, lighting_output_path=None):
     kind = operation["kind"]
+    if kind in SUPPORTED_CAMERAS:
+        return execute_cameras(operation)
     if kind in SUPPORTED_LIGHTING:
         return execute_lighting(operation, lighting_output_path)
     if kind in SUPPORTED_PROFESSIONAL:
@@ -514,7 +517,7 @@ def main():
             "diagnostics": [],
             "durationMs": int((time.time() - started) * 1000),
         }
-    except (BridgeFailure, ProfessionalFailure, RiggingFailure, LightingFailure) as error:
+    except (BridgeFailure, ProfessionalFailure, RiggingFailure, LightingFailure, CameraFailure) as error:
         result = {
             "protocolVersion": PROTOCOL_VERSION,
             "jobId": job_id,

@@ -1,5 +1,24 @@
 # AEVUM AI Reconstruction Engine — Design Document Model
 
+## Phase 21 Canonical Camera And Cinematic Model
+
+CDD `1.7.0` expands each canonical camera with sensor size and fit, coherent focal-length/vertical-field-of-view
+semantics, lens shift, roll, anamorphic ratio, clipping, depth-of-field target and blade metadata, explicit targeting
+mode, up vector, safe-area composition guides, reference-match confidence/evidence, and backend-neutral metadata.
+Perspective cameras require focal length or vertical field of view; orthographic cameras require size or bounds.
+Validation rejects contradictory lens pairs, invalid clipping, missing targets, and invalid reference evidence.
+
+Three versioned registries are added: `cameraPaths`, `cinematicShots`, and `cinematicSequences`. A path references one
+stable camera and represents a timeline, orbit, dolly, or static path. A shot references a camera plus optional path,
+Animation Core timeline, lighting rig, transition, and composition target. A sequence orders shots for one 3D scene,
+declares duration and gap policy, and never embeds renderer or Blender state. Cuts are exact at shot boundaries;
+dissolve/fade records carry deterministic transition progress but compositing remains a renderer concern.
+
+The `1.6.0 -> 1.7.0` migration initializes all three registries and backfills professional camera defaults. When a
+legacy camera has vertical field of view, focal length is normalized against the 24 mm default sensor height so the
+migration cannot create contradictory physical lens metadata. Original camera IDs and all unrelated document state
+remain stable.
+
 ## 1. Purpose
 
 This document defines the Canonical Design Document used by the AEVUM AI Reconstruction Engine.

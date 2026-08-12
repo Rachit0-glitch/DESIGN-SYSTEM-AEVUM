@@ -37,7 +37,7 @@ describe("document migrations", () => {
     expect(migrated.assets).toEqual(current.assets);
   });
 
-  it("migrates 1.4 through 1.6 losslessly and deterministically", () => {
+  it("migrates 1.4 through the professional camera contract losslessly and deterministically", () => {
     const current = fixtures.assetDemo();
     const legacy = { ...current, schemaVersion: "1.4.0", migrationVersion: 4 };
 
@@ -45,9 +45,12 @@ describe("document migrations", () => {
     const second = migrate(legacy);
 
     expect(first).toEqual(second);
-    expect(first.schemaVersion).toBe("1.6.0");
-    expect(first.migrationVersion).toBe(6);
+    expect(first.schemaVersion).toBe("1.7.0");
+    expect(first.migrationVersion).toBe(7);
     expect(first.lightingRigs).toEqual({});
+    expect(first.cameraPaths).toEqual({});
+    expect(first.cinematicShots).toEqual({});
+    expect(first.cinematicSequences).toEqual({});
     expect(first.nodes).toEqual(current.nodes);
     expect(first.assets).toEqual(current.assets);
     expect(first.metadata).toEqual(current.metadata);

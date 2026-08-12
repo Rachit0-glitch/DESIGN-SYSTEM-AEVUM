@@ -1,5 +1,18 @@
 # AEVUM AI Reconstruction Engine — Animation and Rendering
 
+## Phase 21 Fixed-Time Cinematic Evaluation
+
+`evaluateCamera()` resolves one camera or cinematic sequence at an explicit time. Evaluation order is deterministic:
+responsive/global Animation Core values, active shot selection, shot-local timeline, camera path, target orientation,
+viewport aspect, depth-of-field target, and transition progress. Orbit changes camera position around a declared
+target; dolly changes position without changing focal length; zoom remains a lens timeline value. Exact shot cuts use
+half-open ranges except for the final endpoint, avoiding ambiguous active cameras at a boundary.
+
+Scene Runtime evaluates camera and lighting from the same viewport time before render-plan creation. Renderer 3D now
+emits `CAMERA_BIND`, `CAMERA_TRANSFORM`, `CAMERA_PROJECTION`, `CAMERA_LENS`, `CAMERA_DOF`, and `SHOT_ACTIVATE`
+operations containing resolved values only. These operations are REAL renderer-independent contracts; browser/GPU
+playback, dissolve compositing, motion blur, and rendered video remain DEFERRED.
+
 ## 1. Purpose
 
 This document defines the animation and rendering systems of the AEVUM AI Reconstruction Engine.

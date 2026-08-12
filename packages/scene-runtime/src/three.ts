@@ -1,4 +1,5 @@
 import { evaluateTimeline } from "@aevum/animation-core";
+import { evaluateCamera } from "@aevum/camera-cinematics";
 import type { Bounds3D, CameraRecord, CanonicalDesignDocument } from "@aevum/document-model";
 import { evaluatePose, type PoseDelta } from "@aevum/rigging";
 import { resolveLighting } from "@aevum/lighting";
@@ -139,6 +140,7 @@ export function project3DScene(
   const rigs = new Map<string, RuntimeRig3D>();
   const materials = new Map<string, CanonicalDesignDocument["materials"][string]>();
   const cameras = new Map<string, CameraRecord>();
+  const cameraStates = new Map<string, ReturnType<typeof evaluateCamera>>();
   const lights = new Map<string, CanonicalDesignDocument["lights"][string]>();
   const lighting = new Map<string, ReturnType<typeof resolveLighting>>();
   const scenes: RuntimeScene3D[] = [];
@@ -216,10 +218,63 @@ export function project3DScene(
         if (material) materials.set(materialId, material);
       }
     }
-    const activeCamera = source.activeCameraId
-      ? resolvedCamera(document, projection, source.activeCameraId)
-      : undefined;
+    const sequenceId = projection.viewport.animation?.sequenceId;
+    const nodePositions = Object.fromEntries(
+      [...nodes.values()].map((node) => [node.id, node.worldTransform.position]),
+    );
+    let cameraState: ReturnType<typeof evaluateCamera> | undefined;
+    try {
+      if (sequenceId || source.activeCameraId) {
+        cameraState = evaluateCamera({
+          document,
+          ...(source.activeCameraId ? { cameraId: source.activeCameraId } : {}),
+          ...(sequenceId ? { sequenceId } : {}),
+          time: projection.viewport.animation?.time ?? 0,
+          viewportAspectRatio: projection.viewport.width / projection.viewport.height,
+          nodePositions,
+        });
+        const globallyResolved = resolvedCamera(document, projection, cameraState.camera.id);
+        if (globallyResolved && (projection.viewport.animation?.timelineIds?.length ?? 0) > 0) {
+          cameraState = evaluateCamera({
+            document: {
+              ...document,
+              cameras: { ...document.cameras, [globallyResolved.id]: globallyResolved },
+            },
+            cameraId: globallyResolved.id,
+            ...(sequenceId ? { sequenceId } : {}),
+            time: projection.viewport.animation?.time ?? 0,
+            viewportAspectRatio: projection.viewport.width / projection.viewport.height,
+            nodePositions,
+          });
+        }
+      }
+    } catch (error) {
+      diagnostics.push({
+        code: "CAMERA_RESOLUTION_FAILED",
+        severity: "ERROR",
+        message: error instanceof Error ? error.message : "Camera resolution failed.",
+        entityId: source.id,
+        entityType: source.type,
+        recoverable: true,
+      });
+    }
+    const activeCamera =
+      cameraState?.camera ??
+      (source.activeCameraId ? resolvedCamera(document, projection, source.activeCameraId) : undefined);
     if (activeCamera) cameras.set(activeCamera.id, activeCamera);
+    if (cameraState) {
+      cameraStates.set(activeCamera?.id ?? cameraState.camera.id, cameraState);
+      for (const entry of cameraState.diagnostics) {
+        diagnostics.push({
+          code: "CAMERA_DIAGNOSTIC",
+          severity: entry.severity === "BLOCKING" ? "CRITICAL" : entry.severity,
+          message: entry.message,
+          entityId: entry.cameraId ?? source.id,
+          entityType: "CAMERA",
+          recoverable: entry.recoverable,
+        });
+      }
+    }
     let resolvedLighting: ReturnType<typeof resolveLighting> | undefined;
     if (source.lightingRigId) {
       const target =
@@ -279,6 +334,8 @@ export function project3DScene(
       lightIds: resolvedLighting ? resolvedLighting.lights.map((light) => light.id) : [...source.lightIds],
       ...(resolvedLighting ? { lightingRigId: resolvedLighting.rigId, lightingTarget: resolvedLighting.target } : {}),
       ...(activeCamera ? { activeCameraId: activeCamera.id } : {}),
+      ...(cameraState?.sourceShotId ? { activeShotId: cameraState.sourceShotId } : {}),
+      ...(cameraState?.sourceSequenceId ? { cinematicSequenceId: cameraState.sourceSequenceId } : {}),
       ...(bounds ? { bounds } : {}),
       qualityMode: projection.viewport.qualityMode ?? source.qualityProfile ?? projection.qualityMode,
     });
@@ -292,6 +349,7 @@ export function project3DScene(
     rigs: [...rigs],
     materials: [...materials],
     cameras: [...cameras],
+    cameraStates: [...cameraStates],
     lights: [...lights],
     lighting: [...lighting],
     diagnostics,
@@ -305,6 +363,7 @@ export function project3DScene(
     rigs: immutableMap(rigs),
     materials: immutableMap(materials),
     cameras: immutableMap(cameras),
+    cameraStates: immutableMap(cameraStates),
     lights: immutableMap(lights),
     lighting: immutableMap(lighting),
     diagnostics,

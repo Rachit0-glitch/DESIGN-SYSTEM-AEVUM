@@ -227,4 +227,58 @@ describe("agent planner", () => {
     expect(plan.steps.at(-1)?.type).toBe("VERIFY");
     expect(validatePlan(plan).valid).toBe(true);
   });
+
+  it("plans professional camera updates through dry-run, Blender verification, and one terminal validation", () => {
+    const fixture = plannerFixture();
+    const cameraId = "camera_11111111-1111-4111-8111-111111111111";
+    const goal = createAgentGoal({
+      category: "CUSTOM_3D",
+      request: "Dolly the camera closer while preserving the target and validate the framing.",
+      parameters: {
+        operation: "camera_update",
+        assetId: "asset_11111111-1111-4111-8111-111111111111",
+        sceneId: "scene_11111111-1111-4111-8111-111111111111",
+        cameraId,
+        camera: { id: cameraId, name: "Hero camera" },
+        time: 1.25,
+      },
+    });
+    const session = createAgentSession({
+      actorId: "actor",
+      workspaceId: "workspace",
+      projectId: "project",
+      documentId: "document",
+      goal,
+      createdAt: NOW,
+    });
+    const context = assembleAgentContext({ goal, records: [] });
+    const provider = createDeterministicReasoningProvider();
+    const intent = provider.analyzeIntent({ session, context });
+    const capabilities = createAgentCapabilities(
+      fixture.capabilities.tools.map((tool) =>
+        intent.requiredCapabilities.includes(tool.name) ? { ...tool, enabled: true } : tool,
+      ),
+      fixture.capabilities.actorPermissions,
+    );
+    const plan = provider.generatePlan({ session, context, intent, capabilities });
+    const dryRun = plan.steps.find((entry) => entry.type === "DRY_RUN");
+    const write = plan.steps.find((entry) => entry.type === "WRITE");
+    expect(intent.requiredPermissions).toEqual(
+      expect.arrayContaining(["camera.read", "camera.write", "document.write", "blender.write", "validation.read"]),
+    );
+    expect(plan.capabilityGaps).toEqual([]);
+    expect(dryRun?.tool).toBe("camera.update");
+    expect(write?.dependencies).toContain(dryRun?.id);
+    expect(plan.steps.map((entry) => entry.tool).filter(Boolean)).toEqual([
+      "camera.inspect",
+      "document.get",
+      "camera.update",
+      "camera.update",
+      "camera.evaluate",
+      "camera.validate",
+    ]);
+    expect(plan.steps.filter((entry) => entry.type === "VERIFY")).toHaveLength(1);
+    expect(plan.steps.at(-1)?.type).toBe("VERIFY");
+    expect(validatePlan(plan).valid).toBe(true);
+  });
 });

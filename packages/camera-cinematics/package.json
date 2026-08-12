@@ -1,6 +1,6 @@
 {
-  "name": "@aevum/scene-runtime",
-  "version": "0.0.0",
+  "name": "@aevum/camera-cinematics",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -17,12 +17,9 @@
   },
   "dependencies": {
     "@aevum/animation-core": "workspace:*",
-    "@aevum/camera-cinematics": "workspace:*",
     "@aevum/document-model": "workspace:*",
-    "@aevum/lighting": "workspace:*",
-    "@aevum/rigging": "workspace:*",
+    "@aevum/multiview-reconstruction": "workspace:*",
     "@aevum/shared": "workspace:*",
-    "gl-matrix": "3.4.4",
     "zod": "4.4.3"
   }
 }

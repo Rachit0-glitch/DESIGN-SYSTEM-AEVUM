@@ -1,5 +1,6 @@
 import type { TransactionCommitResult } from "@aevum/command-engine";
-import type { AssetRecord, CanonicalDesignDocument } from "@aevum/document-model";
+import { evaluateCamera } from "@aevum/camera-cinematics";
+import { assertValidDocument, type AssetRecord, type CanonicalDesignDocument } from "@aevum/document-model";
 import { analyzeReferenceLighting, buildLightingRig, resolveLighting } from "@aevum/lighting";
 import { validateBoneHierarchy } from "@aevum/rigging";
 import {
@@ -49,6 +50,9 @@ type BlenderToolName = Extract<
   | "lighting.inspect"
   | "lighting.create_rig"
   | "lighting.bake"
+  | "camera.create"
+  | "camera.update"
+  | "cinematic.apply_sequence"
 >;
 
 export interface BlenderAssetResolverContext {
@@ -103,6 +107,59 @@ function operationFor(
 ): BlenderOperation | undefined {
   const base = { operationVersion: "1.0.0" };
   switch (tool) {
+    case "camera.create":
+    case "camera.update": {
+      const camera = TOOL_SCHEMAS[tool].input.parse(payload).camera;
+      const sceneId = String(payload.sceneId);
+      const scene = document.nodes[sceneId];
+      if (scene?.type !== "SCENE_3D") throw blenderError("BLENDER_INPUT_INVALID", "Camera scene does not exist.");
+      if (tool === "camera.create" && document.cameras[camera.id]) {
+        throw blenderError("BLENDER_INPUT_INVALID", "Camera identity already exists.");
+      }
+      if (tool === "camera.update" && !document.cameras[camera.id]) {
+        throw blenderError("BLENDER_CAMERA_NOT_FOUND", "Canonical camera does not exist.");
+      }
+      return BlenderOperationSchema.parse({
+        ...base,
+        kind: "camera.apply",
+        sceneId,
+        camera,
+        create: tool === "camera.create",
+      });
+    }
+    case "cinematic.apply_sequence": {
+      const input = TOOL_SCHEMAS[tool].input.parse(payload);
+      const temporary: CanonicalDesignDocument = {
+        ...document,
+        timelines: { ...document.timelines, ...Object.fromEntries(input.timelines.map((entry) => [entry.id, entry])) },
+        cameraPaths: { ...document.cameraPaths, ...Object.fromEntries(input.paths.map((entry) => [entry.id, entry])) },
+        cinematicShots: {
+          ...document.cinematicShots,
+          ...Object.fromEntries(input.shots.map((entry) => [entry.id, entry])),
+        },
+        cinematicSequences: { ...document.cinematicSequences, [input.sequence.id]: input.sequence },
+      };
+      assertValidDocument(temporary);
+      const nodePositions = Object.fromEntries(
+        Object.values(document.nodes).map((node) => [node.id, node.transform.position]),
+      );
+      const samples = input.sampleTimes.map((time) => {
+        const resolved = evaluateCamera({ document: temporary, sequenceId: input.sequence.id, time, nodePositions });
+        const sourceAssetId = resolved.camera.importProvenance?.sourceAssetId;
+        return { time, camera: resolved.camera, create: sourceAssetId !== payload.assetId };
+      });
+      return BlenderOperationSchema.parse({
+        ...base,
+        kind: "cinematic.apply_sequence",
+        sequenceId: input.sequence.id,
+        sequence: input.sequence,
+        shots: input.shots,
+        paths: input.paths,
+        timelines: input.timelines,
+        frameRate: document.settings.frameRate,
+        samples,
+      });
+    }
     case "blender.runtime_info":
       return undefined;
     case "blender.inspect_scene":
@@ -482,6 +539,34 @@ function lineageOperationFingerprints(
 function assertOperationTarget(document: CanonicalDesignDocument, assetId: string, operation: BlenderOperation): void {
   const lineage = assetLineage(document, assetId);
   const operationFingerprints = lineageOperationFingerprints(document, lineage);
+  if (operation.kind === "camera.apply") {
+    const scene = document.nodes[operation.sceneId];
+    if (scene?.type !== "SCENE_3D") {
+      throw blenderError("BLENDER_INPUT_INVALID", "The camera target must be a canonical 3D scene.");
+    }
+    if (scene.locked) {
+      throw blenderError("BLENDER_INPUT_INVALID", "Locked canonical scenes cannot receive camera changes.");
+    }
+    const existing = document.cameras[operation.camera.id];
+    if (!operation.create && !lineage.has(existing?.importProvenance?.sourceAssetId ?? "")) {
+      throw blenderError("BLENDER_CAMERA_NOT_FOUND", "The camera is not owned by the requested source asset.");
+    }
+  }
+  if (operation.kind === "cinematic.apply_sequence") {
+    const scene = document.nodes[operation.sequence.sceneId];
+    if (scene?.type !== "SCENE_3D" || scene.locked) {
+      throw blenderError("BLENDER_INPUT_INVALID", "The cinematic target must be an unlocked canonical 3D scene.");
+    }
+    for (const sample of operation.samples) {
+      const existing = document.cameras[sample.camera.id];
+      if (!existing || !lineage.has(existing.importProvenance?.sourceAssetId ?? "")) {
+        throw blenderError(
+          "BLENDER_CAMERA_NOT_FOUND",
+          "Every cinematic camera must be owned by the requested source asset.",
+        );
+      }
+    }
+  }
   if (operation.kind === "rig.create") {
     const hierarchy = validateBoneHierarchy(operation.bones);
     if (!hierarchy.valid) {

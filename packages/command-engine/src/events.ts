@@ -2,6 +2,8 @@ export type CommandEventType =
   | "Scene3DImported"
   | "MaterialUpdated"
   | "CameraUpdated"
+  | "CameraCreated"
+  | "CinematicSequenceApplied"
   | "LightUpdated"
   | "LightingRigApplied"
   | "LightingBakeRegistered"

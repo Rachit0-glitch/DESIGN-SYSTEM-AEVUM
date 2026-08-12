@@ -2678,7 +2678,7 @@ Implement complete camera control, camera paths, shot timelines, and AI cinemato
 ### Status
 
 ```text
-PLANNED
+VALIDATED
 ```
 
 ### Scope
@@ -2713,13 +2713,58 @@ PLANNED
 - Desktop and mobile camera compositions are available
 - Cinematic sequence renders successfully
 
+### Validation Record - 2026-08-12
+
+- Previous status: `PLANNED`
+- New status: `VALIDATED`
+- Implementation evidence:
+  - CDD `1.7.0` adds professional physical camera fields plus versioned camera-path, shot, and cinematic-sequence
+    registries. The deterministic `1.6.0 -> 1.7.0` migration preserves identity and normalizes legacy lens metadata.
+  - `@aevum/camera-cinematics` implements physical lens math, target/orbit/dolly evaluation, exact cuts, composition
+    measurements, Phase 17 camera-estimate proposals, attributed diagnostics, and bounded correction proposals.
+  - Command Engine adds atomic `camera.create` and `cinematic.apply_sequence`; all writes retain stale-version,
+    locked-scene, rollback, audit, and immutable transaction guarantees.
+  - Scene Runtime composes responsive/global Animation Core values with shot-local timeline, path, target, lens,
+    focus, and transition state at one explicit viewport time. Renderer 3D emits resolved semantic camera operations.
+  - Blender 5.1.2 executes finite `camera.apply` and `cinematic.apply_sequence` manifests, preserves stable AEVUM
+    camera identity, writes lens/sensor/shift/clipping/DOF, creates real camera keyframes, exports GLB derivatives,
+    and reconciles canonical state through Command Engine.
+  - MCP tool surface `1.10.0` adds seven strict camera/cinematic tools with camera permissions. Writes are
+    workspace-scoped, expected-version checked, dry-run capable, idempotent, audited, lineage checked, Blender
+    verified, and atomically reconciled. Agent camera/cinematic plans use dry-run before writes and one terminal
+    `VERIFY`.
+- Test results:
+  - 366/366 repository unit and integration tests passed across 51 files.
+  - 28/28 real Blender tests passed, preserving all 26 Phase 20 regression tests and adding physical camera/DOF
+    round-trip plus animated cinematic-sequence/keyframe/reconciliation coverage.
+  - 86/86 typecheck tasks and 62/62 build tasks passed.
+  - 12/12 canonical documentation files and 62/62 dependency packages validated.
+  - `pnpm validate`, `pnpm validate:docker`, formatting, lint, and focused camera/MCP/Agent tests passed.
+- Security and resources: camera/sequence schemas reject non-finite values and contradictory lens/clipping data;
+  cinematic payloads are capped at 256 shots, paths, timelines, and samples and 86,400 seconds; Blender remains
+  bounded by existing byte, object, topology, and timeout budgets. No arbitrary Python, shell, path, environment,
+  renderer code, or cross-asset camera mutation is exposed.
+- Production health: Railway API and MCP health/readiness/version endpoints returned HTTP 200; Vercel production
+  returned HTTP 200; the linked Supabase project reported `ACTIVE_HEALTHY`.
+- Deployment state: Railway API and MCP are running. Blender Bridge and Agent Worker remain intentionally inactive.
+  Production MCP remains at deployment `c4e3d51`; repository MCP `1.10.0` and Blender-backed Phase 21 tools are not
+  falsely claimed as deployed.
+- Remaining warnings: Bezier/Catmull-Rom path controls, collision avoidance, multi-target blending, generated rack
+  focus, cursor/scroll bindings, rendered dissolve/fade compositing, motion blur, video output, and broad autonomous
+  camera correction remain deferred. Renderer 3D produces semantic operations, not pixels.
+- Blockers: none for the defined Phase 21 scope.
+- Decision: cameras, paths, shots, and sequences remain backend-neutral canonical truth; Animation Core owns
+  interpolation, Blender is an execution backend, and validation suggestions never mutate state.
+- Next action: begin Phase 22 - Maximum Fidelity Integration only when explicitly requested. Phase 22 was not started.
+
 ---
 
-## 28. Phase 22 — 3D Visual Validation and Correction
+## 28. Phase 22 — Maximum Fidelity Integration
 
 ### Goal
 
-Measure and autonomously improve 3D geometry, materials, lighting, and cameras.
+Integrate the validated reconstruction, camera, lighting, rendering, validation, correction, and export foundations
+into bounded Maximum Fidelity workflows without weakening domain-specific quality gates.
 
 ### Status
 
@@ -2729,30 +2774,23 @@ PLANNED
 
 ### Scope
 
-- Silhouette comparison
-- Landmark comparison
-- Proportion comparison
-- Camera comparison
-- Material comparison
-- Lighting comparison
-- Shadow comparison
-- Reflection comparison
-- Multi-angle scoring
-- Turntable scoring
-- Responsible-entity mapping
-- Correction proposals
-- Regression checks
-- Convergence tracking
+- Cross-domain fidelity profiles
+- Deterministic render-compare-diagnose-correct orchestration
+- 2D, responsive, motion, 3D, camera, lighting, and export evidence coordination
+- Responsible-entity attribution across domains
+- Regression and plateau detection
+- Checkpoints, resumability, resource policies, and human review gates
+- Honest unsupported-feature and fallback reporting
+- Final measurable Maximum Fidelity reports
 
 ### Acceptance Gate
 
-- Per-angle scores are produced
-- Worst-view score is tracked
-- Camera errors and mesh errors are separated
-- Material and lighting errors are separated
-- Correction commands are reversible
-- Turntable issues are detectable
-- Multi-angle convergence is measurable
+- Domain-specific scores remain separate and traceable
+- Validation drives only reversible Command Engine corrections
+- No domain or protected region regresses
+- Workflows are bounded, resumable, and resource controlled
+- Unsupported and deferred capabilities remain visible
+- Completion claims are backed by reproducible evidence
 
 ---
 
@@ -3734,7 +3772,7 @@ if the two ever disagree again.
 The next repository action should be:
 
 ```text
-Phase 20 is complete. Do not begin Phase 21 automatically; await its explicit scope.
+Phase 21 is complete. Do not begin Phase 22 automatically; await its explicit scope.
 ```
 
 Phase 18 (§24) delivered the first real local reconstruction execution — candidate geometry
@@ -3750,10 +3788,9 @@ poses, FK/IK and constraints, CPU skinning, weight editing, deformation quality 
 Animation Core and Scene Runtime integration, semantic Blender execution, MCP tools, and Agent
 workflows.
 
-Phase 20 now validates canonical lighting and environments, deterministic reference estimates,
-realtime/offline/mobile delivery profiles, renderer-ready operations, real Blender lighting and PNG
-bakes, lighting-specific validation, MCP control, and bounded Agent workflows. Phase 21 has not been
-started.
+Phase 21 now validates canonical professional cameras, editable paths, shots and sequences, deterministic fixed-time
+evaluation, physical lens and composition analysis, renderer-ready camera operations, real Blender camera/DOF and
+animated keyframe round trips, MCP control, and bounded Agent workflows. Phase 22 has not been started.
 
 ---
 

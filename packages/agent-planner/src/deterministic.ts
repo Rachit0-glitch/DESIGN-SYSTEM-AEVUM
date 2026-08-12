@@ -300,6 +300,151 @@ function lightingPlan(
   return steps;
 }
 
+function cameraPlan(
+  intent: AgentIntent,
+  capabilities: AgentCapabilities,
+  policy: AgentApprovalPolicy,
+): AgentPlanStep[] {
+  const operation = String(intent.parameters.operation ?? "").toLowerCase();
+  const steps: AgentPlanStep[] = [];
+  let dependency: string | undefined;
+  const toolInput = Object.fromEntries(Object.entries(intent.parameters).filter(([key]) => key !== "operation"));
+  const append = (tool: string, type: AgentPlanStepType, label: string, data: unknown) => {
+    const current = step({
+      goalId: intent.goalId,
+      index: steps.length,
+      type,
+      label,
+      tool,
+      descriptor: findDescriptor(capabilities, tool),
+      dependencies: dependency ? [dependency] : [],
+      data,
+      approvalPolicy: policy,
+    });
+    steps.push(current);
+    dependency = current.id;
+    return current;
+  };
+  const readTools: Readonly<Record<string, string>> = {
+    camera_inspect: "camera.inspect",
+    camera_evaluate: "camera.evaluate",
+    camera_validate: "camera.validate",
+    cinematic_inspect: "cinematic.inspect",
+  };
+  const readTool = readTools[operation];
+  if (readTool) {
+    append(readTool, readTool === "camera.validate" ? "VALIDATE" : "INSPECT", `Run ${readTool}`, toolInput);
+  } else {
+    const sequenceWrite = ["cinematic_apply_sequence", "camera_orbit", "camera_dolly", "camera_zoom"].includes(
+      operation,
+    );
+    if (!sequenceWrite && operation !== "camera_create") {
+      append("camera.inspect", "INSPECT", "Inspect the current canonical camera", {
+        cameraId:
+          intent.parameters.cameraId ??
+          (typeof intent.parameters.camera === "object" && intent.parameters.camera !== null
+            ? (intent.parameters.camera as Record<string, unknown>).id
+            : undefined),
+      });
+    }
+    const documentRead = append("document.get", "READ", "Read the canonical document version", {
+      projection: "summary",
+    });
+    const writeTool = sequenceWrite
+      ? "cinematic.apply_sequence"
+      : operation === "camera_create"
+        ? "camera.create"
+        : "camera.update";
+    const writeInput = { ...toolInput, expectedDocumentVersion: 1 };
+    const bindings: AgentPlanStep["inputBindings"] = [
+      {
+        targetPath: "expectedDocumentVersion",
+        sourceStepId: documentRead.id,
+        sourcePath: "data.documentVersion",
+      },
+    ];
+    const descriptor = findDescriptor(capabilities, writeTool);
+    const dryRun = step({
+      goalId: intent.goalId,
+      index: steps.length,
+      type: "DRY_RUN",
+      label: `Dry-run ${writeTool}`,
+      tool: writeTool,
+      descriptor,
+      dependencies: dependency ? [dependency] : [],
+      data: writeInput,
+      bindings,
+      approvalPolicy: policy,
+    });
+    steps.push(dryRun);
+    const write = step({
+      goalId: intent.goalId,
+      index: steps.length,
+      type: "WRITE",
+      label: `Execute ${writeTool} through MCP, Blender, and Command Engine`,
+      tool: writeTool,
+      descriptor,
+      dependencies: [dryRun.id],
+      data: writeInput,
+      bindings,
+      failurePolicy: "REPLAN",
+      approvalPolicy: policy,
+    });
+    steps.push(write);
+    dependency = write.id;
+    if (sequenceWrite) {
+      append("cinematic.inspect", "INSPECT", "Inspect the committed cinematic sequence", {
+        sequenceId:
+          typeof intent.parameters.sequence === "object" && intent.parameters.sequence !== null
+            ? (intent.parameters.sequence as Record<string, unknown>).id
+            : intent.parameters.sequenceId,
+      });
+    } else {
+      append("camera.evaluate", "READ", "Evaluate the committed camera at a fixed time", {
+        cameraId:
+          typeof intent.parameters.camera === "object" && intent.parameters.camera !== null
+            ? (intent.parameters.camera as Record<string, unknown>).id
+            : intent.parameters.cameraId,
+        time: intent.parameters.time ?? 0,
+      });
+    }
+    append("camera.validate", "VALIDATE", "Validate composition and cinematic continuity", {
+      ...(sequenceWrite
+        ? {
+            sequenceId:
+              typeof intent.parameters.sequence === "object" && intent.parameters.sequence !== null
+                ? (intent.parameters.sequence as Record<string, unknown>).id
+                : intent.parameters.sequenceId,
+          }
+        : {
+            cameraId:
+              typeof intent.parameters.camera === "object" && intent.parameters.camera !== null
+                ? (intent.parameters.camera as Record<string, unknown>).id
+                : intent.parameters.cameraId,
+          }),
+      time: intent.parameters.time ?? 0,
+      ...(intent.parameters.sampleTimes ? { sampleTimes: intent.parameters.sampleTimes } : {}),
+    });
+  }
+  const terminal = dependency;
+  steps.push(
+    step({
+      goalId: intent.goalId,
+      index: steps.length,
+      type: "VERIFY",
+      label: "Verify the camera or cinematic workflow once",
+      dependencies: terminal ? [terminal] : [],
+      approvalPolicy: policy,
+      verification: {
+        required: true,
+        strategy: "STATE_ASSERTION",
+        assertions: terminal ? [{ sourceStepId: terminal, operator: "SUCCESS" }] : [],
+      },
+    }),
+  );
+  return steps;
+}
+
 function renamePlan(
   intent: AgentIntent,
   capabilities: AgentCapabilities,
@@ -1505,6 +1650,8 @@ export function generateDeterministicPlan(input: {
     steps = reconstructAndImportPlan(input.intent, input.capabilities, policy);
   } else if (operation.startsWith("lighting_")) {
     steps = lightingPlan(input.intent, input.capabilities, policy);
+  } else if (operation.startsWith("camera_") || operation.startsWith("cinematic_")) {
+    steps = cameraPlan(input.intent, input.capabilities, policy);
   } else if (
     [
       "rig_inspect",

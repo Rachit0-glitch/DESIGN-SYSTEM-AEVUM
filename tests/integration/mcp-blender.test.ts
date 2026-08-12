@@ -1,4 +1,5 @@
 import type { BlenderToolAdapter } from "@aevum/mcp-server";
+import { sceneRuntimeFixtures } from "@aevum/scene-runtime";
 import { describe, expect, it, vi } from "vitest";
 import { createMcpTestFixture, MCP_OTHER_WORKSPACE_ID } from "../helpers/mcp-fixture.js";
 
@@ -260,6 +261,52 @@ describe("MCP Blender authorization boundary", () => {
       await viewer.execute("lighting.create_rig", input, {
         dryRun: true,
         idempotencyKey: "phase20-viewer-denied",
+      }),
+    ).toMatchObject({ success: false, errors: [{ code: "MCP_AUTHORIZATION_DENIED" }] });
+  });
+
+  it("exposes canonical camera reads and idempotent permissioned Blender-backed writes", async () => {
+    const document = sceneRuntimeFixtures.mixed();
+    const camera = Object.values(document.cameras)[0];
+    const scene = Object.values(document.nodes).find((node) => node.type === "SCENE_3D");
+    const asset = Object.values(document.assets).find((entry) => ["GLB", "GLTF"].includes(entry.type));
+    if (scene?.type !== "SCENE_3D" || !camera || !asset) throw new Error("Expected a canonical camera fixture.");
+    const fixture = createMcpTestFixture({ document, blenderAdapter: adapter });
+    expect(await fixture.execute("camera.inspect", { cameraId: camera.id })).toMatchObject({
+      success: true,
+      data: { id: camera.id, focalLength: camera.focalLength },
+    });
+    expect(await fixture.execute("camera.evaluate", { cameraId: camera.id, time: 0 })).toMatchObject({
+      success: true,
+      data: { camera: { id: camera.id } },
+    });
+    const input = {
+      assetId: asset.id,
+      sceneId: scene.id,
+      expectedDocumentVersion: document.documentVersion,
+      camera: {
+        ...camera,
+        focalLength: 55,
+        verticalFieldOfView: 2 * Math.atan(camera.sensor.height / (2 * 55)),
+      },
+    };
+    const before = vi.mocked(adapter.execute).mock.calls.length;
+    const first = await fixture.execute("camera.update", input, {
+      dryRun: true,
+      idempotencyKey: "phase21-camera-update",
+    });
+    const replay = await fixture.execute("camera.update", input, {
+      dryRun: true,
+      idempotencyKey: "phase21-camera-update",
+    });
+    expect(first).toMatchObject({ success: true, data: { dryRun: true, stage: "VALIDATED" } });
+    expect(replay.data).toEqual(first.data);
+    expect(vi.mocked(adapter.execute).mock.calls.length).toBe(before + 1);
+    const viewer = createMcpTestFixture({ role: "VIEWER", document, blenderAdapter: adapter });
+    expect(
+      await viewer.execute("camera.update", input, {
+        dryRun: true,
+        idempotencyKey: "phase21-viewer-denied",
       }),
     ).toMatchObject({ success: false, errors: [{ code: "MCP_AUTHORIZATION_DENIED" }] });
   });

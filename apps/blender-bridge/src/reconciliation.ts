@@ -279,6 +279,34 @@ export async function createBlenderReconciliationProposal(
         },
       },
     });
+  } else if (operation.kind === "camera.apply") {
+    const candidate = imported.cameras.find((value) => value.id === operation.camera.id);
+    if (!candidate) throw new Error("Blender canonical camera identity could not be reconciled.");
+    const exists = Boolean(input.document.cameras[operation.camera.id]);
+    commands.push({
+      ...commandBase(input, transactionId, commands.length),
+      type: exists ? "camera.update" : "camera.create",
+      payload: exists
+        ? { camera: operation.camera }
+        : { camera: operation.camera, sceneId: operation.sceneId, makeActive: true },
+    } as Command);
+    (exists ? modified : added).add(operation.camera.id);
+    modified.add(operation.sceneId);
+  } else if (operation.kind === "cinematic.apply_sequence") {
+    const payload = operation;
+    commands.push({
+      ...commandBase(input, transactionId, commands.length),
+      type: "cinematic.apply_sequence",
+      payload: {
+        sequence: payload.sequence,
+        shots: payload.shots,
+        paths: payload.paths,
+        timelines: payload.timelines,
+      },
+    } as Command);
+    modified.add(payload.sequence.sceneId);
+    added.add(payload.sequence.id);
+    for (const record of [...payload.shots, ...payload.paths, ...payload.timelines]) added.add(record.id);
   } else if (operation.kind === "camera.update") {
     const current = input.document.cameras[operation.cameraId];
     const candidate = imported.cameras.find((value) => value.name === current?.name);

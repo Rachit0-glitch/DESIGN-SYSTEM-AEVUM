@@ -582,8 +582,131 @@ function validateReferences(document: CanonicalDesignDocument, issues: DocumentV
   }
   for (const [id, camera] of Object.entries(document.cameras)) {
     requireRef(camera.targetNodeId, document.nodes, `cameras.${id}.targetNodeId`, "Target node");
+    requireRef(
+      camera.depthOfField.focusTargetNodeId,
+      document.nodes,
+      `cameras.${id}.depthOfField.focusTargetNodeId`,
+      "Focus target node",
+    );
+    requireRef(
+      camera.matchProvenance?.referenceId,
+      document.references,
+      `cameras.${id}.matchProvenance.referenceId`,
+      "Reference",
+    );
+    if (camera.farClip <= camera.nearClip) {
+      issues.push(issue("VALUE_INVALID", `cameras.${id}.farClip`, "Far clip must exceed near clip."));
+    }
+    if (camera.projection === "PERSPECTIVE" && !camera.focalLength && !camera.verticalFieldOfView) {
+      issues.push(
+        issue("VALUE_INVALID", `cameras.${id}`, "Perspective cameras require focalLength or verticalFieldOfView."),
+      );
+    }
+    if (camera.projection === "ORTHOGRAPHIC" && !camera.orthographicSize && !camera.orthographicBounds) {
+      issues.push(issue("VALUE_INVALID", `cameras.${id}`, "Orthographic cameras require size or explicit bounds."));
+    }
+    if (camera.focalLength && camera.verticalFieldOfView) {
+      const derived = 2 * Math.atan(camera.sensor.height / (2 * camera.focalLength));
+      if (Math.abs(derived - camera.verticalFieldOfView) > 0.001) {
+        issues.push(
+          issue(
+            "VALUE_INVALID",
+            `cameras.${id}.verticalFieldOfView`,
+            "Vertical field of view conflicts with focal length and sensor height.",
+          ),
+        );
+      }
+    }
+    if (["LOOK_AT_NODE", "TRACKED_NODE"].includes(camera.targetingMode) && !camera.targetNodeId) {
+      issues.push(
+        issue("INVALID_REFERENCE", `cameras.${id}.targetNodeId`, `${camera.targetingMode} requires a target node.`),
+      );
+    }
+    if (camera.targetingMode === "LOOK_AT_POINT" && !camera.target) {
+      issues.push(issue("INVALID_REFERENCE", `cameras.${id}.target`, "LOOK_AT_POINT requires a target point."));
+    }
     if (camera.importProvenance)
       requireAssetType(camera.importProvenance.sourceAssetId, ["GLB", "GLTF"], `cameras.${id}.importProvenance`);
+  }
+  for (const [id, path] of Object.entries(document.cameraPaths)) {
+    requireRef(path.cameraId, document.cameras, `cameraPaths.${id}.cameraId`, "Camera");
+    requireRef(path.timelineId, document.timelines, `cameraPaths.${id}.timelineId`, "Timeline");
+    requireRef(path.targetNodeId, document.nodes, `cameraPaths.${id}.targetNodeId`, "Path target node");
+    if (path.type === "TIMELINE" && !path.timelineId) {
+      issues.push(issue("INVALID_REFERENCE", `cameraPaths.${id}.timelineId`, "Timeline paths require a timeline."));
+    }
+    if (path.type === "ORBIT" && (!path.orbit || (!path.target && !path.targetNodeId))) {
+      issues.push(
+        issue("INVALID_REFERENCE", `cameraPaths.${id}.orbit`, "Orbit paths require orbit metadata and a target."),
+      );
+    }
+    if (path.type === "DOLLY" && (!path.startPosition || !path.endPosition)) {
+      issues.push(issue("INVALID_REFERENCE", `cameraPaths.${id}`, "Dolly paths require start and end positions."));
+    }
+  }
+  for (const [id, shot] of Object.entries(document.cinematicShots)) {
+    requireRef(shot.cameraId, document.cameras, `cinematicShots.${id}.cameraId`, "Camera");
+    requireRef(shot.timelineId, document.timelines, `cinematicShots.${id}.timelineId`, "Timeline");
+    requireRef(shot.cameraPathId, document.cameraPaths, `cinematicShots.${id}.cameraPathId`, "Camera path");
+    requireRef(
+      shot.composition.subjectNodeId,
+      document.nodes,
+      `cinematicShots.${id}.composition.subjectNodeId`,
+      "Subject",
+    );
+    requireRef(shot.lightingRigId, document.lightingRigs, `cinematicShots.${id}.lightingRigId`, "Lighting rig");
+    if (shot.transitionIn.duration > shot.duration) {
+      issues.push(
+        issue("VALUE_INVALID", `cinematicShots.${id}.transitionIn.duration`, "Transition cannot exceed shot duration."),
+      );
+    }
+    const path = shot.cameraPathId ? document.cameraPaths[shot.cameraPathId] : undefined;
+    if (path && path.cameraId !== shot.cameraId) {
+      issues.push(
+        issue("INVALID_REFERENCE", `cinematicShots.${id}.cameraPathId`, "Shot path belongs to another camera."),
+      );
+    }
+  }
+  for (const [id, sequence] of Object.entries(document.cinematicSequences)) {
+    requireNodeType(sequence.sceneId, "SCENE_3D", `cinematicSequences.${id}.sceneId`);
+    const shots = sequence.shotIds.flatMap((shotId, index) => {
+      const shot = document.cinematicShots[shotId];
+      if (!shot) {
+        issues.push(
+          issue("INVALID_REFERENCE", `cinematicSequences.${id}.shotIds.${index}`, `Shot ${shotId} does not exist.`),
+        );
+        return [];
+      }
+      return [shot];
+    });
+    if (new Set(sequence.shotIds).size !== sequence.shotIds.length) {
+      issues.push(issue("DUPLICATE_ID", `cinematicSequences.${id}.shotIds`, "Sequence shot IDs must be unique."));
+    }
+    const ordered = [...shots].sort(
+      (left, right) => left.startTime - right.startTime || left.id.localeCompare(right.id),
+    );
+    for (let index = 0; index < ordered.length; index += 1) {
+      const shot = ordered[index];
+      const previous = ordered[index - 1];
+      if (!shot) continue;
+      if (sequence.shotIds[index] !== shot.id) {
+        issues.push(issue("VALUE_INVALID", `cinematicSequences.${id}.shotIds`, "Shots must be ordered by start time."));
+        break;
+      }
+      if (previous && shot.startTime < previous.startTime + previous.duration) {
+        issues.push(issue("VALUE_INVALID", `cinematicSequences.${id}.shotIds.${index}`, "Shots must not overlap."));
+      }
+      if (
+        !sequence.allowGaps &&
+        previous &&
+        Math.abs(shot.startTime - (previous.startTime + previous.duration)) > 1e-9
+      ) {
+        issues.push(issue("VALUE_INVALID", `cinematicSequences.${id}.shotIds.${index}`, "Sequence contains a gap."));
+      }
+      if (shot.startTime + shot.duration > sequence.duration + 1e-9) {
+        issues.push(issue("VALUE_INVALID", `cinematicSequences.${id}.duration`, "Shot exceeds sequence duration."));
+      }
+    }
   }
   for (const [id, light] of Object.entries(document.lights)) {
     requireRef(light.targetNodeId, document.nodes, `lights.${id}.targetNodeId`, "Target node");
@@ -679,6 +802,9 @@ export function validateDocument(input: unknown): DocumentValidationResult {
   validateRegistry("timelines", document.timelines, seen, issues);
   validateRegistry("stateMachines", document.stateMachines, seen, issues);
   validateRegistry("cameras", document.cameras, seen, issues);
+  validateRegistry("cameraPaths", document.cameraPaths, seen, issues);
+  validateRegistry("cinematicShots", document.cinematicShots, seen, issues);
+  validateRegistry("cinematicSequences", document.cinematicSequences, seen, issues);
   validateRegistry("lights", document.lights, seen, issues);
   validateRegistry("environments", document.environments, seen, issues);
   validateRegistry("lightingRigs", document.lightingRigs, seen, issues);
