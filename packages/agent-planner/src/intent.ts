@@ -26,6 +26,38 @@ function initialCapabilities(session: AgentSession): string[] {
   if (goal.parameters.operation === "reconstruct_and_import") {
     return ["three.multiview_analyze", "three.reconstruction_generate_candidate", "document.get", "three.import_scene"];
   }
+  const riggingCapabilities: Readonly<Record<string, readonly string[]>> = {
+    rig_inspect: ["three.rig_inspect"],
+    rig_create: ["document.get", "three.rig_create", "three.rig_inspect"],
+    skin_bind: ["document.get", "three.skin_bind", "three.weight_inspect"],
+    pose_update: ["document.get", "three.pose_update", "three.pose_inspect", "three.deformation_validate"],
+    pose_reset: ["document.get", "three.pose_reset", "three.pose_inspect"],
+    weight_update: ["document.get", "three.weight_inspect", "three.weight_update", "three.deformation_validate"],
+    weight_normalize: ["document.get", "three.weight_inspect", "three.weight_normalize", "three.deformation_validate"],
+    ik_update: ["document.get", "three.ik_update", "three.pose_inspect", "three.deformation_validate"],
+    constraint_update: ["document.get", "three.constraint_update", "three.pose_inspect", "three.deformation_validate"],
+    deformation_validate: ["three.deformation_validate"],
+    retarget_pose: ["three.retarget"],
+    rig_mechanical_workflow: [
+      "three.rig_inspect",
+      "document.get",
+      "three.rig_create",
+      "three.skin_bind",
+      "three.pose_update",
+      "three.deformation_validate",
+    ],
+    rig_humanoid_workflow: [
+      "three.rig_inspect",
+      "document.get",
+      "three.rig_create",
+      "three.skin_bind",
+      "three.weight_inspect",
+      "three.ik_update",
+      "three.deformation_validate",
+    ],
+  };
+  const rigging = riggingCapabilities[String(goal.parameters.operation ?? "").toLowerCase()];
+  if (rigging) return [...rigging];
   switch (goal.category) {
     case "INSPECT":
       return ["project.get", "document.inspect_hierarchy"];
@@ -79,6 +111,14 @@ function requiredPermissions(capabilities: readonly string[]): AgentIntent["requ
         "three.update_pbr_material",
         "three.reconstruction_generate_candidate",
         "three.import_scene",
+        "three.rig_create",
+        "three.skin_bind",
+        "three.pose_update",
+        "three.pose_reset",
+        "three.weight_update",
+        "three.weight_normalize",
+        "three.ik_update",
+        "three.constraint_update",
       ].includes(capability);
       permissions.add(write ? "three.write" : "three.read");
       if (write) permissions.add("document.write");
@@ -93,7 +133,21 @@ function requiredPermissions(capabilities: readonly string[]): AgentIntent["requ
       if (capability.startsWith("three.inspect_") || capability.startsWith("three.validate_")) {
         permissions.add("blender.read");
       }
-      if (["three.bevel_mesh", "three.unwrap_uv", "three.update_pbr_material"].includes(capability)) {
+      if (
+        [
+          "three.bevel_mesh",
+          "three.unwrap_uv",
+          "three.update_pbr_material",
+          "three.rig_create",
+          "three.skin_bind",
+          "three.pose_update",
+          "three.pose_reset",
+          "three.weight_update",
+          "three.weight_normalize",
+          "three.ik_update",
+          "three.constraint_update",
+        ].includes(capability)
+      ) {
         permissions.add("blender.write");
       }
     }

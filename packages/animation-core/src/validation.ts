@@ -133,6 +133,50 @@ export function validateTimeline(input: unknown): AnimationValidationResult<Time
   });
 }
 
+/** Validates the rig-aware subset without coupling Animation Core to a rig implementation. */
+export function validateBoneTracks(
+  timeline: Timeline,
+  boneIds: readonly string[],
+): AnimationValidationResult<Timeline> {
+  const base = validateTimeline(timeline);
+  const diagnostics = [...base.diagnostics];
+  const known = new Set(boneIds);
+  const rigPaths = new Set([
+    "transform.position",
+    "position",
+    "transform.quaternion",
+    "quaternion",
+    "transform.scale",
+    "scale",
+  ]);
+  for (const [index, track] of timeline.tracks.entries()) {
+    if (!known.has(track.targetId)) continue;
+    if (!rigPaths.has(track.propertyPath))
+      diagnostics.push({
+        code: "INVALID_BONE_TRACK",
+        severity: "ERROR",
+        message: `Bone track ${track.id} uses unsupported path ${track.propertyPath}.`,
+        path: `tracks.${index}.propertyPath`,
+        entityId: track.id,
+        recoverable: true,
+      });
+    if (track.keyframes.some((keyframe) => keyframe.value === null || typeof keyframe.value !== "object"))
+      diagnostics.push({
+        code: "INVALID_BONE_TRACK",
+        severity: "ERROR",
+        message: `Bone track ${track.id} requires structured transform values.`,
+        path: `tracks.${index}.keyframes`,
+        entityId: track.id,
+        recoverable: true,
+      });
+  }
+  return deepFreeze({
+    success: !diagnostics.some((entry) => entry.severity === "ERROR"),
+    value: timeline,
+    diagnostics,
+  });
+}
+
 export function validateStateMachine(input: unknown): AnimationValidationResult<AnimationStateMachine> {
   const parsed = AnimationStateMachineSchema.safeParse(input);
   if (!parsed.success) return deepFreeze({ success: false, diagnostics: schemaDiagnostics(parsed.error) });

@@ -29,7 +29,7 @@ describe("MCP protocol", () => {
     registerInitialTools(registry, mcpTestConfig);
     const tools = registry.listTools();
 
-    expect(tools).toHaveLength(44);
+    expect(tools).toHaveLength(54);
     expect(tools.every((tool) => tool.version === MCP_TOOL_VERSION)).toBe(true);
     expect(tools.map((tool) => tool.name)).toEqual(Object.keys(TOOL_SCHEMAS).sort());
     expect(() => registerInitialTools(registry, mcpTestConfig)).toThrow(/already registered/);
@@ -57,6 +57,18 @@ describe("MCP protocol", () => {
           assetId: "asset_11111111-1111-4111-8111-111111111111",
           expectedDocumentVersion: 1,
           script: "bpy.ops.wm.quit_blender()",
+        },
+      ],
+      [
+        "three.pose_update",
+        {
+          assetId: "asset_11111111-1111-4111-8111-111111111111",
+          targetId: "rig_11111111-1111-4111-8111-111111111111",
+          expectedDocumentVersion: 1,
+          boneKey: "arm",
+          mode: "SET",
+          rotation: { x: 0, y: 0, z: 0, w: 1 },
+          python: "import bpy",
         },
       ],
     ] as const;

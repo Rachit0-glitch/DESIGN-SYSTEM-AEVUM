@@ -1392,9 +1392,10 @@ interface Rig3DNode extends BaseNode {
 }
 ```
 
-CDD `1.5.0` stores static rig structure. `rootBoneId` must be in `boneIds`; every bone belongs to
-exactly one rig; roots are parented to the rig and child bones use `parentId`/`childIds`. IK chains
-and constraints are validated metadata at this checkpoint, not executed behavior.
+CDD `1.5.0` stores persistent rig structure. `rootBoneId` must be in `boneIds`; every bone belongs
+to exactly one rig; roots are parented to the rig and child bones use `parentId`/`childIds`. IK
+chains and constraints remain canonical configuration and are evaluated by the regenerable
+rigging/Scene Runtime projection. Per-frame results never become document mutations.
 
 Future phases may extend the rig model to support:
 
@@ -1421,8 +1422,11 @@ interface Bone3DNode extends BaseNode {
 }
 ```
 
-`BaseNode.transform` on `BONE_3D` is the immutable rest/bind transform. Evaluated pose transforms
-belong to a future Scene Runtime projection and must not overwrite canonical rest state.
+`BaseNode.transform` on `BONE_3D` is the immutable rest/bind transform. The rigging runtime
+produces immutable local/world bone matrices, mesh-relative joint matrices, IK results,
+diagnostics, time/progress, source classification, and a deterministic fingerprint. Scene Runtime
+projects this evaluated pose before Renderer 3D planning. No fixed-time evaluation overwrites
+canonical rest state.
 
 Per-vertex JOINTS/WEIGHTS remain in the registered GLB/GLTF. `MESH_3D.skinBinding` stores compact
 joint and validation metadata. A skinned derivative updates `geometryAssetId` and

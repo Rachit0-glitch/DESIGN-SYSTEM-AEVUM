@@ -124,6 +124,7 @@ export const ThreeRenderOperationSchema = z.strictObject({
     "SCENE_BEGIN",
     "NODE_TRANSFORM",
     "MESH_BIND",
+    "SKIN_BIND",
     "MATERIAL_BIND",
     "CAMERA_BIND",
     "LIGHT_BIND",

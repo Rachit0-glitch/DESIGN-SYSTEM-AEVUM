@@ -40,6 +40,15 @@ Honest Scope in `docs/11_ROADMAP_AND_STATUS.md`.
 - **Rig validation reporting** (`validation.ts`) — combines hierarchy, resource-limit, rest-pose,
   constraint-target, and IK-chain-ancestry checks into one report.
 
+- **Evaluated poses** (`pose.ts`) - immutable parent-before-child FK, mesh-relative joint matrices,
+  bounded CCD IK, supported constraints, rest reset, structured diagnostics, and fingerprints.
+- **Reference deformation** (`skinning.ts`, `deformation.ts`) - real CPU linear-blend position and
+  normal deformation plus measurable bounds/displacement quality reports.
+- **Professional bounded weights** (`weight-editing.ts`) - inspection and selected-vertex
+  set/add/subtract/clear/normalize operations with hard resource limits.
+- **Retargeting foundation** (`retarget.ts`) - explicit validated mappings and basic humanoid
+  semantic mapping with unmapped-bone disclosure.
+
 ## What this does not own
 
 Real Blender execution (`apps/blender-bridge`), canonical document mutation (`@aevum/command-
@@ -55,11 +64,11 @@ metadata (joint list, influence limit, weight method, normalization status, vert
 `weights.ts`'s validation/normalization functions operate on an explicit, in-memory-only
 per-vertex influence table passed in by the caller — never on the canonical document.
 
-## Rest-pose boundary
+## Rest and evaluated pose boundary
 
-`BONE_3D.transform` is the immutable rest/bind transform. This package does not create or evaluate
-pose state. Future Scene Runtime and Animation Core integration must project evaluated transforms
-without mutating canonical rest data.
+`BONE_3D.transform` is the immutable rest/bind transform. `evaluatePose()` creates regenerable
+runtime state in the order rest -> animation/FK -> IK -> constraints. Scene Runtime consumes that
+result before 3D render planning. Fixed-time evaluation never mutates the source document.
 
 ## Stabilized Blender round trip
 

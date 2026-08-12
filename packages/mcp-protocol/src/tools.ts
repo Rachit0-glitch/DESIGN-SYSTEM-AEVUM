@@ -16,7 +16,7 @@ import { z } from "zod";
 import { McpPermissionSchema } from "./permissions.js";
 import { MCP_PROTOCOL_VERSION } from "./version.js";
 
-export const MCP_TOOL_VERSION = "1.7.0" as const;
+export const MCP_TOOL_VERSION = "1.8.0" as const;
 export const McpAuthModeSchema = z.enum(["development", "supabase", "disabled"]);
 export const McpToolNameSchema = z.enum([
   "system.get_capabilities",
@@ -45,6 +45,16 @@ export const McpToolNameSchema = z.enum([
   "three.rig_inspect",
   "three.skin_bind",
   "three.skin_inspect",
+  "three.pose_inspect",
+  "three.pose_update",
+  "three.pose_reset",
+  "three.weight_inspect",
+  "three.weight_update",
+  "three.weight_normalize",
+  "three.ik_update",
+  "three.constraint_update",
+  "three.deformation_validate",
+  "three.retarget",
   "blender.runtime_info",
   "blender.inspect_scene",
   "blender.inspect_object",
@@ -647,6 +657,79 @@ export const ThreeSkinBindInputSchema = BlenderWriteBaseSchema.extend({
   rigObjectId: EntityIdSchema,
 });
 export const ThreeSkinInspectInputSchema = BlenderTargetInputSchema;
+export const ThreePoseInspectInputSchema = BlenderTargetInputSchema.extend({ meshTargetId: EntityIdSchema.optional() });
+export const ThreePoseUpdateInputSchema = BlenderWriteBaseSchema.extend({
+  targetId: EntityIdSchema,
+  meshTargetId: EntityIdSchema.optional(),
+  boneKey: z.string().min(1).max(128),
+  mode: z.enum(["SET", "DELTA"]),
+  translation: BlenderVector3Schema.optional(),
+  rotation: BlenderQuaternionSchema.optional(),
+});
+export const ThreePoseResetInputSchema = BlenderWriteBaseSchema.extend({
+  targetId: EntityIdSchema,
+  meshTargetId: EntityIdSchema.optional(),
+});
+export const ThreeWeightInspectInputSchema = BlenderTargetInputSchema;
+export const ThreeWeightUpdateInputSchema = BlenderWriteBaseSchema.extend({
+  targetId: EntityIdSchema,
+  boneKey: z.string().min(1).max(128),
+  vertexIndices: z.array(z.number().int().nonnegative()).min(1).max(10_000),
+  mode: z.enum(["SET", "ADD", "SUBTRACT", "CLEAR"]),
+  value: z.number().finite().min(0).max(1).default(0),
+  normalize: z.boolean().default(true),
+});
+export const ThreeWeightNormalizeInputSchema = BlenderWriteBaseSchema.extend({
+  targetId: EntityIdSchema,
+  vertexIndices: z.array(z.number().int().nonnegative()).max(10_000).optional(),
+});
+export const ThreeIkUpdateInputSchema = BlenderWriteBaseSchema.extend({
+  targetId: EntityIdSchema,
+  meshTargetId: EntityIdSchema.optional(),
+  rootBoneKey: z.string().min(1).max(128),
+  endEffectorBoneKey: z.string().min(1).max(128),
+  target: BlenderVector3Schema,
+  iterations: z.number().int().min(1).max(128).default(32),
+  tolerance: z.number().finite().positive().max(1).default(0.001),
+});
+export const ThreeConstraintUpdateInputSchema = BlenderWriteBaseSchema.extend({
+  targetId: EntityIdSchema,
+  meshTargetId: EntityIdSchema.optional(),
+  constraintId: EntityIdSchema,
+  constraintType: z.enum(["COPY_ROTATION", "COPY_LOCATION", "LIMIT_ROTATION", "LIMIT_LOCATION", "TRACK_TO"]),
+  targetBoneKey: z.string().min(1).max(128),
+  sourceBoneKey: z.string().min(1).max(128).optional(),
+  influence: z.number().finite().min(0).max(1).default(1),
+  settings: z.record(z.string(), JsonValueSchema).default({}),
+});
+export const ThreeDeformationValidateInputSchema = BlenderTargetInputSchema.extend({
+  maxDisplacementRatio: z.number().finite().positive().max(100).default(10),
+});
+const McpPoseDeltaSchema = z.strictObject({
+  boneId: EntityIdSchema,
+  translation: BlenderVector3Schema.optional(),
+  rotation: BlenderQuaternionSchema.optional(),
+  scale: BlenderVector3Schema.optional(),
+});
+const McpRetargetMappingSchema = z.strictObject({
+  sourceBoneId: EntityIdSchema,
+  targetBoneId: EntityIdSchema,
+  semanticRole: z.string().min(1).max(64).optional(),
+});
+export const ThreeRetargetInputSchema = z.strictObject({
+  sourceRigId: EntityIdSchema,
+  targetRigId: EntityIdSchema,
+  sourcePoseDeltas: z.array(McpPoseDeltaSchema).max(256),
+  mappings: z.array(McpRetargetMappingSchema).max(128).optional(),
+});
+export const ThreeRetargetOutputSchema = z.strictObject({
+  mappings: z.array(McpRetargetMappingSchema),
+  targetPoseDeltas: z.array(McpPoseDeltaSchema),
+  unmappedSourceBoneIds: z.array(EntityIdSchema),
+  unmappedTargetBoneIds: z.array(EntityIdSchema),
+  diagnostics: z.array(z.unknown()),
+  fingerprint: z.string().regex(/^sha256:/),
+});
 
 const BlenderDiagnosticOutputSchema = z.strictObject({
   code: z.string().min(1).max(128),
@@ -754,6 +837,16 @@ export const TOOL_SCHEMAS = Object.freeze({
   "three.rig_inspect": { input: ThreeRigInspectInputSchema, output: BlenderExecutionOutputSchema },
   "three.skin_bind": { input: ThreeSkinBindInputSchema, output: BlenderWriteOutputSchema },
   "three.skin_inspect": { input: ThreeSkinInspectInputSchema, output: BlenderExecutionOutputSchema },
+  "three.pose_inspect": { input: ThreePoseInspectInputSchema, output: BlenderExecutionOutputSchema },
+  "three.pose_update": { input: ThreePoseUpdateInputSchema, output: BlenderWriteOutputSchema },
+  "three.pose_reset": { input: ThreePoseResetInputSchema, output: BlenderWriteOutputSchema },
+  "three.weight_inspect": { input: ThreeWeightInspectInputSchema, output: BlenderExecutionOutputSchema },
+  "three.weight_update": { input: ThreeWeightUpdateInputSchema, output: BlenderWriteOutputSchema },
+  "three.weight_normalize": { input: ThreeWeightNormalizeInputSchema, output: BlenderWriteOutputSchema },
+  "three.ik_update": { input: ThreeIkUpdateInputSchema, output: BlenderWriteOutputSchema },
+  "three.constraint_update": { input: ThreeConstraintUpdateInputSchema, output: BlenderWriteOutputSchema },
+  "three.deformation_validate": { input: ThreeDeformationValidateInputSchema, output: BlenderExecutionOutputSchema },
+  "three.retarget": { input: ThreeRetargetInputSchema, output: ThreeRetargetOutputSchema },
   "document.rename": { input: DocumentRenameInputSchema, output: WriteToolOutputSchema },
   "node.create": { input: NodeCreateInputSchema, output: WriteToolOutputSchema },
   "node.update": { input: NodeUpdateInputSchema, output: WriteToolOutputSchema },

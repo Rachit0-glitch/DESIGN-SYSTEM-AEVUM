@@ -32,6 +32,15 @@ type BlenderToolName = Extract<
   | "three.rig_inspect"
   | "three.skin_bind"
   | "three.skin_inspect"
+  | "three.pose_inspect"
+  | "three.pose_update"
+  | "three.pose_reset"
+  | "three.weight_inspect"
+  | "three.weight_update"
+  | "three.weight_normalize"
+  | "three.ik_update"
+  | "three.constraint_update"
+  | "three.deformation_validate"
 >;
 
 export interface BlenderAssetResolverContext {
@@ -233,6 +242,83 @@ function operationFor(tool: BlenderToolName, payload: Record<string, unknown>): 
       });
     case "three.skin_inspect":
       return BlenderOperationSchema.parse({ ...base, kind: "skin.inspect", objectId: payload.targetId });
+    case "three.pose_inspect":
+      return BlenderOperationSchema.parse({
+        ...base,
+        kind: "pose.inspect",
+        objectId: payload.targetId,
+        ...(payload.meshTargetId ? { meshObjectId: payload.meshTargetId } : {}),
+      });
+    case "three.pose_update":
+      return BlenderOperationSchema.parse({
+        ...base,
+        kind: "pose.update",
+        objectId: payload.targetId,
+        ...(payload.meshTargetId ? { meshObjectId: payload.meshTargetId } : {}),
+        boneKey: payload.boneKey,
+        mode: payload.mode,
+        ...(payload.translation ? { translation: payload.translation } : {}),
+        ...(payload.rotation ? { rotation: payload.rotation } : {}),
+      });
+    case "three.pose_reset":
+      return BlenderOperationSchema.parse({
+        ...base,
+        kind: "pose.reset",
+        objectId: payload.targetId,
+        ...(payload.meshTargetId ? { meshObjectId: payload.meshTargetId } : {}),
+      });
+    case "three.weight_inspect":
+      return BlenderOperationSchema.parse({ ...base, kind: "skin.inspect", objectId: payload.targetId });
+    case "three.weight_update":
+      return BlenderOperationSchema.parse({
+        ...base,
+        kind: "skin.weight_update",
+        objectId: payload.targetId,
+        boneKey: payload.boneKey,
+        vertexIndices: payload.vertexIndices,
+        mode: payload.mode,
+        value: payload.value,
+        normalize: payload.normalize,
+      });
+    case "three.weight_normalize":
+      return BlenderOperationSchema.parse({
+        ...base,
+        kind: "skin.weight_normalize",
+        objectId: payload.targetId,
+        ...(payload.vertexIndices ? { vertexIndices: payload.vertexIndices } : {}),
+      });
+    case "three.ik_update":
+      return BlenderOperationSchema.parse({
+        ...base,
+        kind: "ik.update",
+        objectId: payload.targetId,
+        ...(payload.meshTargetId ? { meshObjectId: payload.meshTargetId } : {}),
+        rootBoneKey: payload.rootBoneKey,
+        endEffectorBoneKey: payload.endEffectorBoneKey,
+        target: payload.target,
+        iterations: payload.iterations,
+        tolerance: payload.tolerance,
+      });
+    case "three.constraint_update":
+      return BlenderOperationSchema.parse({
+        ...base,
+        kind: "constraint.update",
+        objectId: payload.targetId,
+        ...(payload.meshTargetId ? { meshObjectId: payload.meshTargetId } : {}),
+        constraintId: payload.constraintId,
+        constraintType: payload.constraintType,
+        targetBoneKey: payload.targetBoneKey,
+        ...(payload.sourceBoneKey ? { sourceBoneKey: payload.sourceBoneKey } : {}),
+        influence: payload.influence,
+        settings: payload.settings,
+      });
+    case "three.deformation_validate":
+      return BlenderOperationSchema.parse({
+        ...base,
+        kind: "deformation.validate",
+        objectId: payload.targetId,
+        maxDisplacementRatio: payload.maxDisplacementRatio,
+      });
   }
 }
 
@@ -252,6 +338,8 @@ const READ_OPERATION_KINDS = new Set<BlenderOperation["kind"]>([
   "optimization.analyze",
   "rig.inspect",
   "skin.inspect",
+  "pose.inspect",
+  "deformation.validate",
 ]);
 
 function selectionCount(operation: BlenderOperation, vertices: number, faces: number): number {

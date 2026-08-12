@@ -214,6 +214,22 @@ export interface RuntimeMesh3D {
   readonly materialIds: readonly string[];
   readonly localBounds?: import("@aevum/document-model").Bounds3D;
   readonly worldBounds?: import("@aevum/document-model").Bounds3D;
+  readonly skinning?: RuntimeSkinningState;
+}
+
+export interface RuntimeSkinningState {
+  readonly classification: "REAL_CPU_AVAILABLE" | "CONTRACT_ONLY";
+  readonly rigId: string;
+  readonly jointIds: readonly string[];
+  readonly jointMatrices: readonly (readonly number[])[];
+  readonly maxInfluencesPerVertex: number;
+  readonly normalized: boolean;
+}
+
+export interface RuntimeRig3D {
+  readonly rigId: string;
+  readonly boneIds: readonly string[];
+  readonly pose: import("@aevum/rigging").EvaluatedPose;
 }
 
 export interface RuntimeScene3D {
@@ -234,6 +250,7 @@ export interface Scene3DProjectionResult {
   readonly scenes: readonly RuntimeScene3D[];
   readonly nodes: ReadonlyMap<string, RuntimeNode>;
   readonly meshes: ReadonlyMap<string, RuntimeMesh3D>;
+  readonly rigs: ReadonlyMap<string, RuntimeRig3D>;
   readonly materials: ReadonlyMap<string, Readonly<CanonicalDesignDocument["materials"][string]>>;
   readonly cameras: ReadonlyMap<string, Readonly<CanonicalDesignDocument["cameras"][string]>>;
   readonly lights: ReadonlyMap<string, Readonly<CanonicalDesignDocument["lights"][string]>>;

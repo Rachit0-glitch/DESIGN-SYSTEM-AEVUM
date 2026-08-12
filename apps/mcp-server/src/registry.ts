@@ -55,6 +55,15 @@ export interface BlenderToolAdapter {
       | "three.rig_inspect"
       | "three.skin_bind"
       | "three.skin_inspect"
+      | "three.pose_inspect"
+      | "three.pose_update"
+      | "three.pose_reset"
+      | "three.weight_inspect"
+      | "three.weight_update"
+      | "three.weight_normalize"
+      | "three.ik_update"
+      | "three.constraint_update"
+      | "three.deformation_validate"
     >;
     readonly payload: unknown;
     readonly document: CanonicalDesignDocument;

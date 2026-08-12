@@ -1229,21 +1229,33 @@ lighting.validate
 
 ## 50. Rigging Tools
 
-The Phase 19B stabilization surface is intentionally limited to four versioned tools.
+Phase 19B uses MCP tool surface `1.8.0` for bounded rigging and deformation capabilities.
 
 ```text
 three.rig_create
 three.rig_inspect
 three.skin_bind
 three.skin_inspect
+three.pose_inspect
+three.pose_update
+three.pose_reset
+three.weight_inspect
+three.weight_update
+three.weight_normalize
+three.ik_update
+three.constraint_update
+three.deformation_validate
+three.retarget
 ```
 
 Writes require `blender.write`, expected document version, idempotency, dry-run, lock enforcement,
 workspace isolation, audit, and Command Engine reconciliation. Reads require `blender.read`.
 `three.rig_create` validates hierarchy and non-degenerate rest bones before execution. Rig identity
-uses an exported AEVUM fingerprint custom property, never a visible Blender name. Arbitrary Python
-is not accepted. IK/FK, constraint execution, weight correction, retargeting, and deformation tests
-remain future Phase 19B tools.
+uses an exported AEVUM fingerprint custom property, never a visible Blender name. Pose, weight,
+IK, and constraint writes use strict finite schemas, bounded selections/iterations, meaningful
+non-mutating dry runs, existing idempotency/audit envelopes, and canonical derivative
+reconciliation. Reads inspect actual Blender state. `three.retarget` is a deterministic read-only
+proposal and never commits a target pose. No tool accepts arbitrary Python, shell, paths, or scripts.
 
 ---
 

@@ -1,5 +1,6 @@
 import { evaluateTimeline } from "@aevum/animation-core";
 import type { Bounds3D, CameraRecord, CanonicalDesignDocument } from "@aevum/document-model";
+import { evaluatePose, type PoseDelta } from "@aevum/rigging";
 import { deepFreeze, immutableMap } from "./immutable.js";
 import { stableHash } from "./stable.js";
 import { transformBounds3D } from "./transforms.js";
@@ -7,6 +8,7 @@ import type {
   RuntimeDiagnostic,
   RuntimeMesh3D,
   RuntimeNode,
+  RuntimeRig3D,
   RuntimeScene3D,
   Scene3DProjectionResult,
   SceneProjectionResult,
@@ -32,6 +34,39 @@ function mergeBounds(bounds: readonly Bounds3D[]): Bounds3D | undefined {
     size,
     radius: Math.hypot(size.x, size.y, size.z) / 2,
   };
+}
+
+function poseDeltasForRig(
+  document: CanonicalDesignDocument,
+  projection: SceneProjectionResult,
+  boneIds: readonly string[],
+): PoseDelta[] {
+  const values = new Map<string, PoseDelta>();
+  for (const timelineId of projection.viewport.animation?.timelineIds ?? []) {
+    const timeline = document.timelines[timelineId];
+    if (!timeline) continue;
+    const evaluation = evaluateTimeline(timeline, {
+      time: projection.viewport.animation?.time ?? 0,
+      ...(projection.viewport.animation?.progress !== undefined
+        ? { progress: projection.viewport.animation.progress }
+        : {}),
+      reducedMotion: { behavior: projection.viewport.reducedMotion ? "DISABLE" : "PRESERVE", durationScale: 1 },
+      timelineRegistry: document.timelines,
+    });
+    for (const boneId of boneIds) {
+      const target = evaluation.targetValues[boneId];
+      if (!target) continue;
+      const current: Record<string, unknown> = { ...(values.get(boneId) ?? { boneId }) };
+      const translation = target["transform.position"] ?? target.position;
+      const rotation = target["transform.quaternion"] ?? target.quaternion;
+      const scale = target["transform.scale"] ?? target.scale;
+      if (translation && typeof translation === "object") current.translation = translation;
+      if (rotation && typeof rotation === "object") current.rotation = rotation;
+      if (scale && typeof scale === "object") current.scale = scale;
+      values.set(boneId, current as PoseDelta);
+    }
+  }
+  return [...values.values()].sort((a, b) => a.boneId.localeCompare(b.boneId));
 }
 
 function setPath(target: Record<string, unknown>, path: string, value: unknown): void {
@@ -100,6 +135,7 @@ export function project3DScene(
   const diagnostics: RuntimeDiagnostic[] = [];
   const nodes = new Map<string, RuntimeNode>();
   const meshes = new Map<string, RuntimeMesh3D>();
+  const rigs = new Map<string, RuntimeRig3D>();
   const materials = new Map<string, CanonicalDesignDocument["materials"][string]>();
   const cameras = new Map<string, CameraRecord>();
   const lights = new Map<string, CanonicalDesignDocument["lights"][string]>();
@@ -108,7 +144,7 @@ export function project3DScene(
     const source = sceneNode.resolvedNode;
     if (source.type !== "SCENE_3D") continue;
     const children = descendants(projection, sceneNode).filter((node) =>
-      ["GROUP_3D", "MODEL_3D", "MESH_3D"].includes(node.resolvedNode.type),
+      ["GROUP_3D", "MODEL_3D", "MESH_3D", "RIG_3D", "BONE_3D"].includes(node.resolvedNode.type),
     );
     nodes.set(sceneNode.id, sceneNode);
     for (const child of children) nodes.set(child.id, child);
@@ -116,18 +152,60 @@ export function project3DScene(
     const sceneMeshIds: string[] = [];
     const materialIds = new Set<string>();
     for (const child of children) {
+      if (child.resolvedNode.type !== "RIG_3D") continue;
+      const rig = child.resolvedNode;
+      const bones = rig.boneIds.flatMap((id) => {
+        const candidate = document.nodes[id];
+        return candidate?.type === "BONE_3D" ? [candidate] : [];
+      });
+      const time = projection.viewport.animation?.time ?? 0;
+      const deltas = poseDeltasForRig(document, projection, rig.boneIds);
+      rigs.set(rig.id, {
+        rigId: rig.id,
+        boneIds: [...rig.boneIds],
+        pose: evaluatePose({
+          rig,
+          bones,
+          deltas,
+          time,
+          progress: projection.viewport.animation?.progress ?? 0,
+          source: deltas.length > 0 ? "ANIMATION" : "REST",
+        }),
+      });
+    }
+    for (const child of children) {
       if (child.resolvedNode.type !== "MESH_3D") continue;
       const mesh = child.resolvedNode;
       const worldBounds = mesh.geometry.bounds
         ? transformBounds3D(mesh.geometry.bounds, child.worldTransform.matrix)
         : undefined;
       if (worldBounds) sceneBounds.push(worldBounds);
+      const rigState = mesh.skinBinding ? rigs.get(mesh.skinBinding.rigId) : undefined;
+      const jointMatrices =
+        rigState && mesh.skinBinding
+          ? mesh.skinBinding.jointIds.flatMap((jointId) => {
+              const evaluated = rigState.pose.bones.find((bone) => bone.boneId === jointId);
+              return evaluated ? [evaluated.jointMatrix] : [];
+            })
+          : [];
       meshes.set(child.id, {
         nodeId: child.id,
         geometry: mesh.geometry,
         materialIds: [...mesh.materialIds],
         ...(mesh.geometry.bounds ? { localBounds: mesh.geometry.bounds } : {}),
         ...(worldBounds ? { worldBounds } : {}),
+        ...(mesh.skinBinding && rigState
+          ? {
+              skinning: {
+                classification: "REAL_CPU_AVAILABLE" as const,
+                rigId: mesh.skinBinding.rigId,
+                jointIds: [...mesh.skinBinding.jointIds],
+                jointMatrices,
+                maxInfluencesPerVertex: mesh.skinBinding.maxInfluencesPerVertex,
+                normalized: mesh.skinBinding.normalized,
+              },
+            }
+          : {}),
       });
       sceneMeshIds.push(child.id);
       for (const materialId of mesh.materialIds) {
@@ -174,6 +252,7 @@ export function project3DScene(
     scenes,
     nodes: [...nodes],
     meshes: [...meshes],
+    rigs: [...rigs],
     materials: [...materials],
     cameras: [...cameras],
     lights: [...lights],
@@ -185,6 +264,7 @@ export function project3DScene(
     scenes,
     nodes: immutableMap(nodes),
     meshes: immutableMap(meshes),
+    rigs: immutableMap(rigs),
     materials: immutableMap(materials),
     cameras: immutableMap(cameras),
     lights: immutableMap(lights),

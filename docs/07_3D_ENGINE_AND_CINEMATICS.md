@@ -914,18 +914,23 @@ Skinning shall support:
 - Symmetry
 - Limit influence count
 
-### Phase 19B Static Round-Trip Checkpoint
+### Phase 19B Rigging and Deformation Runtime
 
-The implemented checkpoint supports canonical rig/bone structure, deterministic hierarchy
+The implementation supports canonical rig/bone structure, deterministic hierarchy
 validation, real glTF JOINTS/WEIGHTS inspection, bounded Blender automatic weighting, explicit
 normalization, armature modifiers, immutable derivative GLB registration, inverse-bind reimport,
 and canonical reconciliation. One glTF Skin maps to one canonical rig even when several mesh nodes
-share it; distinct skins remain distinct.
+share it; distinct skins remain distinct. Regenerable runtime evaluation applies rest state,
+animation/FK deltas, bounded CCD IK, then supported constraints in deterministic order. It emits
+local/world transforms and mesh-relative joint matrices for real CPU linear-blend skinning.
 
 In Blender, the mesh becomes the armature child and carries the Armature modifier. The armature is
 never initially parented under the mesh, preventing circular ownership. Automatic weights are
-labeled `AUTOMATIC_HEURISTIC` and prove only the bounded fixture pipeline. Pose evaluation,
-deformation runtime, IK/FK and constraint execution, retargeting, and Agent rigging remain deferred.
+labeled `AUTOMATIC_HEURISTIC` and proves only the bounded fixture pipeline. Manual edits support
+set/add/subtract/clear/normalize over bounded selections. Renderer 3D consumes Scene Runtime joint
+matrices through an honest `REAL_CPU_AVAILABLE` skin contract; production GPU drawing remains a
+later renderer backend. Basic semantic humanoid pose transfer is deterministic and reports every
+unmapped bone; universal retargeting remains deferred.
 - Deformation tests
 - Pose-space correction
 - Corrective blend shapes

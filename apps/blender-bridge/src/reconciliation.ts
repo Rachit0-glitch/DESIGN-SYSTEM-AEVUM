@@ -124,6 +124,8 @@ const GEOMETRY_OPERATION_KINDS = new Set<BlenderOperation["kind"]>([
   "uv.unwrap",
   "uv.pack",
   "uv.transform",
+  "skin.weight_update",
+  "skin.weight_normalize",
 ]);
 
 function directMeshChildren(document: CanonicalDesignDocument, objectId: string): DesignNode[] {
@@ -232,14 +234,24 @@ export async function createBlenderReconciliationProposal(
     const candidateObject = imported.nodes.find((node) => identity(node) === operation.objectId);
     if (!currentObject || !candidateObject) throw new Error("Blender mesh identity could not be reconciled.");
     const currentMeshes = directMeshChildren(input.document, currentObject.id);
-    const candidateMeshes = candidateObject.childIds
-      .map((id) => imported.nodes.find((node) => node.id === id))
-      .filter((node): node is DesignNode => node?.type === "MESH_3D");
-    if (currentMeshes.length !== 1 || candidateMeshes.length !== 1) {
+    const candidateMeshes = operation.kind.startsWith("skin.weight_")
+      ? (() => {
+          const descendants = meshDescendants(imported.nodes, candidateObject.id);
+          return descendants.length > 0
+            ? descendants
+            : imported.nodes.filter((node): node is DesignNode => node.type === "MESH_3D" && Boolean(node.skinBinding));
+        })()
+      : candidateObject.childIds
+          .map((id) => imported.nodes.find((node) => node.id === id))
+          .filter((node): node is DesignNode => node?.type === "MESH_3D");
+    if (currentMeshes.length < 1 || candidateMeshes.length < 1) {
       throw new Error("Phase 16 topology reconciliation requires one canonical primitive on the edited object.");
     }
     const currentMesh = currentMeshes[0];
-    const candidateMesh = candidateMeshes[0];
+    const candidateMesh = operation.kind.startsWith("skin.weight_")
+      ? (candidateMeshes.find((candidate) => candidate.type === "MESH_3D" && candidate.skinBinding) ??
+        candidateMeshes[0])
+      : candidateMeshes[0];
     if (currentMesh?.type !== "MESH_3D" || candidateMesh?.type !== "MESH_3D") {
       throw new Error("Blender mesh reconciliation candidate is invalid.");
     }

@@ -4,7 +4,7 @@ export { createAnimationEngine } from "./engine.js";
 export { evaluateEasing } from "./easing.js";
 export { evaluateAnimationState, createStateMachine } from "./state-machine.js";
 export { createTimeline, evaluateTimeline } from "./timeline.js";
-export { validateStateMachine, validateTimeline } from "./validation.js";
+export { validateBoneTracks, validateStateMachine, validateTimeline } from "./validation.js";
 export type * from "./types.js";
 
 export const packageContract: PackageContract = {

@@ -28,6 +28,17 @@ export const RigDiagnosticCodeSchema = z.enum([
   "SKIN_BONE_REFERENCE_INVALID",
   "IK_CHAIN_INVALID",
   "CONSTRAINT_TARGET_INVALID",
+  "POSE_TRANSFORM_INVALID",
+  "POSE_BONE_NOT_FOUND",
+  "IK_DID_NOT_CONVERGE",
+  "IK_TARGET_UNREACHABLE",
+  "DEFORMATION_MATRIX_INVALID",
+  "DEFORMATION_VERTEX_INVALID",
+  "DEFORMATION_EXTREME_DISPLACEMENT",
+  "DEFORMATION_COLLAPSED",
+  "DEFORMATION_BOUNDS_SUSPICIOUS",
+  "RETARGET_MAPPING_INVALID",
+  "RETARGET_BONE_UNMAPPED",
   "RIG_EXPORT_LOSS",
   "RIG_HUMANOID_EVIDENCE_INSUFFICIENT",
 ]);
@@ -56,6 +67,11 @@ export const RigResourceLimitsSchema = z.strictObject({
   maxSkinInfluencesPerVertex: z.number().int().positive().max(8).default(4),
   maxManualWeightEdits: z.number().int().positive().max(100_000).default(10_000),
   maxRiggedMeshes: z.number().int().positive().max(256).default(32),
+  maxIKChainLength: z.number().int().positive().max(128).default(32),
+  maxIKIterations: z.number().int().positive().max(512).default(64),
+  maxCpuSkinVertices: z.number().int().positive().max(5_000_000).default(250_000),
+  maxRetargetMappings: z.number().int().positive().max(512).default(128),
+  maxPoseOperations: z.number().int().positive().max(4_096).default(256),
 });
 export type RigResourceLimits = z.infer<typeof RigResourceLimitsSchema>;
 export const DEFAULT_RIG_RESOURCE_LIMITS: RigResourceLimits = RigResourceLimitsSchema.parse({});
@@ -154,3 +170,125 @@ export const PartBoneAssociationSchema = z.strictObject({
   boneKey: z.string().min(1),
 });
 export type PartBoneAssociation = z.infer<typeof PartBoneAssociationSchema>;
+
+// Regenerable runtime pose and deformation contracts. These records never become canonical
+// per-frame document state; the CDD retains only rest/bind transforms and rig configuration.
+export const QuaternionValueSchema = z.strictObject({
+  x: z.number().finite(),
+  y: z.number().finite(),
+  z: z.number().finite(),
+  w: z.number().finite(),
+});
+export const Matrix4Schema = z.array(z.number().finite()).length(16);
+export const PoseDeltaSchema = z.strictObject({
+  boneId: EntityIdSchema,
+  translation: Vec3Schema.optional(),
+  rotation: QuaternionValueSchema.optional(),
+  scale: Vec3Schema.optional(),
+});
+export type PoseDelta = z.infer<typeof PoseDeltaSchema>;
+
+export const EvaluatedBonePoseSchema = z.strictObject({
+  boneId: EntityIdSchema,
+  parentBoneId: EntityIdSchema.nullable(),
+  localMatrix: Matrix4Schema,
+  worldMatrix: Matrix4Schema,
+  jointMatrix: Matrix4Schema,
+});
+export type EvaluatedBonePose = z.infer<typeof EvaluatedBonePoseSchema>;
+
+export const EvaluatedPoseSchema = z.strictObject({
+  version: z.literal(RIGGING_PACKAGE_VERSION),
+  rigId: EntityIdSchema,
+  time: z.number().finite().nonnegative(),
+  progress: z.number().finite().min(0).max(1),
+  source: z.enum(["REST", "FK", "ANIMATION", "IK", "MIXED"]),
+  bones: z.array(EvaluatedBonePoseSchema),
+  ikResults: z.array(
+    z.strictObject({
+      chainId: EntityIdSchema,
+      converged: z.boolean(),
+      reachable: z.boolean(),
+      iterations: z.number().int().nonnegative(),
+      finalDistance: z.number().finite().nonnegative(),
+    }),
+  ),
+  diagnostics: z.array(RigDiagnosticSchema),
+  fingerprint: z.string().regex(/^sha256:[0-9a-f]{64}$/i),
+});
+export type EvaluatedPose = z.infer<typeof EvaluatedPoseSchema>;
+
+export const SkinVertexSchema = z.strictObject({
+  position: Vec3Schema,
+  normal: Vec3Schema.optional(),
+  influences: z.array(VertexInfluenceSchema),
+});
+export type SkinVertex = z.infer<typeof SkinVertexSchema>;
+export const DeformedVertexSchema = z.strictObject({
+  position: Vec3Schema,
+  normal: Vec3Schema.optional(),
+});
+export type DeformedVertex = z.infer<typeof DeformedVertexSchema>;
+export const CpuSkinningResultSchema = z.strictObject({
+  version: z.literal(RIGGING_PACKAGE_VERSION),
+  classification: z.literal("REAL"),
+  vertices: z.array(DeformedVertexSchema),
+  bounds: z.strictObject({ min: Vec3Schema, max: Vec3Schema }),
+  diagnostics: z.array(RigDiagnosticSchema),
+  fingerprint: z.string().regex(/^sha256:[0-9a-f]{64}$/i),
+});
+export type CpuSkinningResult = z.infer<typeof CpuSkinningResultSchema>;
+
+export const WeightEditOperationSchema = z.strictObject({
+  mode: z.enum(["SET", "ADD", "SUBTRACT", "CLEAR", "NORMALIZE"]),
+  vertexIndices: z.array(z.number().int().nonnegative()),
+  jointIndex: z.number().int().nonnegative().optional(),
+  value: z.number().finite().min(0).max(1).optional(),
+});
+export type WeightEditOperation = z.infer<typeof WeightEditOperationSchema>;
+export const WeightInspectionSchema = z.strictObject({
+  vertexCount: z.number().int().nonnegative(),
+  weightedVertexCount: z.number().int().nonnegative(),
+  unweightedVertexCount: z.number().int().nonnegative(),
+  minWeight: z.number().finite().nonnegative(),
+  maxWeight: z.number().finite().nonnegative(),
+  averageInfluences: z.number().finite().nonnegative(),
+  perJointVertexCounts: z.array(z.number().int().nonnegative()),
+  validation: WeightValidationReportSchema,
+});
+export type WeightInspection = z.infer<typeof WeightInspectionSchema>;
+
+export const DeformationQualityReportSchema = z.strictObject({
+  version: z.literal(RIGGING_PACKAGE_VERSION),
+  valid: z.boolean(),
+  classification: z.enum(["EXCELLENT", "ACCEPTABLE", "DEGRADED", "INVALID"]),
+  score: z.number().finite().min(0).max(1),
+  measurements: z.strictObject({
+    vertexCount: z.number().int().nonnegative(),
+    invalidVertexCount: z.number().int().nonnegative(),
+    maximumDisplacement: z.number().finite().nonnegative(),
+    meanDisplacement: z.number().finite().nonnegative(),
+    restDiagonal: z.number().finite().nonnegative(),
+    posedDiagonal: z.number().finite().nonnegative(),
+    boundsRatio: z.number().finite().nonnegative(),
+  }),
+  diagnostics: z.array(RigDiagnosticSchema),
+  fingerprint: z.string().regex(/^sha256:[0-9a-f]{64}$/i),
+});
+export type DeformationQualityReport = z.infer<typeof DeformationQualityReportSchema>;
+
+export const RetargetMappingSchema = z.strictObject({
+  sourceBoneId: EntityIdSchema,
+  targetBoneId: EntityIdSchema,
+  semanticRole: z.string().min(1).max(64).optional(),
+});
+export type RetargetMapping = z.infer<typeof RetargetMappingSchema>;
+export const RetargetResultSchema = z.strictObject({
+  mappings: z.array(RetargetMappingSchema),
+  targetPoseDeltas: z.array(PoseDeltaSchema),
+  unmappedSourceBoneIds: z.array(EntityIdSchema),
+  unmappedTargetBoneIds: z.array(EntityIdSchema),
+  diagnostics: z.array(RigDiagnosticSchema),
+  fingerprint: z.string().regex(/^sha256:[0-9a-f]{64}$/i),
+});
+export type RetargetResult = z.infer<typeof RetargetResultSchema>;

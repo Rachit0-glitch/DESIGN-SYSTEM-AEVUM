@@ -27,6 +27,9 @@ const adapter: BlenderToolAdapter = {
         "three.analyze_web_quality",
         "three.rig_inspect",
         "three.skin_inspect",
+        "three.pose_inspect",
+        "three.weight_inspect",
+        "three.deformation_validate",
       ].includes(tool)
     ) {
       return {
@@ -181,5 +184,35 @@ describe("MCP Blender authorization boundary", () => {
       { dryRun: true, idempotencyKey: "phase19b-viewer-bind" },
     );
     expect(denied).toMatchObject({ success: false, errors: [{ code: "MCP_AUTHORIZATION_DENIED" }] });
+  });
+
+  it("classifies new rigging reads and writes correctly and preserves idempotent replay", async () => {
+    const fixture = createMcpTestFixture({ blenderAdapter: adapter });
+    const descriptors = fixture.registry.listTools();
+    expect(descriptors.find((entry) => entry.name === "three.pose_inspect")?.classification).toBe("READ");
+    expect(descriptors.find((entry) => entry.name === "three.deformation_validate")?.classification).toBe("READ");
+    expect(descriptors.find((entry) => entry.name === "three.pose_update")).toMatchObject({
+      classification: "WRITE",
+      supportsDryRun: true,
+      supportsIdempotency: true,
+    });
+    const input = {
+      assetId: "asset_11111111-1111-4111-8111-111111111111",
+      targetId: "rig_11111111-1111-4111-8111-111111111111",
+      expectedDocumentVersion: fixture.document.documentVersion,
+      boneKey: "arm",
+      mode: "SET",
+      rotation: { x: 0, y: 0, z: 0, w: 1 },
+    };
+    const before = vi.mocked(adapter.execute).mock.calls.length;
+    const first = await fixture.execute("three.pose_update", input, { dryRun: true, idempotencyKey: "phase19b-pose" });
+    const replay = await fixture.execute("three.pose_update", input, { dryRun: true, idempotencyKey: "phase19b-pose" });
+    expect(first).toMatchObject({ success: true, data: { dryRun: true } });
+    expect(replay.data).toEqual(first.data);
+    expect(vi.mocked(adapter.execute).mock.calls.length).toBe(before + 1);
+    const viewer = createMcpTestFixture({ role: "VIEWER", blenderAdapter: adapter });
+    expect(
+      await viewer.execute("three.pose_update", input, { dryRun: true, idempotencyKey: "viewer-pose" }),
+    ).toMatchObject({ success: false, errors: [{ code: "MCP_AUTHORIZATION_DENIED" }] });
   });
 });

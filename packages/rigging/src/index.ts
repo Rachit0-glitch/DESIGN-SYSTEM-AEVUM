@@ -22,6 +22,11 @@ export {
   type Vec3,
 } from "./math.js";
 export { buildRigNodes, type BuildRigNodesInput, type BuiltRigNodes } from "./node-builder.js";
+export { evaluatePose, resetPose, type EvaluatePoseInput, type IKTargetOverride } from "./pose.js";
+export { skinVerticesCpu, type CpuSkinningInput } from "./skinning.js";
+export { validateDeformation } from "./deformation.js";
+export { editWeights, inspectWeights, type EditWeightsInput, type EditWeightsResult } from "./weight-editing.js";
+export { createHumanoidSemanticMapping, retargetPose, type RetargetPoseInput } from "./retarget.js";
 export { associatePartsToBones, type PartAssociationResult, type PartLike } from "./part-association.js";
 export {
   createBasicHumanoidProvider,

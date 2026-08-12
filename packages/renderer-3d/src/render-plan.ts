@@ -51,12 +51,22 @@ export function create3DRenderPlan(projection: Scene3DProjectionResult, sceneId?
     const mesh = projection.meshes.get(node.id);
     if (!mesh) continue;
     const meshId = push("MESH_BIND", mesh.nodeId, [transformId], { geometry: mesh.geometry });
+    const skinId = mesh.skinning
+      ? push("SKIN_BIND", mesh.nodeId, [meshId], {
+          classification: mesh.skinning.classification,
+          rigId: mesh.skinning.rigId,
+          jointIds: mesh.skinning.jointIds,
+          jointMatrices: mesh.skinning.jointMatrices,
+          maxInfluencesPerVertex: mesh.skinning.maxInfluencesPerVertex,
+          normalized: mesh.skinning.normalized,
+        })
+      : meshId;
     const materialOperations = mesh.materialIds
       .map((materialId) => projection.materials.get(materialId))
       .filter((material) => material !== undefined)
       .sort((left, right) => left.id.localeCompare(right.id))
       .map((material) => push("MATERIAL_BIND", material.id, [meshId], { material }));
-    push("DRAW_PRIMITIVE", mesh.nodeId, [meshId, ...materialOperations, cameraId, ...lightOperations], {
+    push("DRAW_PRIMITIVE", mesh.nodeId, [meshId, skinId, ...materialOperations, cameraId, ...lightOperations], {
       sourceAssetId: mesh.geometry.sourceAssetId,
       sourceMeshIndex: mesh.geometry.sourceMeshIndex,
       sourcePrimitiveIndex: mesh.geometry.sourcePrimitiveIndex,

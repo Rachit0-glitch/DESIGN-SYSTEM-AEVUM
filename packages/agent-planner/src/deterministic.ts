@@ -71,6 +71,86 @@ function findDescriptor(capabilities: AgentCapabilities, name: string): McpToolD
   return capabilities.tools.find((tool) => tool.name === name && tool.enabled);
 }
 
+function riggingPlan(
+  intent: AgentIntent,
+  capabilities: AgentCapabilities,
+  policy: AgentApprovalPolicy,
+): AgentPlanStep[] {
+  const operation = String(intent.parameters.operation ?? "").toLowerCase();
+  const workflow = operation === "rig_mechanical_workflow" || operation === "rig_humanoid_workflow";
+  const toolOrder = workflow
+    ? operation === "rig_humanoid_workflow"
+      ? [
+          "three.rig_inspect",
+          "document.get",
+          "three.rig_create",
+          "three.skin_bind",
+          "three.weight_inspect",
+          "three.ik_update",
+          "three.deformation_validate",
+        ]
+      : [
+          "three.rig_inspect",
+          "document.get",
+          "three.rig_create",
+          "three.skin_bind",
+          "three.pose_update",
+          "three.deformation_validate",
+        ]
+    : intent.requiredCapabilities;
+  const steps: AgentPlanStep[] = [];
+  let dependency: string | undefined;
+  for (const [index, tool] of toolOrder.entries()) {
+    const descriptor = findDescriptor(capabilities, tool);
+    const isWrite = descriptor?.classification === "WRITE";
+    if (isWrite) {
+      const dry = step({
+        goalId: intent.goalId,
+        index: steps.length,
+        type: "DRY_RUN",
+        label: `Dry-run ${tool}`,
+        tool,
+        descriptor,
+        dependencies: dependency ? [dependency] : [],
+        data: intent.parameters,
+        approvalPolicy: policy,
+      });
+      steps.push(dry);
+      dependency = dry.id;
+    }
+    const action = step({
+      goalId: intent.goalId,
+      index: steps.length,
+      type: isWrite ? "WRITE" : index === toolOrder.length - 1 ? "VALIDATE" : "INSPECT",
+      label: `${isWrite ? "Execute" : "Observe"} ${tool}`,
+      tool,
+      descriptor,
+      dependencies: dependency ? [dependency] : [],
+      data: intent.parameters,
+      failurePolicy: isWrite ? "REPLAN" : "FAIL",
+      approvalPolicy: policy,
+    });
+    steps.push(action);
+    dependency = action.id;
+  }
+  steps.push(
+    step({
+      goalId: intent.goalId,
+      index: steps.length,
+      type: "VERIFY",
+      label: "Verify rigging workflow once",
+      dependencies: dependency ? [dependency] : [],
+      approvalPolicy: policy,
+      verification: {
+        required: true,
+        strategy: "STATE_ASSERTION",
+        assertions: dependency ? [{ sourceStepId: dependency, operator: "SUCCESS" }] : [],
+      },
+    }),
+  );
+  return steps;
+}
+
 function capabilityGaps(intent: AgentIntent, capabilities: AgentCapabilities): AgentCapabilityGap[] {
   const available = new Set<string>(capabilities.tools.filter((tool) => tool.enabled).map((tool) => tool.name));
   const actorPermissions = new Set(capabilities.actorPermissions);
@@ -1291,6 +1371,24 @@ export function generateDeterministicPlan(input: {
     steps = generateReconstructionCandidatePlan(input.intent, input.capabilities, policy);
   } else if (operation === "reconstruct_and_import") {
     steps = reconstructAndImportPlan(input.intent, input.capabilities, policy);
+  } else if (
+    [
+      "rig_inspect",
+      "rig_create",
+      "skin_bind",
+      "pose_update",
+      "pose_reset",
+      "weight_update",
+      "weight_normalize",
+      "ik_update",
+      "constraint_update",
+      "deformation_validate",
+      "retarget_pose",
+      "rig_mechanical_workflow",
+      "rig_humanoid_workflow",
+    ].includes(operation)
+  ) {
+    steps = riggingPlan(input.intent, input.capabilities, policy);
   } else if (input.intent.category === "INSPECT" || input.intent.category === "PROJECT") {
     steps = inspectPlan(input.intent, input.capabilities, policy);
   } else if (operation === "delete" || input.intent.requiredCapabilities.includes("node.delete")) {

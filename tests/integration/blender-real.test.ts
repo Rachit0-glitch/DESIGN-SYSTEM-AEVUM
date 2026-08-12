@@ -16,6 +16,7 @@ import { createBoxGroundTruthFixture, runReconstructionSession } from "@aevum/ge
 import { analyzeMultiView, createMultiViewTask } from "@aevum/multiview-reconstruction";
 import { apply3DImportProposal, create3DImportProposal } from "@aevum/renderer-3d";
 import { createRuntimeViewport, project3DScene, projectScene } from "@aevum/scene-runtime";
+import { skinVerticesCpu } from "@aevum/rigging";
 import { env } from "@aevum/shared";
 import { createInvalidTopologyFixture, createProfessionalModelingFixture } from "@aevum/test-fixtures";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -888,5 +889,258 @@ describe.sequential("Phase 19B real Blender rigging execution", () => {
         diagnostics: [],
       },
     });
+    foundation = updated;
+  });
+
+  it("applies real FK deformation and resets to the rest geometry", async () => {
+    const rig = Object.values(foundation.document.nodes).find((node) => node.type === "RIG_3D");
+    const mesh = Object.values(foundation.document.nodes).find(
+      (node) => node.type === "GROUP_3D" && node.name === "nested-mesh",
+    );
+    if (rig?.type !== "RIG_3D" || !mesh) throw new Error("Expected bound rig fixture.");
+    const restExecution = await runner.execute(
+      jobFor(
+        foundation,
+        { operationVersion: "1.0.0", kind: "pose.reset", objectId: rig.id, meshObjectId: mesh.id },
+        false,
+      ),
+      foundation.bytes,
+    );
+    const posedExecution = await runner.execute(
+      jobFor(
+        foundation,
+        {
+          operationVersion: "1.0.0",
+          kind: "pose.update",
+          objectId: rig.id,
+          meshObjectId: mesh.id,
+          boneKey: "base",
+          mode: "SET",
+          rotation: { x: 0, y: 0, z: 0.3826834324, w: 0.9238795325 },
+        },
+        false,
+      ),
+      foundation.bytes,
+    );
+    const rest = restExecution.result.data as {
+      bones: Array<{ key: string; worldPosition: { x: number; y: number; z: number } }>;
+      evaluatedVertices: Array<{ x: number; y: number; z: number }>;
+    };
+    const posed = posedExecution.result.data as typeof rest;
+    expect(posed.bones.find((bone) => bone.key === "tip")?.worldPosition).not.toEqual(
+      rest.bones.find((bone) => bone.key === "tip")?.worldPosition,
+    );
+    expect(posed.evaluatedVertices).not.toEqual(rest.evaluatedVertices);
+    const resetAgain = await runner.execute(
+      jobFor(
+        foundation,
+        { operationVersion: "1.0.0", kind: "pose.reset", objectId: rig.id, meshObjectId: mesh.id },
+        false,
+      ),
+      foundation.bytes,
+    );
+    expect((resetAgain.result.data as typeof rest).evaluatedVertices).toEqual(rest.evaluatedVertices);
+  });
+
+  it("executes bounded Blender IK and a supported bone constraint", async () => {
+    const rig = Object.values(foundation.document.nodes).find((node) => node.type === "RIG_3D");
+    const mesh = Object.values(foundation.document.nodes).find(
+      (node) => node.type === "GROUP_3D" && node.name === "nested-mesh",
+    );
+    if (rig?.type !== "RIG_3D" || !mesh) throw new Error("Expected bound rig fixture.");
+    const inspected = await runner.execute(
+      jobFor(foundation, { operationVersion: "1.0.0", kind: "pose.inspect", objectId: rig.id }, false),
+      foundation.bytes,
+    );
+    const tail = (
+      inspected.result.data as { bones: Array<{ key: string; worldTailPosition: { x: number; y: number; z: number } }> }
+    ).bones.find((bone) => bone.key === "tip")?.worldTailPosition;
+    if (!tail) throw new Error("Expected inspected IK tail.");
+    const ik = await runner.execute(
+      jobFor(
+        foundation,
+        {
+          operationVersion: "1.0.0",
+          kind: "ik.update",
+          objectId: rig.id,
+          meshObjectId: mesh.id,
+          rootBoneKey: "base",
+          endEffectorBoneKey: "tip",
+          target: tail,
+          iterations: 32,
+          tolerance: 0.05,
+        },
+        false,
+      ),
+      foundation.bytes,
+    );
+    expect(ik.result).toMatchObject({ state: "SUCCEEDED", data: { chainLength: 2, reachable: true } });
+    expect((ik.result.data as { distance: number }).distance).toBeLessThan(1);
+    const unreachable = await runner.execute(
+      jobFor(
+        foundation,
+        {
+          operationVersion: "1.0.0",
+          kind: "ik.update",
+          objectId: rig.id,
+          rootBoneKey: "base",
+          endEffectorBoneKey: "tip",
+          target: { x: 100, y: 100, z: 100 },
+          iterations: 4,
+          tolerance: 0.001,
+        },
+        false,
+      ),
+      foundation.bytes,
+    );
+    expect(unreachable.result).toMatchObject({ state: "SUCCEEDED", data: { reachable: false, iterations: 4 } });
+    const constraint = await runner.execute(
+      jobFor(
+        foundation,
+        {
+          operationVersion: "1.0.0",
+          kind: "constraint.update",
+          objectId: rig.id,
+          meshObjectId: mesh.id,
+          constraintId: "constraint_00000000-0000-4000-8000-000000000099",
+          constraintType: "COPY_LOCATION",
+          targetBoneKey: "tip",
+          sourceBoneKey: "base",
+          influence: 1,
+          settings: {},
+        },
+        false,
+      ),
+      foundation.bytes,
+    );
+    expect(constraint.result.state).toBe("SUCCEEDED");
+    expect((constraint.result.data as { bones: unknown[] }).bones).toHaveLength(2);
+  });
+
+  it("edits and normalizes actual Blender vertex groups and retains them through export/reimport", async () => {
+    const mesh = Object.values(foundation.document.nodes).find(
+      (node) => node.type === "GROUP_3D" && node.name === "nested-mesh",
+    );
+    if (!mesh) throw new Error("Expected bound mesh fixture.");
+    const execution = await runner.execute(
+      jobFor(foundation, {
+        operationVersion: "1.0.0",
+        kind: "skin.weight_update",
+        objectId: mesh.id,
+        boneKey: "tip",
+        vertexIndices: [0],
+        mode: "SET",
+        value: 0.75,
+        normalize: true,
+      }),
+      foundation.bytes,
+    );
+    expect(execution.result).toMatchObject({ state: "SUCCEEDED", data: { normalized: true, invalidVertexCount: 0 } });
+    expect(
+      (execution.result.data as { influences: Array<Array<{ jointName: string }>> }).influences[0]?.some(
+        (entry) => entry.jointName === "tip",
+      ),
+    ).toBe(true);
+    expect(execution.outputGlb).toBeDefined();
+    if (!execution.outputGlb) throw new Error("Expected weight derivative GLB.");
+    const reimported = await reconcileExecution(
+      foundation,
+      {
+        operationVersion: "1.0.0",
+        kind: "skin.weight_update",
+        objectId: mesh.id,
+        boneKey: "tip",
+        vertexIndices: [0],
+        mode: "SET",
+        value: 0.75,
+        normalize: true,
+      },
+      execution,
+    );
+    const reboundMesh = Object.values(reimported.document.nodes).find(
+      (node) => node.type === "MESH_3D" && node.skinBinding,
+    );
+    expect(reboundMesh?.type === "MESH_3D" && reboundMesh.skinBinding?.normalized).toBe(true);
+  });
+
+  it("returns a real Blender deformation quality report", async () => {
+    const mesh = Object.values(foundation.document.nodes).find(
+      (node) => node.type === "GROUP_3D" && node.name === "nested-mesh",
+    );
+    if (!mesh) throw new Error("Expected bound mesh fixture.");
+    const execution = await runner.execute(
+      jobFor(
+        foundation,
+        { operationVersion: "1.0.0", kind: "deformation.validate", objectId: mesh.id, maxDisplacementRatio: 10 },
+        false,
+      ),
+      foundation.bytes,
+    );
+    expect(execution.result).toMatchObject({ state: "SUCCEEDED", data: { valid: true } });
+    expect((execution.result.data as { vertexCount: number }).vertexCount).toBeGreaterThan(0);
+  });
+
+  it("matches AEVUM CPU reference skinning to Blender evaluated vertices for the same pose", async () => {
+    const rig = Object.values(foundation.document.nodes).find((node) => node.type === "RIG_3D");
+    const mesh = Object.values(foundation.document.nodes).find(
+      (node) => node.type === "GROUP_3D" && node.name === "nested-mesh",
+    );
+    if (rig?.type !== "RIG_3D" || !mesh) throw new Error("Expected bound comparison fixture.");
+    const restExecution = await runner.execute(
+      jobFor(
+        foundation,
+        { operationVersion: "1.0.0", kind: "pose.reset", objectId: rig.id, meshObjectId: mesh.id },
+        false,
+      ),
+      foundation.bytes,
+    );
+    const posedExecution = await runner.execute(
+      jobFor(
+        foundation,
+        {
+          operationVersion: "1.0.0",
+          kind: "pose.update",
+          objectId: rig.id,
+          meshObjectId: mesh.id,
+          boneKey: "base",
+          mode: "SET",
+          rotation: { x: 0, y: 0, z: Math.sin(Math.PI / 12), w: Math.cos(Math.PI / 12) },
+        },
+        false,
+      ),
+      foundation.bytes,
+    );
+    const weightsExecution = await runner.execute(
+      jobFor(foundation, { operationVersion: "1.0.0", kind: "skin.inspect", objectId: mesh.id }, false),
+      foundation.bytes,
+    );
+    type PoseData = {
+      bones: Array<{ key: string; jointMatrix: number[] }>;
+      evaluatedVertices: Array<{ x: number; y: number; z: number }>;
+    };
+    const rest = restExecution.result.data as PoseData;
+    const posed = posedExecution.result.data as PoseData;
+    const weights = (
+      weightsExecution.result.data as { influences: Array<Array<{ jointName: string; weight: number }>> }
+    ).influences;
+    const jointIndex = new Map(posed.bones.map((bone, index) => [bone.key, index]));
+    const cpu = skinVerticesCpu({
+      vertices: rest.evaluatedVertices.map((position, index) => ({
+        position,
+        influences: (weights[index] ?? []).flatMap((entry) => {
+          const index = jointIndex.get(entry.jointName);
+          return index === undefined ? [] : [{ jointIndex: index, weight: entry.weight }];
+        }),
+      })),
+      jointMatrices: posed.bones.map((bone) => bone.jointMatrix),
+    });
+    expect(cpu.vertices).toHaveLength(posed.evaluatedVertices.length);
+    for (const [index, vertex] of cpu.vertices.entries()) {
+      const expected = posed.evaluatedVertices[index];
+      if (!expected) throw new Error("Blender comparison vertex missing.");
+      expect(vertex.position.x).toBeCloseTo(expected.x, 4);
+      expect(vertex.position.y).toBeCloseTo(expected.y, 4);
+      expect(vertex.position.z).toBeCloseTo(expected.z, 4);
+    }
   });
 });

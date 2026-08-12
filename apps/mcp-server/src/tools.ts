@@ -24,6 +24,13 @@ import {
 import { analyzeMultiView, createMultiViewTask } from "@aevum/multiview-reconstruction";
 import { compile3DImportTransaction, create3DImportProposal, create3DRenderPlan } from "@aevum/renderer-3d";
 import { createRuntimeViewport, project3DScene, projectScene, type RuntimeViewport } from "@aevum/scene-runtime";
+import {
+  createHumanoidSemanticMapping,
+  evaluatePose,
+  retargetPose,
+  type PoseDelta,
+  type RetargetMapping,
+} from "@aevum/rigging";
 import type {
   AssetBytesResolver,
   BlenderToolAdapter,
@@ -272,6 +279,42 @@ export function registerInitialTools(
             environment: config.nodeEnv,
           },
         };
+      },
+      config,
+    ),
+  );
+
+  registry.registerTool(
+    definition(
+      "three.retarget",
+      "Build a deterministic semantic pose-transfer proposal between two compatible canonical rigs.",
+      ["document.read", "three.read"],
+      "READ",
+      async (raw, context) => {
+        const input = raw as {
+          sourceRigId: string;
+          targetRigId: string;
+          sourcePoseDeltas: PoseDelta[];
+          mappings?: RetargetMapping[];
+        };
+        const document = await currentDocument(context);
+        const sourceRig = document.nodes[input.sourceRigId];
+        const targetRig = document.nodes[input.targetRigId];
+        if (sourceRig?.type !== "RIG_3D" || targetRig?.type !== "RIG_3D")
+          fail(context, "MCP_INPUT_INVALID", "Source and target rigs must be canonical RIG_3D nodes.");
+        const sourceBones = sourceRig.boneIds.flatMap((id) =>
+          document.nodes[id]?.type === "BONE_3D"
+            ? [document.nodes[id] as Extract<DesignNode, { type: "BONE_3D" }>]
+            : [],
+        );
+        const targetBones = targetRig.boneIds.flatMap((id) =>
+          document.nodes[id]?.type === "BONE_3D"
+            ? [document.nodes[id] as Extract<DesignNode, { type: "BONE_3D" }>]
+            : [],
+        );
+        const sourcePose = evaluatePose({ rig: sourceRig, bones: sourceBones, deltas: input.sourcePoseDeltas });
+        const mappings = input.mappings ?? createHumanoidSemanticMapping(sourceBones, targetBones);
+        return { data: retargetPose({ sourcePose, sourceBones, targetBones, mappings }) };
       },
       config,
     ),
@@ -1067,6 +1110,60 @@ export function registerInitialTools(
     [
       "three.skin_inspect",
       "Inspect a canonical mesh's real skin binding and vertex-weight state through Blender.",
+      ["asset.read", "blender.read"],
+      "READ",
+    ],
+    [
+      "three.pose_inspect",
+      "Inspect evaluated bone transforms and optional real mesh deformation.",
+      ["asset.read", "blender.read"],
+      "READ",
+    ],
+    [
+      "three.pose_update",
+      "Apply a bounded FK pose to a Blender derivative and reconcile it canonically.",
+      ["document.write", "blender.write"],
+      "WRITE",
+    ],
+    [
+      "three.pose_reset",
+      "Reset a Blender rig derivative to its canonical rest pose.",
+      ["document.write", "blender.write"],
+      "WRITE",
+    ],
+    [
+      "three.weight_inspect",
+      "Inspect bounded per-vertex skin weights and normalization statistics.",
+      ["asset.read", "blender.read"],
+      "READ",
+    ],
+    [
+      "three.weight_update",
+      "Edit a bounded vertex selection's skin weights and reconcile the derivative.",
+      ["document.write", "blender.write"],
+      "WRITE",
+    ],
+    [
+      "three.weight_normalize",
+      "Normalize bounded Blender skin weights and reconcile the derivative.",
+      ["document.write", "blender.write"],
+      "WRITE",
+    ],
+    [
+      "three.ik_update",
+      "Solve one bounded Blender IK chain and reconcile the derivative.",
+      ["document.write", "blender.write"],
+      "WRITE",
+    ],
+    [
+      "three.constraint_update",
+      "Apply one supported bounded bone constraint and reconcile the derivative.",
+      ["document.write", "blender.write"],
+      "WRITE",
+    ],
+    [
+      "three.deformation_validate",
+      "Measure real evaluated Blender deformation quality.",
       ["asset.read", "blender.read"],
       "READ",
     ],

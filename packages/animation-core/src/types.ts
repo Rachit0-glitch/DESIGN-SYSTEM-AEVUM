@@ -53,7 +53,8 @@ export type AnimationDiagnosticCode =
   | "BROKEN_TRANSITION"
   | "INVALID_EASING"
   | "CIRCULAR_STATE"
-  | "CIRCULAR_REDUCED_MOTION";
+  | "CIRCULAR_REDUCED_MOTION"
+  | "INVALID_BONE_TRACK";
 
 export interface AnimationDiagnostic {
   readonly code: AnimationDiagnosticCode;
