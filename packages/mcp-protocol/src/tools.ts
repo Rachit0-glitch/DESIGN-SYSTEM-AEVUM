@@ -16,7 +16,7 @@ import {
   TransformSchema,
 } from "@aevum/document-model";
 import { CameraValidationReportSchema, ResolvedCameraSchema } from "@aevum/camera-cinematics";
-import { FidelityProfileNameSchema, FidelityReportSchema } from "@aevum/fidelity";
+import { FidelityProfileNameSchema, FidelityReportSchema } from "@aevum/fidelity/contracts";
 import { WorkspaceIdSchema } from "@aevum/project-store";
 import {
   LightingEstimateSchema,

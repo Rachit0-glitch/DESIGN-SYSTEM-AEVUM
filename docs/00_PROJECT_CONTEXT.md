@@ -1716,3 +1716,14 @@ Maximum Fidelity is now a measurable cross-domain workflow, not an appearance cl
 normalized, canonical state is projected and rasterized, pixel and structural differences are attributed, and only
 bounded Command Engine corrections may persist. Scores retain domain, coverage, confidence, provenance, and
 unsupported-feature evidence. Phase 23 is AEVUM Studio; Phase 24 owns production hardening and release readiness.
+
+## 37. Phase 23 AEVUM Studio
+
+AEVUM Studio exposes the validated engines as one professional creation environment. The desktop editor combines a
+canonical layers tree, Hybrid 2D viewport, precise properties, registered assets, responsive previews, Animation Core
+timeline evaluation, canonical 3D inspection, Maximum Fidelity evidence, and structured AI operations. It preserves
+one project identity across 2D, 3D, animation, fidelity, and AI workspaces.
+
+Studio state is explicitly split: document content remains canonical and Command Engine controlled; selection, zoom,
+pan, active tools, open panels, and drag previews remain local transient state. The application is not a new renderer,
+project store, or AI write path.

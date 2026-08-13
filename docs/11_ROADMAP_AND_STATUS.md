@@ -180,15 +180,16 @@ architecture, contracts, and tests pass — it does not by itself mean the end-u
 behind that architecture is production-complete. As of Phase 16, the following gaps are real and
 intentional, not regressions:
 
-- **Studio (`apps/studio`)**: architecture ownership declared only; no Figma-like canvas, screenshot
-  upload flow, rendered editable layers, inspector, timeline, or 3D viewport UI exists yet.
+- **Studio (`apps/studio`)**: Phase 23 now provides the canonical editor shell, rendered editable
+  layers, inspector, timeline, responsive controls, fidelity workspace, and 3D viewport. Production
+  upload registration and external vision/OCR remain intentionally deferred.
 - **2D reference understanding**: `packages/reconstruction`'s analysis stage is a deterministic,
   manifest-driven adapter (Phase 6 MVP), not a production computer-vision or multimodal model. "Any
   screenshot reconstructs pixel-perfectly" is not yet a real capability.
 - **Agent reasoning**: `packages/agent-planner` ships only a deterministic, non-LLM planning
   provider (Phase 13). No external LLM (Anthropic, OpenAI, or otherwise) is wired into the Agent.
 - **Exporters**: every target-stack exporter (`exporters/react`, `exporters/nextjs`, `exporters/
-  threejs`, etc.) and `packages/exporters` itself remain Phase 23+ `PLANNED` placeholder shells; no
+  threejs`, etc.) and `packages/exporters` itself remain Phase 25+ `PLANNED` placeholder shells; no
   stack produces real generated code yet.
 - **Workers**: every `apps/*-worker` app besides the two production services is an intentionally
   inactive in-memory shell with no queue, listener, or deployment.
@@ -2838,7 +2839,7 @@ usability, Figma-like precision, AEVUM AI control, and a real-time 2D, 3D, and a
 ### Status
 
 ```text
-PLANNED
+VALIDATED
 ```
 
 ### Scope
@@ -2855,6 +2856,44 @@ PLANNED
 - 2D, 3D, animation, responsive, and fidelity evidence remain inspectable and editable
 - AI actions expose plans, permissions, progress, verification, and failure state
 - Visual comparison and historical-version workflows are production usable
+
+### Validation Record (2026-08-14)
+
+- Previous status: `IN_PROGRESS`; new status: `VALIDATED`.
+- Application: the Phase 0 shell is now a React/Vite editor with top bar, tool rail, canonical layer tree, actual
+  Scene Runtime/Hybrid Renderer viewport, contextual properties, assets, responsive devices, timeline, Three.js 3D,
+  fidelity comparison, and structured AI activity surfaces.
+- State boundary: `StudioSession` routes persistent edits through Project Store and Command Engine; selection, panel,
+  viewport, drag, and playhead UI remain transient. Browser storage proves a real serialized persistence/reload path.
+- Agent boundary: Studio's deterministic acceptance provider uses the typed Agent Runtime MCP client and a
+  workspace/project/document-scoped in-process MCP transport, performs dry-run before apply, and commits the accepted
+  edit through the same Project Store and Command Engine path with an `MCP_AGENT` audit actor.
+- Canonical proof: the acceptance project includes 2D hierarchy, exact registered OFL font, responsive override,
+  timeline/keyframes, registered GLB, 3D mesh/topology, PBR material, camera, light, and cinematic shot/sequence.
+- Browser evidence: 4/4 Playwright flows cover load, canvas/layer selection, move, numeric and text/font editing,
+  persistence, undo/redo, responsive switching, animation scrubbing, fidelity attribution, nonblank 3D rendering,
+  canonical 3D transform editing, structured AI status, human-plus-AI version history, and compact-shell behavior.
+- Security: no service-role value is bundled; no arbitrary HTML, SVG, iframe, filesystem path, provider output, or
+  unbounded upload path was added. Asset registration/upload remains unavailable until its authenticated safe API is
+  configured.
+- Versions: CDD remains `1.7.0`; MCP remains `1.11.0`. Studio UI state required no migration or protocol bump.
+- Tests and gates: 381/381 repository tests passed across 54 files; 4/4 Studio browser tests and 28/28 real Blender
+  tests passed. Documentation 12/12, dependencies 63/63, typecheck 88/88, build 63/63, formatting, lint,
+  `pnpm validate`, `pnpm validate:docker`, and `git diff --check` passed.
+- Deployment: existing Vercel project `design-system-aevum` deployed READY as `dpl_CNbYnStyBA1qTPyozRkoLQSme3Ty` and
+  alias `https://design-system-aevum-peach.vercel.app` returned 200. Production Chromium found the Studio canvas and
+  ten runtime nodes and a Three.js canvas with no console errors; `/health.json` returned 200. Railway API, MCP
+  health/readiness/version,
+  and linked Supabase `Design-System-Aevum` remained healthy. Railway Blender Bridge and Agent Worker remain inactive.
+- Production MCP drift: production remains generation `c4e3d51`; repository MCP remains `1.11.0`. Studio does not
+  claim Phase 22/23 repository-only MCP tools are deployed.
+- Remaining bounded limitations: point-level vector editing, full crop handles, real-time server push, production
+  upload registration, external vision/OCR, and browser Blender parity remain deferred or unavailable. The local
+  deterministic Agent acceptance path does not claim a paid or external model. The production bundle is functional
+  but exceeds Vite's 500 kB advisory threshold; route-level code splitting remains a Phase 24 performance task.
+- Blockers: none for the defined Phase 23 scope.
+- Next action: begin Phase 24 - Production Hardening and Release Readiness only when explicitly requested. Phase 24
+  was not started.
 
 ---
 
@@ -3863,7 +3902,7 @@ if the two ever disagree again.
 The next repository action should be:
 
 ```text
-Phase 22 is validated. Do not begin Phase 23 automatically; await its explicit scope.
+Phase 23 is validated. Do not begin Phase 24 automatically; await its explicit scope.
 ```
 
 Phase 18 (§24) delivered the first real local reconstruction execution — candidate geometry
@@ -3879,9 +3918,9 @@ poses, FK/IK and constraints, CPU skinning, weight editing, deformation quality 
 Animation Core and Scene Runtime integration, semantic Blender execution, MCP tools, and Agent
 workflows.
 
-Phase 22 now validates real 2D raster evidence, custom-font and mixed-run typography observations, pixel and
-structural comparison, domain-separated cross-domain evidence, bounded Phase 8 correction orchestration, MCP tools,
-and Agent workflows. Phase 23 and Phase 24 have not been started.
+Phase 22 validates real 2D raster evidence, custom-font and mixed-run typography observations, pixel and structural
+comparison, domain-separated cross-domain evidence, bounded Phase 8 correction orchestration, MCP tools, and Agent
+workflows. Phase 23 validates AEVUM Studio. Phase 24 has not started.
 
 ---
 

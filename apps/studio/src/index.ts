@@ -1,13 +1,17 @@
-﻿import type { PackageContract } from "@aevum/shared";
+import type { PackageContract } from "@aevum/shared";
+
+export * from "./core/fixture.js";
+export * from "./core/agent.js";
+export * from "./core/session.js";
+export * from "./core/studio-state.js";
 
 export const packageContract: PackageContract = {
   name: "@aevum/studio",
   kind: "app",
-  responsibility:
-    "Inspection and control interface for projects, documents, previews, validation overlays, export configuration, and job status.",
-  owns: "User-facing inspection workflows and expert correction surfaces.",
-  mustNotOwn: "Own canonical state or bypass the Command Engine.",
-  status: "PHASE_0_SHELL",
+  responsibility: "Professional visual editing and AI control over canonical AEVUM projects.",
+  owns: "Transient editor state, typed data access, interaction orchestration, and accessible visual workspaces.",
+  mustNotOwn: "Canonical project state, renderer logic, command execution policy, or MCP authorization.",
+  status: "IMPLEMENTED",
 };
 
 export const STUDIO_STATUS = packageContract.status;

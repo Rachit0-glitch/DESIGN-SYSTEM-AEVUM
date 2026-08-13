@@ -2103,3 +2103,16 @@ Railway Blender Bridge.
 fidelity tasks, profiles, real raster evidence, domain measurements, reports, cache policy, and bounded convergence;
 it owns no canonical state. Provider-neutral reference analysis and asset resolvers remain replaceable. Persistent
 writes use Agent -> MCP -> Command Engine, while browser and provider artifacts remain regenerable.
+
+## 49. Phase 23 Studio Boundary
+
+`apps/studio` is a visual client, never a canonical store. Its typed session loads a validated CDD into Project Store,
+submits human edits to Command Engine, and regenerates Scene Runtime and renderer projections after every successful
+transaction. Selection, active tools, panel state, zoom, pan, drag previews, and playhead controls are transient and
+never enter the CDD.
+
+The 2D viewport consumes Hybrid 2D Renderer operations and runtime world transforms. The 3D viewport consumes the
+same document's canonical mesh, PBR material, camera, light, and transform records through Three.js. Animation
+scrubbing supplies fixed time to Scene Runtime. Fidelity views consume attributed evidence without mutating state.
+AI status exposes operational stages and action summaries only; production AI retains the Agent -> authenticated MCP
+-> Command Engine path. Studio does not own authorization, project truth, renderer policy, or provider reasoning.

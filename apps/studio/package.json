@@ -12,10 +12,34 @@
     }
   },
   "scripts": {
-    "build": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
+    "build": "vite build && node ../../node_modules/typescript/bin/tsc -p tsconfig.lib.json",
+    "dev": "vite --host 127.0.0.1",
     "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@aevum/shared": "workspace:*"
+    "@aevum/agent-runtime": "workspace:*",
+    "@aevum/animation-core": "workspace:*",
+    "@aevum/command-engine": "workspace:*",
+    "@aevum/document-model": "workspace:*",
+    "@aevum/fidelity": "workspace:*",
+    "@aevum/mcp-protocol": "workspace:*",
+    "@aevum/project-store": "workspace:*",
+    "@aevum/renderer-2d": "workspace:*",
+    "@aevum/renderer-3d": "workspace:*",
+    "@aevum/scene-runtime": "workspace:*",
+    "@aevum/shared": "workspace:*",
+    "@noble/hashes": "2.3.0",
+    "lucide-react": "1.31.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "three": "0.185.1",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "@types/three": "0.183.1",
+    "@vitejs/plugin-react": "6.0.5",
+    "vite": "8.2.1"
   }
 }

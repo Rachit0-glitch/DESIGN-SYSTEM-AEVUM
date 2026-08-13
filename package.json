@@ -59,6 +59,7 @@
     "@aevum/responsive-reconstruction": "workspace:*",
     "@aevum/scene-runtime": "workspace:*",
     "@aevum/shared": "workspace:*",
+    "@aevum/studio": "workspace:*",
     "@aevum/test-fixtures": "workspace:*",
     "@aevum/typography": "workspace:*",
     "@aevum/validation": "workspace:*",
