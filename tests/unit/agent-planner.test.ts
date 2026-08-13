@@ -31,6 +31,60 @@ function plannerFixture() {
 }
 
 describe("agent planner", () => {
+  it("plans bounded Maximum Fidelity correction with dry-run and exactly one terminal VERIFY", () => {
+    const fixture = plannerFixture();
+    const nodeId = "node_11111111-1111-4111-8111-111111111111";
+    const goal = createAgentGoal({
+      category: "CORRECT",
+      request: "Improve typography fidelity without regressing protected regions.",
+      targetNodeIds: [nodeId],
+      parameters: {
+        operation: "fidelity_improve",
+        profile: "MAXIMUM_FIDELITY",
+        reportFingerprint: `sha256:${"a".repeat(64)}`,
+        issueId: `fidelity-issue:${"b".repeat(32)}`,
+        nodeId,
+        changes: { name: "Corrected heading" },
+      },
+    });
+    const session = createAgentSession({
+      actorId: "actor",
+      workspaceId: "workspace",
+      projectId: "project",
+      documentId: "document",
+      goal,
+      createdAt: NOW,
+    });
+    const provider = createDeterministicReasoningProvider();
+    const intent = provider.analyzeIntent({ session, context: fixture.context });
+    const plan = provider.generatePlan({
+      session,
+      intent,
+      context: fixture.context,
+      capabilities: fixture.capabilities,
+    });
+    expect(intent.requiredPermissions).toEqual(
+      expect.arrayContaining([
+        "fidelity.read",
+        "fidelity.write",
+        "document.write",
+        "validation.read",
+        "correction.read",
+      ]),
+    );
+    expect(plan.capabilityGaps).toEqual([]);
+    expect(plan.steps.map((entry) => entry.tool).filter(Boolean)).toEqual([
+      "fidelity.inspect",
+      "document.get",
+      "fidelity.apply_correction",
+      "fidelity.apply_correction",
+      "fidelity.inspect",
+    ]);
+    expect(plan.steps.filter((entry) => entry.type === "VERIFY")).toHaveLength(1);
+    expect(plan.steps.at(-1)?.type).toBe("VERIFY");
+    expect(validatePlan(plan).valid).toBe(true);
+  });
+
   it("builds bounded mechanical and humanoid rigging plans with one terminal VERIFY", () => {
     for (const operation of ["rig_mechanical_workflow", "rig_humanoid_workflow"] as const) {
       const fixture = plannerFixture();

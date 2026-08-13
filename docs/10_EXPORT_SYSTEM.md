@@ -1720,3 +1720,9 @@ The Export System shall be implementation-ready when it can:
 The Export System shall convert the Canonical Design Document into production-ready, validated, transparent, and extensible outputs across popular 2D, 3D, animation, web, and Canva targets.
 
 Every export shall preserve as much structure, editability, fidelity, responsiveness, accessibility, animation, and 3D behaviour as the target permits while reporting all adaptations, flattening, unsupported features, and performance fallbacks.
+
+## 89. Phase 22 Export Validation Boundary
+
+Exporters may consume normalized reference rasters, current rasters, heatmaps, domain scores, attributed issues, and
+pass history. Phase 22 does not implement exporters or flatten editable designs. Future export validation must render
+the target, report adaptations and unsupported features, and use the same bounded comparison contracts.

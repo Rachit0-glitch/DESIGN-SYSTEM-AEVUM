@@ -1936,3 +1936,10 @@ The Reconstruction Pipeline shall be considered implementation-ready when it can
 The Reconstruction Pipeline is the production workflow that converts visual references into structured, editable, validated, and export-ready AEVUM projects.
 
 It shall combine 2D analysis, typography, asset extraction, responsive reconstruction, motion analysis, professional 3D reconstruction, deterministic rendering, visual comparison, and autonomous correction while preserving the Canonical Design Document as the single source of truth.
+
+## 73. Maximum Fidelity Acceptance Loop
+
+The executable loop is reference normalization -> provider-neutral evidence -> editable proposal -> Scene Runtime ->
+Render Graph -> real raster -> pixel and structural measurement -> attributed issues -> Phase 8 atomic dry run ->
+Command Engine application -> rerender -> non-regression decision. Passes stop at threshold, regression, oscillation,
+no correction, resource budget, cancellation, failure, or the configured maximum.

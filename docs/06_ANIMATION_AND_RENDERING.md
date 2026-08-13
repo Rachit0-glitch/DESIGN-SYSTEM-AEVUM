@@ -2070,3 +2070,10 @@ projection fingerprint. `create3DRenderPlan()` emits ordered `SCENE_BEGIN`, `CAM
 
 The plan is an execution contract, not rendered pixels. Browser playback, GPU work, Three.js/R3F execution,
 turntables, frame capture, and 3D visual comparison remain future renderer and validation work.
+
+## 91. Phase 22 Real 2D Raster Contract
+
+`@aevum/fidelity` executes immutable 2D Render Graphs in a pinned Playwright Chromium Canvas backend and returns
+RGBA8 sRGB pixels plus renderer, graph, backend, font, image, typography, and diagnostic fingerprints. It supports
+canonical paint, crop, vector, clip/mask, effect, compositing, custom-font, mixed-run, and reduced-motion metadata.
+Animation evidence remains separately scored at explicit times; the backend does not implement browser playback.

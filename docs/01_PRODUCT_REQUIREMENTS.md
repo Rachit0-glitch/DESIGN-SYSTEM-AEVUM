@@ -1779,3 +1779,10 @@ Any approved scope change shall be reflected in:
 The AEVUM AI Reconstruction Engine shall operate as a professional AI-controlled design, reconstruction, validation, and export system.
 
 Its core obligation is to convert references into structured, editable, accurate, and production-ready 2D and 3D outputs while preserving one Canonical Design Document across rendering, validation, MCP control, and multi-stack export.
+
+## 49. Maximum Fidelity Requirements
+
+AEVUM shall compare real RGBA output with normalized references, report local and global metrics, preserve separate
+2D, responsive, motion, geometry, material, lighting, and camera scores, and lower completion confidence when
+coverage is incomplete or a fallback is detected. Custom fonts must load from registered immutable assets. Automated
+improvement must be bounded, non-regressive, protected-region aware, auditable, and Command Engine controlled.

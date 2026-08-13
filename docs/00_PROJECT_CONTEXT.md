@@ -1709,3 +1709,10 @@ Its success depends on five foundations:
 5. Reliable multi-stack export
 
 Every future implementation decision should protect these foundations.
+
+## 36. Phase 22 Maximum Fidelity Integration
+
+Maximum Fidelity is now a measurable cross-domain workflow, not an appearance claim. Reference evidence is
+normalized, canonical state is projected and rasterized, pixel and structural differences are attributed, and only
+bounded Command Engine corrections may persist. Scores retain domain, coverage, confidence, provenance, and
+unsupported-feature evidence. Phase 23 is AEVUM Studio; Phase 24 owns production hardening and release readiness.

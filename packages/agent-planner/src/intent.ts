@@ -72,6 +72,55 @@ function initialCapabilities(session: AgentSession): string[] {
   };
   const camera = cameraCapabilities[String(goal.parameters.operation ?? "").toLowerCase()];
   if (camera) return [...camera];
+  const fidelityCapabilities: Readonly<Record<string, readonly string[]>> = {
+    fidelity_inspect: ["fidelity.inspect"],
+    fidelity_validate: ["fidelity.validate_report"],
+    fidelity_compare: ["fidelity.inspect", "fidelity.validate_report"],
+    fidelity_propose_corrections: ["fidelity.validate_report", "fidelity.propose_corrections"],
+    fidelity_improve: [
+      "fidelity.inspect",
+      "fidelity.validate_report",
+      "fidelity.propose_corrections",
+      "document.get",
+      "fidelity.apply_correction",
+      "fidelity.inspect",
+    ],
+    fidelity_fix_typography: [
+      "fidelity.inspect",
+      "fidelity.validate_report",
+      "fidelity.propose_corrections",
+      "document.get",
+      "fidelity.apply_correction",
+      "fidelity.inspect",
+    ],
+    fidelity_match_layout: [
+      "fidelity.inspect",
+      "fidelity.validate_report",
+      "fidelity.propose_corrections",
+      "document.get",
+      "fidelity.apply_correction",
+      "fidelity.inspect",
+    ],
+    fidelity_correct_crop: [
+      "fidelity.inspect",
+      "fidelity.validate_report",
+      "fidelity.propose_corrections",
+      "document.get",
+      "fidelity.apply_correction",
+      "fidelity.inspect",
+    ],
+    fidelity_validate_responsive: ["fidelity.inspect", "fidelity.validate_report"],
+    fidelity_maximum_pass: [
+      "fidelity.inspect",
+      "fidelity.validate_report",
+      "fidelity.propose_corrections",
+      "document.get",
+      "fidelity.apply_correction",
+      "fidelity.inspect",
+    ],
+  };
+  const fidelity = fidelityCapabilities[String(goal.parameters.operation ?? "").toLowerCase()];
+  if (fidelity) return [...fidelity];
   const riggingCapabilities: Readonly<Record<string, readonly string[]>> = {
     rig_inspect: ["three.rig_inspect"],
     rig_create: ["document.get", "three.rig_create", "three.rig_inspect"],
@@ -228,6 +277,13 @@ function requiredPermissions(capabilities: readonly string[]): AgentIntent["requ
     }
     if (capability.startsWith("validation.")) permissions.add("validation.read");
     if (capability.startsWith("correction.")) permissions.add("correction.read");
+    if (capability.startsWith("fidelity.")) {
+      const write = capability === "fidelity.apply_correction";
+      permissions.add(write ? "fidelity.write" : "fidelity.read");
+      permissions.add(write ? "document.write" : "document.read");
+      permissions.add("validation.read");
+      if (write || capability === "fidelity.propose_corrections") permissions.add("correction.read");
+    }
   }
   return [...permissions].sort();
 }

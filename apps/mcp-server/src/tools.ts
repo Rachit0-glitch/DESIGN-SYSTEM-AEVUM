@@ -8,6 +8,7 @@ import {
 } from "@aevum/command-engine";
 import { evaluateCamera, validateCinematics } from "@aevum/camera-cinematics";
 import { CURRENT_SCHEMA_VERSION, type CanonicalDesignDocument, type DesignNode } from "@aevum/document-model";
+import { prioritizeFidelityIssues, resolveFidelityProfile } from "@aevum/fidelity";
 import {
   MCP_PROTOCOL_VERSION,
   MCP_TOOL_VERSION,
@@ -252,6 +253,145 @@ export function registerInitialTools(
   config: McpServerRuntimeConfig,
   adapters: { readonly blender?: BlenderToolAdapter; readonly assetBytes?: AssetBytesResolver } = {},
 ): void {
+  registry.registerTool(
+    definition(
+      "fidelity.inspect",
+      "Inspect canonical Maximum Fidelity readiness, assets, viewports, and bounded profile capabilities.",
+      ["document.read", "asset.read", "fidelity.read"],
+      "READ",
+      async (raw, context) => {
+        const input = TOOL_SCHEMAS["fidelity.inspect"].input.parse(raw);
+        const document = await currentDocument(context);
+        const fontAssetIds = Object.values(document.assets)
+          .filter((asset) => asset.type === "FONT")
+          .map((asset) => asset.id)
+          .sort();
+        const imageAssetIds = Object.values(document.assets)
+          .filter((asset) => asset.type === "IMAGE")
+          .map((asset) => asset.id)
+          .sort();
+        const blockers = Object.values(document.nodes).flatMap((node) =>
+          node.type === "TEXT"
+            ? node.runs
+                .filter((run) => run.style.fontAssetId && !document.assets[run.style.fontAssetId])
+                .map((run) => `Missing font asset ${run.style.fontAssetId} for ${node.id}.`)
+            : node.type === "IMAGE" && !document.assets[node.assetId]
+              ? [`Missing image asset ${node.assetId} for ${node.id}.`]
+              : [],
+        );
+        const profile = resolveFidelityProfile(input.profile);
+        return {
+          data: {
+            profile: profile.name,
+            documentVersion: document.documentVersion,
+            nodeCount: Object.keys(document.nodes).length,
+            imageAssetIds,
+            fontAssetIds,
+            viewportIds: Object.keys(document.settings.viewports).sort(),
+            capabilities: [
+              "REAL_RGBA_RASTER",
+              "BROWSER_NATIVE_TEXT_SHAPING",
+              "CUSTOM_FONT_LOADING",
+              "PIXEL_HEATMAPS",
+              "DOMAIN_SCORING",
+              "BOUNDED_CORRECTION",
+            ],
+            blockers,
+          },
+        };
+      },
+      config,
+    ),
+  );
+
+  registry.registerTool(
+    definition(
+      "fidelity.validate_report",
+      "Validate an immutable fidelity report and reject false-success coverage or unsupported-feature claims.",
+      ["validation.read", "fidelity.read"],
+      "READ",
+      async (raw) => {
+        const input = TOOL_SCHEMAS["fidelity.validate_report"].input.parse(raw);
+        const blockingIssueIds = input.report.issues
+          .filter((issue) => issue.severity === "BLOCKING")
+          .map((issue) => issue.id)
+          .sort();
+        const meetsDeclaredStatus =
+          input.report.status !== "PASS" ||
+          (input.report.coverage >= 0.95 &&
+            input.report.confidence >= 0.9 &&
+            blockingIssueIds.length === 0 &&
+            input.report.unsupportedFeatures.length === 0);
+        return {
+          data: {
+            valid: true,
+            meetsDeclaredStatus,
+            blockingIssueIds,
+            unsupportedFeatures: input.report.unsupportedFeatures,
+            reportFingerprint: input.report.fingerprint,
+          },
+        };
+      },
+      config,
+    ),
+  );
+
+  registry.registerTool(
+    definition(
+      "fidelity.propose_corrections",
+      "Prioritize attributed fidelity issues by causal domain without mutating canonical state.",
+      ["validation.read", "correction.read", "fidelity.read"],
+      "READ",
+      async (raw) => {
+        const input = TOOL_SCHEMAS["fidelity.propose_corrections"].input.parse(raw);
+        const proposals = prioritizeFidelityIssues(input.report.issues)
+          .slice(0, input.limit)
+          .map((issue, index) => ({
+            issueId: issue.id,
+            ...(issue.nodeId ? { nodeId: issue.nodeId } : {}),
+            domain: issue.domain,
+            property: issue.property,
+            priority: index,
+            confidence: issue.confidence,
+            supported: issue.supported,
+          }));
+        return { data: { reportFingerprint: input.report.fingerprint, proposals } };
+      },
+      config,
+    ),
+  );
+
+  registry.registerTool(
+    definition(
+      "fidelity.apply_correction",
+      "Apply one attributed, protected, expected-version fidelity correction through Command Engine.",
+      ["document.write", "correction.read", "fidelity.write"],
+      "WRITE",
+      async (raw, context) => {
+        const input = TOOL_SCHEMAS["fidelity.apply_correction"].input.parse(raw);
+        const document = await currentDocument(context);
+        const node = document.nodes[input.nodeId];
+        if (!node) fail(context, "MCP_INPUT_INVALID", "The attributed correction target does not exist.");
+        if (node.locked)
+          fail(context, "MCP_AUTHORIZATION_DENIED", "Locked nodes are protected from fidelity correction.");
+        for (const [property, expected] of Object.entries(input.expectedBefore ?? {})) {
+          if (JSON.stringify((node as unknown as Record<string, unknown>)[property]) !== JSON.stringify(expected))
+            fail(
+              context,
+              "MCP_DOCUMENT_VERSION_CONFLICT",
+              `The expected value for ${property} changed before correction.`,
+            );
+        }
+        return executeWrite(context, input, (base) => ({
+          ...base,
+          type: "node.update",
+          payload: { nodeId: input.nodeId, changes: input.changes },
+        }));
+      },
+      config,
+    ),
+  );
+
   registry.registerTool(
     definition(
       "lighting.analyze_reference",

@@ -2359,6 +2359,13 @@ strict-intersection rule the initial carve already used. A more lenient majority
 rule was implemented and measured first; it was reverted because it reintroduced exactly the phantom
 volume strict intersection exists to prevent, lowering cross-view IoU on every real fixture tested.
 
+## 105. Phase 22 Cross-Domain 3D Evidence
+
+Fidelity measurements accept validated external evidence for geometry, materials, lighting, camera, and animation,
+each with an independent score, coverage, confidence, provider fingerprint, attributed issues, and unsupported
+features. Renderer 3D plans, real Blender tests, lighting reports, and cinematic validation can populate these
+contracts. A single 2D view is never treated as proof of 3D pixel perfection.
+
 Reconstructed geometry can now also reach the canonical scene without a manual step: `three.import_scene`
 (detailed in the MCP Specification) exposes the existing Phase 14 `scene3d.import` command as a bounded
 MCP write tool, so an Agent (or any authenticated client) can generate a candidate and import it in the

@@ -24,12 +24,12 @@ describe("MCP protocol", () => {
     ).toBe(false);
   });
 
-  it("registers the canonical MCP through Phase 21 with dedicated schemas", () => {
+  it("registers the canonical MCP through Phase 22 with dedicated schemas", () => {
     const registry = createToolRegistry();
     registerInitialTools(registry, mcpTestConfig);
     const tools = registry.listTools();
 
-    expect(tools).toHaveLength(67);
+    expect(tools).toHaveLength(71);
     expect(tools.every((tool) => tool.version === MCP_TOOL_VERSION)).toBe(true);
     expect(tools.map((tool) => tool.name)).toEqual(Object.keys(TOOL_SCHEMAS).sort());
     expect(() => registerInitialTools(registry, mcpTestConfig)).toThrow(/already registered/);

@@ -2193,3 +2193,12 @@ MCP tool version `1.9.0` adds six strict tools:
 Both writes require an expected document version, dry-run support, idempotency, audit, workspace
 authorization, bounded payloads, real Blender success, and Command Engine reconciliation. The
 surface accepts no Python, shell, arbitrary path, or renderer code.
+
+## 98. Phase 22 Fidelity Tool Surface
+
+MCP tool version `1.11.0` adds `fidelity.inspect`, `fidelity.validate_report`, and
+`fidelity.propose_corrections` as READ tools and `fidelity.apply_correction` as a WRITE tool. The write requires
+`fidelity.write` plus document permission, expected document version, workspace authorization, dry run,
+idempotency, audit, lock enforcement, and optional expected-before state. It compiles the existing `node.update`
+command and never mutates canonical state directly. Production MCP remains on its previously deployed generation
+until a separate deployment is authorized; repository tools are not claimed as production-live.

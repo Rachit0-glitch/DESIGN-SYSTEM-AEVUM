@@ -2065,3 +2065,11 @@ Material issues are attributed to the material domain and do not silently reduce
 
 Correction entries are bounded proposals only. They identify the canonical light and property; they
 never mutate the document and must be applied through the Command Engine by an approved workflow.
+
+## 102. Phase 22 Pixel And Structural Fidelity
+
+The fidelity layer adds real RGBA MAE, RMSE, channel and alpha error, mismatch percentage, global luminance SSIM,
+per-pixel domain heatmaps, and region crops. Structural evidence compares unrounded bounds, paint order, gradients,
+visible image crop, and shaped line counts, widths, and baselines. Reports retain score, coverage, confidence,
+unsupported features, provenance, pass history, and node/property attribution. Unmeasured domains never count as
+perfect.

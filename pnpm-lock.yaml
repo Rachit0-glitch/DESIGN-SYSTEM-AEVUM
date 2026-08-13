@@ -57,6 +57,9 @@ importers:
       '@aevum/exporters':
         specifier: workspace:*
         version: link:packages/exporters
+      '@aevum/fidelity':
+        specifier: workspace:*
+        version: link:packages/fidelity
       '@aevum/geometry-reconstruction':
         specifier: workspace:*
         version: link:packages/geometry-reconstruction
@@ -258,6 +261,9 @@ importers:
       '@aevum/document-model':
         specifier: workspace:*
         version: link:../../packages/document-model
+      '@aevum/fidelity':
+        specifier: workspace:*
+        version: link:../../packages/fidelity
       '@aevum/geometry-reconstruction':
         specifier: workspace:*
         version: link:../../packages/geometry-reconstruction
@@ -634,6 +640,45 @@ importers:
         specifier: workspace:*
         version: link:../shared
 
+  packages/fidelity:
+    dependencies:
+      '@aevum/camera-cinematics':
+        specifier: workspace:*
+        version: link:../camera-cinematics
+      '@aevum/correction':
+        specifier: workspace:*
+        version: link:../correction
+      '@aevum/document-model':
+        specifier: workspace:*
+        version: link:../document-model
+      '@aevum/lighting':
+        specifier: workspace:*
+        version: link:../lighting
+      '@aevum/renderer-2d':
+        specifier: workspace:*
+        version: link:../renderer-2d
+      '@aevum/renderer-3d':
+        specifier: workspace:*
+        version: link:../renderer-3d
+      '@aevum/scene-runtime':
+        specifier: workspace:*
+        version: link:../scene-runtime
+      '@aevum/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@aevum/typography':
+        specifier: workspace:*
+        version: link:../typography
+      '@aevum/validation':
+        specifier: workspace:*
+        version: link:../validation
+      playwright:
+        specifier: 1.62.1
+        version: 1.62.1
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
+
   packages/geometry-reconstruction:
     dependencies:
       '@aevum/assets':
@@ -696,6 +741,9 @@ importers:
       '@aevum/document-model':
         specifier: workspace:*
         version: link:../document-model
+      '@aevum/fidelity':
+        specifier: workspace:*
+        version: link:../fidelity
       '@aevum/lighting':
         specifier: workspace:*
         version: link:../lighting

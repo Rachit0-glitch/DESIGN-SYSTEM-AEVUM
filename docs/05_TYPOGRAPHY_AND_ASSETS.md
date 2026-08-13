@@ -1683,3 +1683,10 @@ The asset system shall be implementation-ready when it can:
 Typography and assets are core fidelity systems within the AEVUM AI Reconstruction Engine.
 
 They shall preserve visual accuracy, structured editability, provenance, licensing, responsive behaviour, animation compatibility, and export readiness while remaining fully integrated with the Canonical Design Document, Reconstruction Pipeline, Visual Validation, and Multi-Stack Export systems.
+
+## 72. Phase 22 Font And Asset Fidelity
+
+The raster backend resolves registered font and image bytes through a bounded adapter, loads custom fonts with
+`FontFace`, shapes mixed canonical runs through browser Canvas text APIs, and records line widths and baselines.
+Missing font assets and browser fallback are blocking diagnostics. Image identity and visible crop are measured
+separately; content hashes and resolver provenance remain part of reproducibility evidence.

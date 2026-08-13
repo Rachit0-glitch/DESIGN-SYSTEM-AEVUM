@@ -16,6 +16,7 @@ import {
   TransformSchema,
 } from "@aevum/document-model";
 import { CameraValidationReportSchema, ResolvedCameraSchema } from "@aevum/camera-cinematics";
+import { FidelityProfileNameSchema, FidelityReportSchema } from "@aevum/fidelity";
 import { WorkspaceIdSchema } from "@aevum/project-store";
 import {
   LightingEstimateSchema,
@@ -27,7 +28,7 @@ import { z } from "zod";
 import { McpPermissionSchema } from "./permissions.js";
 import { MCP_PROTOCOL_VERSION } from "./version.js";
 
-export const MCP_TOOL_VERSION = "1.10.0" as const;
+export const MCP_TOOL_VERSION = "1.11.0" as const;
 export const McpAuthModeSchema = z.enum(["development", "supabase", "disabled"]);
 export const McpToolNameSchema = z.enum([
   "system.get_capabilities",
@@ -79,6 +80,10 @@ export const McpToolNameSchema = z.enum([
   "camera.update",
   "cinematic.inspect",
   "cinematic.apply_sequence",
+  "fidelity.inspect",
+  "fidelity.validate_report",
+  "fidelity.propose_corrections",
+  "fidelity.apply_correction",
   "blender.runtime_info",
   "blender.inspect_scene",
   "blender.inspect_object",
@@ -516,6 +521,50 @@ export const NodeUpdateInputSchema = WriteBaseSchema.extend({
   changes: z.record(z.string().min(1).max(100), JsonValueSchema),
 });
 export const NodeDeleteInputSchema = WriteBaseSchema.extend({ nodeId: EntityIdSchema });
+export const FidelityInspectInputSchema = z.strictObject({ profile: FidelityProfileNameSchema });
+export const FidelityInspectOutputSchema = z.strictObject({
+  profile: FidelityProfileNameSchema,
+  documentVersion: z.number().int().positive(),
+  nodeCount: z.number().int().nonnegative(),
+  imageAssetIds: z.array(EntityIdSchema),
+  fontAssetIds: z.array(EntityIdSchema),
+  viewportIds: z.array(EntityIdSchema),
+  capabilities: z.array(z.string()),
+  blockers: z.array(z.string()),
+});
+export const FidelityValidateReportInputSchema = z.strictObject({ report: FidelityReportSchema });
+export const FidelityValidateReportOutputSchema = z.strictObject({
+  valid: z.boolean(),
+  meetsDeclaredStatus: z.boolean(),
+  blockingIssueIds: z.array(z.string()),
+  unsupportedFeatures: z.array(z.string()),
+  reportFingerprint: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+});
+export const FidelityProposeCorrectionsInputSchema = z.strictObject({
+  report: FidelityReportSchema,
+  limit: z.number().int().positive().max(64).default(16),
+});
+export const FidelityProposeCorrectionsOutputSchema = z.strictObject({
+  reportFingerprint: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+  proposals: z.array(
+    z.strictObject({
+      issueId: z.string(),
+      nodeId: EntityIdSchema.optional(),
+      domain: z.string(),
+      property: z.string(),
+      priority: z.number().int().nonnegative(),
+      confidence: z.number().min(0).max(1),
+      supported: z.boolean(),
+    }),
+  ),
+});
+export const FidelityApplyCorrectionInputSchema = WriteBaseSchema.extend({
+  reportFingerprint: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+  issueId: z.string().regex(/^fidelity-issue:[0-9a-f]{32}$/),
+  nodeId: EntityIdSchema,
+  changes: z.record(z.string().min(1).max(100), JsonValueSchema),
+  expectedBefore: z.record(z.string().min(1), JsonValueSchema).optional(),
+});
 export const ThreeUpdateNodeTransformInputSchema = WriteBaseSchema.extend({
   nodeId: EntityIdSchema,
   transform: TransformSchema,
@@ -954,6 +1003,13 @@ export const TOOL_SCHEMAS = Object.freeze({
   "camera.update": { input: CameraUpdateInputSchema, output: BlenderWriteOutputSchema },
   "cinematic.inspect": { input: CinematicInspectInputSchema, output: CinematicInspectOutputSchema },
   "cinematic.apply_sequence": { input: CinematicApplySequenceInputSchema, output: BlenderWriteOutputSchema },
+  "fidelity.inspect": { input: FidelityInspectInputSchema, output: FidelityInspectOutputSchema },
+  "fidelity.validate_report": { input: FidelityValidateReportInputSchema, output: FidelityValidateReportOutputSchema },
+  "fidelity.propose_corrections": {
+    input: FidelityProposeCorrectionsInputSchema,
+    output: FidelityProposeCorrectionsOutputSchema,
+  },
+  "fidelity.apply_correction": { input: FidelityApplyCorrectionInputSchema, output: WriteToolOutputSchema },
   "document.rename": { input: DocumentRenameInputSchema, output: WriteToolOutputSchema },
   "node.create": { input: NodeCreateInputSchema, output: WriteToolOutputSchema },
   "node.update": { input: NodeUpdateInputSchema, output: WriteToolOutputSchema },

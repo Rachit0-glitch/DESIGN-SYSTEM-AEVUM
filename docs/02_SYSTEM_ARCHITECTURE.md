@@ -2096,3 +2096,10 @@ storage was always an interface-only seam, never implemented), the tool depends 
 and is honestly reported as disabled (`enabled: false`, `MCP_TOOL_DISABLED` on invocation) in any deployment that
 does not configure one — the same "absent adapter, absent capability, never faked" rule already governing the
 Railway Blender Bridge.
+
+## 48. Maximum Fidelity Runtime Boundary
+
+`packages/fidelity` sits above Scene Runtime, renderers, Validation, and Phase 8 Correction. It owns versioned
+fidelity tasks, profiles, real raster evidence, domain measurements, reports, cache policy, and bounded convergence;
+it owns no canonical state. Provider-neutral reference analysis and asset resolvers remain replaceable. Persistent
+writes use Agent -> MCP -> Command Engine, while browser and provider artifacts remain regenerable.

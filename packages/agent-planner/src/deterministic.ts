@@ -445,6 +445,112 @@ function cameraPlan(
   return steps;
 }
 
+function fidelityPlan(
+  intent: AgentIntent,
+  capabilities: AgentCapabilities,
+  policy: AgentApprovalPolicy,
+): AgentPlanStep[] {
+  const operation = String(intent.parameters.operation ?? "").toLowerCase();
+  const profile = intent.parameters.profile ?? "MAXIMUM_FIDELITY";
+  const report = intent.parameters.report;
+  const steps: AgentPlanStep[] = [];
+  let dependency: string | undefined;
+  const append = (tool: string, type: AgentPlanStepType, label: string, data: unknown) => {
+    const current = step({
+      goalId: intent.goalId,
+      index: steps.length,
+      type,
+      label,
+      tool,
+      descriptor: findDescriptor(capabilities, tool),
+      dependencies: dependency ? [dependency] : [],
+      data,
+      approvalPolicy: policy,
+    });
+    steps.push(current);
+    dependency = current.id;
+    return current;
+  };
+  append("fidelity.inspect", "INSPECT", "Inspect canonical fidelity readiness", { profile });
+  if (report) append("fidelity.validate_report", "VALIDATE", "Validate measured fidelity evidence", { report });
+  const mutating = [
+    "fidelity_improve",
+    "fidelity_fix_typography",
+    "fidelity_match_layout",
+    "fidelity_correct_crop",
+    "fidelity_maximum_pass",
+  ].includes(operation);
+  if (report && (mutating || operation === "fidelity_propose_corrections"))
+    append("fidelity.propose_corrections", "ANALYZE", "Prioritize causal fidelity corrections", {
+      report,
+      limit: intent.parameters.limit ?? 16,
+    });
+  if (mutating) {
+    const read = append("document.get", "READ", "Read current document version before correction", {
+      projection: "summary",
+    });
+    const data = {
+      expectedDocumentVersion: 1,
+      reportFingerprint:
+        intent.parameters.reportFingerprint ?? (report as Record<string, unknown> | undefined)?.fingerprint,
+      issueId: intent.parameters.issueId,
+      nodeId: intent.parameters.nodeId ?? intent.targetNodeIds[0],
+      changes: intent.parameters.changes,
+      ...(intent.parameters.expectedBefore ? { expectedBefore: intent.parameters.expectedBefore } : {}),
+    };
+    const bindings: AgentPlanStep["inputBindings"] = [
+      { targetPath: "expectedDocumentVersion", sourceStepId: read.id, sourcePath: "data.documentVersion" },
+    ];
+    const descriptor = findDescriptor(capabilities, "fidelity.apply_correction");
+    const dryRun = step({
+      goalId: intent.goalId,
+      index: steps.length,
+      type: "DRY_RUN",
+      label: "Semantically dry-run attributed fidelity correction",
+      tool: "fidelity.apply_correction",
+      descriptor,
+      dependencies: dependency ? [dependency] : [],
+      data,
+      bindings,
+      approvalPolicy: policy,
+    });
+    steps.push(dryRun);
+    const write = step({
+      goalId: intent.goalId,
+      index: steps.length,
+      type: "WRITE",
+      label: "Apply fidelity correction through MCP and Command Engine",
+      tool: "fidelity.apply_correction",
+      descriptor,
+      dependencies: [dryRun.id],
+      data,
+      bindings,
+      failurePolicy: "REPLAN",
+      approvalPolicy: policy,
+    });
+    steps.push(write);
+    dependency = write.id;
+    append("fidelity.inspect", "INSPECT", "Reinspect canonical fidelity readiness", { profile });
+  }
+  const terminal = dependency;
+  steps.push(
+    step({
+      goalId: intent.goalId,
+      index: steps.length,
+      type: "VERIFY",
+      label: "Verify the bounded fidelity workflow once",
+      dependencies: terminal ? [terminal] : [],
+      approvalPolicy: policy,
+      verification: {
+        required: true,
+        strategy: "STATE_ASSERTION",
+        assertions: terminal ? [{ sourceStepId: terminal, operator: "SUCCESS" }] : [],
+      },
+    }),
+  );
+  return steps;
+}
+
 function renamePlan(
   intent: AgentIntent,
   capabilities: AgentCapabilities,
@@ -1652,6 +1758,8 @@ export function generateDeterministicPlan(input: {
     steps = lightingPlan(input.intent, input.capabilities, policy);
   } else if (operation.startsWith("camera_") || operation.startsWith("cinematic_")) {
     steps = cameraPlan(input.intent, input.capabilities, policy);
+  } else if (operation.startsWith("fidelity_")) {
+    steps = fidelityPlan(input.intent, input.capabilities, policy);
   } else if (
     [
       "rig_inspect",

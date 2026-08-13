@@ -38,6 +38,7 @@
     "@aevum/assets": "workspace:*",
     "@aevum/blender-bridge": "workspace:*",
     "@aevum/camera-cinematics": "workspace:*",
+    "@aevum/fidelity": "workspace:*",
     "@aevum/command-engine": "workspace:*",
     "@aevum/correction": "workspace:*",
     "@aevum/correction-worker": "workspace:*",

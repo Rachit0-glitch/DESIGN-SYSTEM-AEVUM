@@ -2769,7 +2769,7 @@ into bounded Maximum Fidelity workflows without weakening domain-specific qualit
 ### Status
 
 ```text
-PLANNED
+VALIDATED
 ```
 
 ### Scope
@@ -2792,9 +2792,100 @@ PLANNED
 - Unsupported and deferred capabilities remain visible
 - Completion claims are backed by reproducible evidence
 
+### Validation Record (2026-08-13)
+
+- Previous status: `IN_PROGRESS`; new status: `VALIDATED`.
+- Implementation: `@aevum/fidelity` provides four immutable profiles, separate domain score/coverage/confidence,
+  normalized reference contracts, real Playwright Chromium Canvas RGBA8 rasterization, custom FontFace loading,
+  browser-native mixed-run shaping observations, pixel metrics and heatmaps, structural attribution, cache and
+  invalidation, bounded multi-view convergence, failure isolation, oscillation/non-regression/protection gates, and a
+  concrete Phase 8 Correction bridge.
+- MCP/Agent: repository MCP tool version is `1.11.0` with three READ fidelity tools and one WRITE tool. The write is
+  permissioned, versioned, lock-aware, expected-before aware, dry-run capable, idempotent, audited, and routed through
+  Command Engine `node.update`. Fidelity Agent intents produce bounded plans with exactly one terminal `VERIFY`.
+- Tests: 377/377 repository tests passed across 53 files, including real raster, typography fallback, structural crop
+  and line-break attribution, cross-domain evidence, cache/invalidation, convergence, failure isolation, MCP safety,
+  and Agent planning. The full real Blender regression preserved 28/28 tests.
+- Gates: 12/12 canonical docs and 63/63 dependency packages passed; 88/88 typecheck tasks and 63/63 build tasks
+  passed; formatting, lint, `pnpm validate`, `pnpm validate:docker`, and `git diff --check` passed.
+- Production health: Railway API and MCP `/health`, MCP `/ready`, MCP `/version`, and Vercel returned HTTP 200. The
+  linked `Design-System-Aevum` Supabase project reported `ACTIVE_HEALTHY`.
+- Deployment state: Railway API and MCP remain online; Blender Bridge and Agent Worker remain intentionally inactive.
+  Production MCP remains generation `c4e3d51`; repository MCP `1.11.0` and Phase 22 fidelity tools are intentionally
+  not claimed as deployed.
+- CDD decision: no schema migration; fidelity artifacts are derived immutable evidence and accepted edits use
+  existing canonical commands.
+- Remaining warnings: Chromium/OS font rasterization can vary by runtime; some OpenType/variable-axis controls remain
+  browser dependent; inset shadows, backdrop blur, arbitrary alpha-mask contours, complex vector booleans, full ICC
+  conversion, local-window SSIM/LPIPS, external vision/OCR, rendered video, and rendered multi-view 3D comparison are
+  explicit deferred capabilities. Coverage and unsupported features prevent false perfect scores.
+- Blockers: none for the defined Phase 22 scope.
+- Decision: Phase 23 is **AEVUM Studio: Professional Visual Editor & AI Workspace**. Phase 24 is **Production
+  Hardening and Release Readiness**, preserving the former hardening scope. Neither phase has started.
+- Next action: begin Phase 23 only when explicitly requested, starting with the Studio application architecture that
+  consumes reference/current rasters, overlays, heatmaps, scores, attributed issues, correction proposals, pass
+  history, and AI action state without owning canonical state.
+
 ---
 
-## 29. Phase 23 — Exporter Framework
+## 29. Phase 23 — AEVUM Studio: Professional Visual Editor & AI Workspace
+
+### Goal
+
+Expose the validated Phase 0-22 engines through a professional visual editor and AI workspace with Canva-like
+usability, Figma-like precision, AEVUM AI control, and a real-time 2D, 3D, and animation workspace.
+
+### Status
+
+```text
+PLANNED
+```
+
+### Scope
+
+- Project browser, layers, canonical scene hierarchy, properties, history, and timeline interfaces
+- Reference/current raster comparison, overlays, heatmaps, scores, region issues, and node attribution
+- Professional 2D, 3D, camera, lighting, material, rigging, animation, and responsive inspection/editing
+- AI action state, bounded correction proposals, job control, human approval, and export configuration
+- Every persistent mutation remains MCP and Command Engine controlled
+
+### Acceptance Gate
+
+- Studio is a client of canonical APIs and never owns project truth
+- 2D, 3D, animation, responsive, and fidelity evidence remain inspectable and editable
+- AI actions expose plans, permissions, progress, verification, and failure state
+- Visual comparison and historical-version workflows are production usable
+
+---
+
+## 30. Phase 24 — Production Hardening and Release Readiness
+
+### Goal
+
+Prepare the complete AEVUM product for secure, recoverable, observable, performant real-world release.
+
+### Status
+
+```text
+PLANNED
+```
+
+### Scope
+
+The complete former Production Hardening scope is preserved in the historical reconciliation section below,
+including security, sandboxing, permissions, workspace isolation, backup/restore, disaster and queue recovery,
+rate/resource limits, cost and performance observability, compatibility, load testing, and storage lifecycle.
+
+### Acceptance Gate
+
+- Security and isolation audits pass
+- Backup, restore, deployment, worker, and queue recovery are proven
+- Load, performance, cost, resource, browser, and storage lifecycle gates pass
+- Release operations and rollback are documented and exercised
+
+---
+
+## 31. Phase 25 — Exporter Framework
 
 ### Goal
 
@@ -2841,7 +2932,7 @@ packages/exporters
 
 ---
 
-## 30. Phase 24 — Core Web Exporters
+## 32. Phase 26 — Core Web Exporters
 
 ### Goal
 
@@ -2885,7 +2976,7 @@ PLANNED
 
 ---
 
-## 31. Phase 25 — Core 3D Exporters
+## 33. Phase 27 — Core 3D Exporters
 
 ### Goal
 
@@ -2926,7 +3017,7 @@ PLANNED
 
 ---
 
-## 32. Phase 26 — Canva Export
+## 34. Phase 28 — Canva Export
 
 ### Goal
 
@@ -2967,7 +3058,7 @@ PLANNED
 
 ---
 
-## 33. Phase 27 — Maximum Fidelity Orchestration
+## 35. Phase 29 — Advanced Maximum Fidelity Orchestration
 
 ### Goal
 
@@ -3007,7 +3098,7 @@ PLANNED
 
 ---
 
-## 34. Phase 28 — Studio Inspection Interface
+## 35A. Historical Studio Scope — Merged Into Phase 23
 
 ### Goal
 
@@ -3052,7 +3143,7 @@ PLANNED
 
 ---
 
-## 35. Phase 29 — Production Hardening
+## 35B. Historical Production Hardening Scope — Moved Intact To Phase 24
 
 ### Goal
 
@@ -3772,7 +3863,7 @@ if the two ever disagree again.
 The next repository action should be:
 
 ```text
-Phase 21 is complete. Do not begin Phase 22 automatically; await its explicit scope.
+Phase 22 is validated. Do not begin Phase 23 automatically; await its explicit scope.
 ```
 
 Phase 18 (§24) delivered the first real local reconstruction execution — candidate geometry
@@ -3788,9 +3879,9 @@ poses, FK/IK and constraints, CPU skinning, weight editing, deformation quality 
 Animation Core and Scene Runtime integration, semantic Blender execution, MCP tools, and Agent
 workflows.
 
-Phase 21 now validates canonical professional cameras, editable paths, shots and sequences, deterministic fixed-time
-evaluation, physical lens and composition analysis, renderer-ready camera operations, real Blender camera/DOF and
-animated keyframe round trips, MCP control, and bounded Agent workflows. Phase 22 has not been started.
+Phase 22 now validates real 2D raster evidence, custom-font and mixed-run typography observations, pixel and
+structural comparison, domain-separated cross-domain evidence, bounded Phase 8 correction orchestration, MCP tools,
+and Agent workflows. Phase 23 and Phase 24 have not been started.
 
 ---
 

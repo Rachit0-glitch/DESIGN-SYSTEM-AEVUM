@@ -2400,3 +2400,9 @@ document version, source lights, and registered derivative asset.
 The `1.5.0 -> 1.6.0` migration initializes these registries without changing existing nodes or
 assets. Document validation checks every scene, rig, profile, probe, HDRI asset, and bake reference.
 Renderer and Blender state remains regenerable and is not persisted in the CDD.
+
+## 96. Phase 22 Schema Decision
+
+Phase 22 requires no Canonical Design Document migration. Fidelity tasks, rasters, heatmaps, measurements, reports,
+and correction-pass evidence are immutable derived records keyed by document version and fingerprint. Accepted edits
+continue to use existing canonical commands; pixels and provider analysis are not canonical design truth.

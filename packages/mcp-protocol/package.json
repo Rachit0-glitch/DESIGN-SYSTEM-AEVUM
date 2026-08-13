@@ -19,6 +19,7 @@
     "@aevum/camera-cinematics": "workspace:*",
     "@aevum/command-engine": "workspace:*",
     "@aevum/document-model": "workspace:*",
+    "@aevum/fidelity": "workspace:*",
     "@aevum/lighting": "workspace:*",
     "@aevum/project-store": "workspace:*",
     "@aevum/shared": "workspace:*",
