@@ -65,6 +65,73 @@ describe("MCP HTTP transport", () => {
     expect(await response.json()).toMatchObject({ success: true, tool: "project.get" });
   });
 
+  it("exposes the same permissioned executor through stateless Streamable HTTP JSON-RPC", async () => {
+    const { fixture, url } = await start();
+    const endpoint = `${url}/mcp?workspaceId=${encodeURIComponent(fixture.workspaceId)}&projectId=${encodeURIComponent(fixture.projectId)}&documentId=${encodeURIComponent(fixture.document.metadata.id)}`;
+    const call = (body: object) =>
+      fetch(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+        body: JSON.stringify(body),
+      });
+
+    const initialized = await call({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+    });
+    const initializeBody = await initialized.json();
+    expect(initialized.status, JSON.stringify(initializeBody)).toBe(200);
+    expect(initializeBody).toMatchObject({ result: { capabilities: { tools: {} } } });
+
+    const listed = await call({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
+    const listBody = (await listed.json()) as { result: { tools: Array<{ name: string; inputSchema: unknown }> } };
+    expect(listBody.result.tools.some((tool) => tool.name === "document.get")).toBe(true);
+    expect(listBody.result.tools.find((tool) => tool.name === "document.rename")?.inputSchema).toBeDefined();
+
+    const read = await call({
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/call",
+      params: { name: "document.get", arguments: { projection: "summary" } },
+    });
+    expect(await read.json()).toMatchObject({ result: { isError: false, structuredContent: { documentVersion: 1 } } });
+
+    const dryRun = await call({
+      jsonrpc: "2.0",
+      id: 4,
+      method: "tools/call",
+      params: {
+        name: "document.rename",
+        arguments: {
+          name: "External MCP",
+          expectedDocumentVersion: 1,
+          aevumExecution: { dryRun: true, idempotencyKey: "external-dry-run", documentVersion: 1 },
+        },
+      },
+    });
+    expect(await dryRun.json()).toMatchObject({ result: { isError: false, structuredContent: { dryRun: true } } });
+
+    const write = await call({
+      jsonrpc: "2.0",
+      id: 5,
+      method: "tools/call",
+      params: {
+        name: "document.rename",
+        arguments: {
+          name: "External MCP",
+          expectedDocumentVersion: 1,
+          aevumExecution: { idempotencyKey: "external-commit-0001", documentVersion: 1 },
+        },
+      },
+    });
+    expect(await write.json()).toMatchObject({ result: { isError: false, structuredContent: { resultVersion: 2 } } });
+    expect((await fixture.repository.getCurrentDocument(fixture.workspaceId, fixture.projectId))?.metadata.name).toBe(
+      "External MCP",
+    );
+  });
+
   it("adds HSTS only for production transport responses", async () => {
     const production = await start({ production: true });
     const response = await fetch(`${production.url}/health`);

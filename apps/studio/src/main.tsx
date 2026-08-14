@@ -35,13 +35,30 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import React, { Component, memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import React, {
+  Component,
+  lazy,
+  memo,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { createRoot } from "react-dom/client";
-import * as THREE from "three";
+import type { Session, SupabaseClient } from "@supabase/supabase-js";
 import type { DesignNode } from "@aevum/document-model";
 import type { RenderGraphNode, RenderPaint } from "@aevum/renderer-2d";
 import { createStudioProjectFixture, studioFixtureIds } from "./core/fixture.js";
-import { createDeterministicStudioAgentGateway } from "./core/agent.js";
+import { createDeterministicStudioAgentGateway, type StudioAgentGateway } from "./core/agent.js";
+import {
+  createStudioAuthClient,
+  loadProductionStudioProject,
+  readStudioBrowserConfiguration,
+  type StudioBrowserConfiguration,
+} from "./core/production.js";
 import { createStudioSession, type StudioSession, type StudioSessionSnapshot } from "./core/session.js";
 import {
   createStudioTransientState,
@@ -52,7 +69,6 @@ import {
 } from "./core/studio-state.js";
 import "./styles.css";
 
-const projectFixture = createStudioProjectFixture();
 const storage = {
   load(projectId: string): string | null {
     try {
@@ -65,13 +81,9 @@ const storage = {
     localStorage.setItem(`aevum.studio.project.${projectId}`, document);
   },
 };
-const session = createStudioSession({ ...projectFixture, persistence: storage });
-const agentGateway = createDeterministicStudioAgentGateway({
-  session,
-  workspaceId: projectFixture.project.workspaceId,
-  projectId: projectFixture.project.id,
-  documentId: projectFixture.document.metadata.id,
-});
+let session: StudioSession;
+let agentGateway: StudioAgentGateway;
+const ThreeViewport = lazy(() => import("./workspaces/ThreeViewport.js"));
 
 function useStudioSnapshot(source: StudioSession): StudioSessionSnapshot {
   return useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot);
@@ -408,7 +420,7 @@ function AiPanel({
   const [stage, setStage] = useState<AiStage>("IDLE");
   const [actions, setActions] = useState<string[]>([]);
   const run = async () => {
-    const nodeId = selected[0] ?? studioFixtureIds.heading;
+    const nodeId = selected[0] ?? snapshot.document.rootNodeIds[0] ?? "";
     const node = snapshot.document.nodes[nodeId];
     if (!node || node.locked || !prompt.trim()) {
       setStage("FAILED");
@@ -1038,133 +1050,6 @@ function Timeline({
   );
 }
 
-function ThreeViewport({
-  snapshot,
-  selected,
-  onSelect,
-}: {
-  snapshot: StudioSessionSnapshot;
-  selected: readonly string[];
-  onSelect: (id: string, additive: boolean) => void;
-}) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const canonicalMesh = snapshot.document.nodes[studioFixtureIds.mesh];
-    const canonicalMaterial = snapshot.document.materials[studioFixtureIds.material];
-    if (canonicalMesh?.type !== "MESH_3D" || canonicalMaterial?.type !== "PBR" || !canonicalMaterial.pbr) return;
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color("#1b1e20");
-    const canonicalCamera = snapshot.document.cameras[studioFixtureIds.camera];
-    const camera = new THREE.PerspectiveCamera(
-      42,
-      1,
-      canonicalCamera?.nearClip ?? 0.1,
-      canonicalCamera?.farClip ?? 100,
-    );
-    camera.position.set(
-      canonicalCamera?.transform.position.x ?? 4.2,
-      canonicalCamera?.transform.position.y ?? 3.2,
-      canonicalCamera?.transform.position.z ?? 5.4,
-    );
-    camera.lookAt(0, 0, 0);
-    const pbr = canonicalMaterial.pbr;
-    const baseColor = pbr.baseColor;
-    const mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(2.3, 2.3, 2.3),
-      new THREE.MeshStandardMaterial({
-        color: new THREE.Color(baseColor.r, baseColor.g, baseColor.b),
-        roughness: pbr.roughness,
-        metalness: pbr.metalness,
-      }),
-    );
-    mesh.position.set(
-      canonicalMesh.transform.position.x,
-      canonicalMesh.transform.position.y,
-      canonicalMesh.transform.position.z,
-    );
-    mesh.rotation.set(
-      canonicalMesh.transform.rotation.x,
-      canonicalMesh.transform.rotation.y,
-      canonicalMesh.transform.rotation.z,
-    );
-    mesh.scale.set(canonicalMesh.transform.scale.x, canonicalMesh.transform.scale.y, canonicalMesh.transform.scale.z);
-    scene.add(mesh);
-    scene.add(new THREE.HemisphereLight("#e9fff5", "#2d302b", 1.8));
-    const canonicalLight = snapshot.document.lights[studioFixtureIds.light];
-    const key = new THREE.DirectionalLight("#ff9a78", Math.max(1, (canonicalLight?.intensity ?? 1200) / 300));
-    key.position.set(
-      canonicalLight?.transform.position.x ?? 3,
-      canonicalLight?.transform.position.y ?? 4,
-      canonicalLight?.transform.position.z ?? 2,
-    );
-    scene.add(key);
-    scene.add(new THREE.GridHelper(12, 24, "#48504e", "#2b3031"));
-    const resize = () => {
-      const rect = canvas.getBoundingClientRect();
-      renderer.setSize(rect.width, rect.height, false);
-      camera.aspect = rect.width / Math.max(1, rect.height);
-      camera.updateProjectionMatrix();
-      renderer.render(scene, camera);
-    };
-    resize();
-    const observer = new ResizeObserver(resize);
-    observer.observe(canvas);
-    let frame = 0;
-    const animate = () => {
-      mesh.rotation.y += 0.0025;
-      renderer.render(scene, camera);
-      frame = requestAnimationFrame(animate);
-    };
-    frame = requestAnimationFrame(animate);
-    return () => {
-      cancelAnimationFrame(frame);
-      observer.disconnect();
-      renderer.dispose();
-      mesh.geometry.dispose();
-      (mesh.material as THREE.Material).dispose();
-    };
-  }, [snapshot.document]);
-  const inspected = Object.values(snapshot.document.nodes).find((node) => node.type === "MESH_3D");
-  return (
-    <main className="three-workspace">
-      <canvas ref={canvasRef} data-testid="three-canvas" onClick={() => inspected && onSelect(inspected.id, false)} />
-      <div className="three-overlay">
-        <span>Perspective</span>
-        <span>Maximum Fidelity</span>
-      </div>
-      <div className="gizmo">
-        <i className="axis-x" />
-        <i className="axis-y" />
-        <i className="axis-z" />
-      </div>
-      <section className="three-inspector">
-        <strong>Scene inspection</strong>
-        <div>
-          <span>Objects</span>
-          <b>{snapshot.projection.statistics.threeDimensionalNodes}</b>
-        </div>
-        <div>
-          <span>Materials</span>
-          <b>{Object.keys(snapshot.document.materials).length}</b>
-        </div>
-        <div>
-          <span>Cameras</span>
-          <b>{Object.keys(snapshot.document.cameras).length}</b>
-        </div>
-        <div>
-          <span>Lights</span>
-          <b>{Object.keys(snapshot.document.lights).length}</b>
-        </div>
-        <small>{selected.length ? "Canonical selection linked" : "Runtime preview · no scene asset registered"}</small>
-      </section>
-    </main>
-  );
-}
-
 function FidelityWorkspace({ onSelect }: { onSelect: (id: string, additive: boolean) => void }) {
   const issues = [
     { domain: "Typography", message: "Heading width +8 px", score: 0.92, nodeId: studioFixtureIds.heading },
@@ -1249,7 +1134,19 @@ function FidelityWorkspace({ onSelect }: { onSelect: (id: string, additive: bool
   );
 }
 
-function App() {
+function App({
+  account,
+}: {
+  account?: {
+    email: string;
+    workspaceId: string;
+    projectId: string;
+    documentId: string;
+    onSignOut(): void;
+    onCopy(value: string): void;
+    onCopyToken(): void;
+  };
+}) {
   const snapshot = useStudioSnapshot(session);
   const initial = createStudioTransientState(snapshot.document.rootNodeIds);
   const [tool, setTool] = useState(initial.activeTool);
@@ -1344,6 +1241,26 @@ function App() {
   };
   return (
     <div className="studio-shell">
+      {account ? (
+        <section className="production-session" aria-label="Production session">
+          <span title={account.workspaceId}>{account.email}</span>
+          <button type="button" onClick={() => account.onCopy(account.workspaceId)}>
+            Workspace ID
+          </button>
+          <button type="button" onClick={() => account.onCopy(account.projectId)}>
+            Project ID
+          </button>
+          <button type="button" onClick={() => account.onCopy(account.documentId)}>
+            Document ID
+          </button>
+          <button type="button" onClick={account.onCopyToken}>
+            Copy MCP credential
+          </button>
+          <button type="button" onClick={account.onSignOut}>
+            Sign out
+          </button>
+        </section>
+      ) : null}
       <TopBar
         snapshot={snapshot}
         workspace={workspace}
@@ -1366,7 +1283,15 @@ function App() {
       </StudioErrorBoundary>
       <section className="workspace-area">
         {workspace === "THREE_D" ? (
-          <ThreeViewport snapshot={snapshot} selected={selected} onSelect={select} />
+          <Suspense
+            fallback={
+              <div className="boot-shell">
+                <span>Loading 3D workspace...</span>
+              </div>
+            }
+          >
+            <ThreeViewport snapshot={snapshot} selected={selected} onSelect={select} />
+          </Suspense>
         ) : workspace === "FIDELITY" ? (
           <FidelityWorkspace onSelect={select} />
         ) : (
@@ -1407,8 +1332,187 @@ function App() {
   );
 }
 
+function SignIn({ client }: { client: SupabaseClient }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const authenticate = async (create: boolean) => {
+    setBusy(true);
+    setMessage("");
+    const result = create
+      ? await client.auth.signUp({ email, password })
+      : await client.auth.signInWithPassword({ email, password });
+    setBusy(false);
+    if (result.error) setMessage(result.error.message);
+    else if (create && !result.data.session) setMessage("Check your email to confirm the account.");
+  };
+  return (
+    <main className="auth-shell">
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          void authenticate(false);
+        }}
+      >
+        <div className="auth-brand">
+          <strong>AEVUM</strong>
+          <span>Studio</span>
+        </div>
+        <label>
+          Email
+          <input
+            type="email"
+            autoComplete="email"
+            required
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+          />
+        </label>
+        <label>
+          Password
+          <input
+            type="password"
+            autoComplete="current-password"
+            minLength={8}
+            required
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+          />
+        </label>
+        {message ? <p role="alert">{message}</p> : null}
+        <button type="submit" disabled={busy}>
+          {busy ? "Signing in..." : "Sign in"}
+        </button>
+        <button type="button" className="secondary" disabled={busy} onClick={() => void authenticate(true)}>
+          Create account
+        </button>
+      </form>
+    </main>
+  );
+}
+
+function ProductionBootstrap({ configuration }: { configuration: StudioBrowserConfiguration }) {
+  const [client] = useState(() => createStudioAuthClient(configuration));
+  const [authSession, setAuthSession] = useState<Session | null>(null);
+  const [loaded, setLoaded] = useState<Awaited<ReturnType<typeof loadProductionStudioProject>> | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [online, setOnline] = useState(navigator.onLine);
+  useEffect(() => {
+    void client.auth.getSession().then(({ data }) => {
+      setAuthSession(data.session);
+      setLoading(false);
+    });
+    const { data } = client.auth.onAuthStateChange((_event, next) => {
+      setAuthSession(next);
+      if (!next) setLoaded(null);
+    });
+    return () => data.subscription.unsubscribe();
+  }, [client]);
+  useEffect(() => {
+    const update = () => setOnline(navigator.onLine);
+    addEventListener("online", update);
+    addEventListener("offline", update);
+    return () => {
+      removeEventListener("online", update);
+      removeEventListener("offline", update);
+    };
+  }, []);
+  useEffect(() => {
+    if (!authSession) return;
+    setLoading(true);
+    setError("");
+    void loadProductionStudioProject(configuration, authSession)
+      .then((project) => {
+        session = createStudioSession({
+          project: project.project,
+          document: project.document,
+          persistence: storage,
+          commandGateway: project.commandGateway,
+          restoreFromPersistence: false,
+        });
+        agentGateway = project.agentGateway;
+        setLoaded(project);
+      })
+      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Studio startup failed."))
+      .finally(() => setLoading(false));
+  }, [authSession, configuration]);
+  if (loading)
+    return (
+      <main className="boot-shell">
+        <strong>AEVUM Studio</strong>
+        <span>Opening canonical project...</span>
+      </main>
+    );
+  if (!authSession) return <SignIn client={client} />;
+  if (error || !loaded)
+    return (
+      <main className="boot-shell" role="alert">
+        <strong>Project unavailable</strong>
+        <span>{error}</span>
+        <button type="button" onClick={() => location.reload()}>
+          Retry
+        </button>
+      </main>
+    );
+  return (
+    <>
+      {!online ? (
+        <div className="offline-banner" role="status">
+          Offline. Editing is paused until the connection returns.
+        </div>
+      ) : null}
+      <App
+        account={{
+          email: authSession.user.email ?? "Authenticated account",
+          workspaceId: loaded.workspaceId,
+          projectId: loaded.project.id,
+          documentId: loaded.document.metadata.id,
+          onSignOut: () => {
+            void client.auth.signOut();
+          },
+          onCopy: (value) => {
+            void navigator.clipboard.writeText(value);
+          },
+          onCopyToken: () => {
+            void navigator.clipboard.writeText(authSession.access_token);
+          },
+        }}
+      />
+    </>
+  );
+}
+
+function StudioRoot() {
+  try {
+    const configuration = readStudioBrowserConfiguration();
+    return <ProductionBootstrap configuration={configuration} />;
+  } catch (error) {
+    if (import.meta.env.DEV) {
+      const fixture = createStudioProjectFixture();
+      session = createStudioSession({ ...fixture, persistence: storage });
+      agentGateway = createDeterministicStudioAgentGateway({
+        session,
+        workspaceId: fixture.project.workspaceId,
+        projectId: fixture.project.id,
+        documentId: fixture.document.metadata.id,
+      });
+      return <App />;
+    }
+    return (
+      <main className="boot-shell" role="alert">
+        <strong>Studio configuration unavailable</strong>
+        <span>{error instanceof Error ? error.message : "Invalid public runtime configuration."}</span>
+      </main>
+    );
+  }
+}
+
 createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <App />
+    <StudioErrorBoundary>
+      <StudioRoot />
+    </StudioErrorBoundary>
   </React.StrictMode>,
 );

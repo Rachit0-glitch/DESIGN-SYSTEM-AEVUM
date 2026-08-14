@@ -2890,10 +2890,12 @@ VALIDATED
 - Remaining bounded limitations: point-level vector editing, full crop handles, real-time server push, production
   upload registration, external vision/OCR, and browser Blender parity remain deferred or unavailable. The local
   deterministic Agent acceptance path does not claim a paid or external model. The production bundle is functional
-  but exceeds Vite's 500 kB advisory threshold; route-level code splitting remains a Phase 24 performance task.
+  had exceeded Vite's 500 kB advisory threshold. Phase 24 isolates Three.js behind a lazy viewport boundary; the
+  initial Studio entry is now 42.78 kB minified (13.39 kB gzip), while the optional Three.js viewport is 523.85 kB
+  minified (131.00 kB gzip).
 - Blockers: none for the defined Phase 23 scope.
 - Next action: begin Phase 24 - Production Hardening and Release Readiness only when explicitly requested. Phase 24
-  was not started.
+  is recorded in Section 30.
 
 ---
 
@@ -2906,21 +2908,74 @@ Prepare the complete AEVUM product for secure, recoverable, observable, performa
 ### Status
 
 ```text
-PLANNED
+VALIDATED
 ```
 
 ### Scope
 
-The complete former Production Hardening scope is preserved in the historical reconciliation section below,
-including security, sandboxing, permissions, workspace isolation, backup/restore, disaster and queue recovery,
-rate/resource limits, cost and performance observability, compatibility, load testing, and storage lifecycle.
+Phase 24 establishes the deployable release surface without replacing validated canonical systems:
+
+- Studio authenticates with Supabase and reads/writes canonical project state through the API/MCP/Command Engine path.
+- API and MCP use Supabase-backed Project Store access with schema version `202608140001`, readiness probes, strict
+  origins, payload/time/rate limits, security headers, and sanitized failures.
+- The MCP server supports the existing AEVUM envelope plus stateless Streamable HTTP JSON-RPC at `POST /mcp` for
+  external clients. Every write remains dry-run-first, expected-version checked, idempotent, permissioned, and audited.
+- Supabase bootstrap is atomic and per-actor serialized; original production assets remain private and immutable.
+- Studio keeps Three.js optional, preserves a bounded 2D fallback, and never promotes browser storage to canonical
+  state.
+
+### Validation Evidence (2026-08-14)
+
+- Starting revision: `38af348d8cc8c040d5a8811788451d213bace111` on `main`.
+- Supabase project `Design-System-Aevum` is healthy and migration `20260814000100_phase24_release_hardening.sql`
+  is applied. Its atomic project bootstrap RPC, RLS-backed storage, audit records, and idempotency records are live.
+- Studio: `https://design-system-aevum-peach.vercel.app` is served by Vercel deployment
+  `dpl_CZXvX8c4PVpsppLYsmyGWkRLt85C` with CSP and HSTS.
+- API: `https://aevumapi-production-5fd5.up.railway.app` reports `200` for `/health`, `/ready`, and `/version`;
+  readiness confirms Supabase, database, authentication, and schema `202608140001`.
+- MCP: `https://mcp-server-production-209e.up.railway.app` reports `200` for `/health`, `/ready`, and `/version`;
+  deployment `9a9157b6-be4c-4098-b4d1-560b4b06fe67` reports MCP protocol `1.0.0` and deployment version
+  `phase24-20260814`.
+- Authenticated production MCP smoke passed using an ephemeral Auth user: bootstrap, authenticated read, dry-run,
+  write, persisted readback, idempotent replay, audit/idempotency verification, and cleanup. The same smoke passed
+  after Railway MCP restart, proving persistence and authentication recovery.
+- Production Studio E2E passed: sign-in, atomic bootstrap, canonical edit, auditable undo/redo, reload persistence,
+  MCP credential UI, API readback, and temporary user/workspace cleanup.
+- Repository checks passed: 385 tests in 54 files; Chromium E2E 4 passed and 1 production-only test skipped locally
+  because it passed in its dedicated live run; Blender 5.1 integration 28 passed; typecheck 88 tasks; dependency
+  validation 63 packages; documentation validation 12 canonical files; `pnpm audit --prod` found no known
+  vulnerabilities; `pnpm validate:docker` passed `docker compose config`.
+
+### Operational Documents
+
+- `docs/PRODUCTION_READINESS.md` is the release gate, rollback, isolated recovery, and deliberate-boundary contract.
+- `docs/EXTERNAL_MCP_CONNECTION.md` is the user-facing Codex and Antigravity setup, permission, scope, and
+  troubleshooting handoff.
+
+### Remaining Boundaries
+
+- Studio upload and signed asset download flows remain deliberately unavailable until byte ingestion, MIME/size
+  validation, quarantine, provenance, and atomic asset registration are connected.
+- Blender Bridge remains private/local and inactive in Railway; production reports Blender capability unavailability
+  rather than simulating execution.
+- External AI/vision providers, point-level vector editing, server push, SSE streaming, and full load/restore drills
+  remain deferred. Supabase restore is documented for an isolated project/branch and must never be rehearsed against
+  production data.
 
 ### Acceptance Gate
 
-- Security and isolation audits pass
-- Backup, restore, deployment, worker, and queue recovery are proven
-- Load, performance, cost, resource, browser, and storage lifecycle gates pass
-- Release operations and rollback are documented and exercised
+- Security, authentication, authorization, isolation, concurrency, audit, idempotency, and dependency audits pass.
+- Vercel, API, and MCP are deployed and healthy; MCP restart recovery and persisted state were verified.
+- Browser, production Studio, MCP, API, Blender, Docker configuration, and full regression checks pass.
+- Rollback and isolated Supabase recovery procedures are documented; unimplemented upload, streaming, and Blender
+  production capabilities are explicitly unavailable rather than claimed as complete.
+
+### Status Change
+
+- Date: 2026-08-14
+- Previous status: `PLANNED`
+- New status: `VALIDATED`
+- Decision: Phase 24 is complete. Do not begin Phase 25 without an explicit request.
 
 ---
 
@@ -3902,7 +3957,7 @@ if the two ever disagree again.
 The next repository action should be:
 
 ```text
-Phase 23 is validated. Do not begin Phase 24 automatically; await its explicit scope.
+Phase 24 is validated. Do not begin Phase 25 automatically; await its explicit scope.
 ```
 
 Phase 18 (§24) delivered the first real local reconstruction execution — candidate geometry
@@ -3920,7 +3975,8 @@ workflows.
 
 Phase 22 validates real 2D raster evidence, custom-font and mixed-run typography observations, pixel and structural
 comparison, domain-separated cross-domain evidence, bounded Phase 8 correction orchestration, MCP tools, and Agent
-workflows. Phase 23 validates AEVUM Studio. Phase 24 has not started.
+workflows. Phase 23 validates AEVUM Studio. Phase 24 validates the production release surface, recovery contract,
+external MCP handoff, and deployed Studio/API/MCP integration.
 
 ---
 

@@ -3,6 +3,8 @@ builder = "RAILPACK"
 buildCommand = "pnpm --filter @aevum/api... run build"
 watchPatterns = [
   "apps/api/**",
+  "packages/document-model/**",
+  "packages/project-store/**",
   "packages/shared/**",
   "package.json",
   "pnpm-lock.yaml",

@@ -81,9 +81,14 @@ All state-changing operations shall pass through the Command Engine or Job Syste
 
 Protocol version `1.0.0` is implemented by `packages/mcp-protocol`. The production service in `apps/mcp-server`
 provides strict HTTP JSON envelopes, signed Supabase JWT verification, database-backed workspace membership and
-permission resolution, twelve typed tools, dry runs, optimistic concurrency, persistent idempotency, atomic canonical
+permission resolution, typed versioned tools, dry runs, optimistic concurrency, persistent idempotency, atomic canonical
 document/version/audit commits, structured errors, explicit CORS, bounded payloads, timeouts, health/readiness/version
 routes, secret-safe structured logs, and graceful shutdown.
+
+Phase 24 adds a stateless Streamable HTTP JSON-RPC adapter for external clients. `initialize`, `tools/list`, and
+`tools/call` translate into the same registry/executor; authorization, workspace scope, dry runs, idempotency, audit,
+and Command Engine commits are not reimplemented at the transport boundary. Internal versioned envelopes remain
+supported for Agent Runtime and Studio.
 
 Phase 12 write tools are `document.rename`, `node.create`, `node.update`, and `node.delete`. Each compiles to one typed
 Command Engine transaction; no generic command execution endpoint exists. Read tools are `system.get_capabilities`,

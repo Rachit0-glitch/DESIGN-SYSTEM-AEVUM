@@ -168,6 +168,45 @@ async function runProductionSmoke(): Promise<void> {
       });
       return McpResponseEnvelopeSchema.parse(await response.json());
     };
+    const standardRequest = async (
+      name: string,
+      argumentsValue: Record<string, unknown>,
+      idempotencyKey?: string,
+      dryRun = false,
+    ) => {
+      const scoped = new URL(endpoint);
+      scoped.searchParams.set("workspaceId", primaryWorkspaceId);
+      scoped.searchParams.set("projectId", projectId);
+      scoped.searchParams.set("documentId", document.metadata.id);
+      const response = await fetch(scoped, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: createMcpRequestId(),
+          method: "tools/call",
+          params: {
+            name,
+            arguments: {
+              ...argumentsValue,
+              aevumExecution: {
+                dryRun,
+                documentVersion: argumentsValue.expectedDocumentVersion,
+                ...(idempotencyKey ? { idempotencyKey } : {}),
+              },
+            },
+          },
+        }),
+      });
+      const body = (await response.json()) as {
+        readonly result?: { readonly isError?: boolean; readonly structuredContent?: Record<string, unknown> };
+      };
+      return { status: response.status, result: body.result };
+    };
 
     const project = await request("project.get", {});
     const pageId = document.pages[0];
@@ -194,6 +233,22 @@ async function runProductionSmoke(): Promise<void> {
       {
         idempotencyKey: `smoke-commit-${suffix}`,
       },
+    );
+    const standardDryRun = await standardRequest(
+      "node.update",
+      { expectedDocumentVersion: 2, nodeId: node.id, changes: { name: "External MCP Smoke Node" } },
+      `standard-dry-${suffix}`,
+      true,
+    );
+    const standardCommitted = await standardRequest(
+      "node.update",
+      { expectedDocumentVersion: 2, nodeId: node.id, changes: { name: "External MCP Smoke Node" } },
+      `standard-commit-${suffix}`,
+    );
+    const standardReplayed = await standardRequest(
+      "node.update",
+      { expectedDocumentVersion: 2, nodeId: node.id, changes: { name: "External MCP Smoke Node" } },
+      `standard-commit-${suffix}`,
     );
     const denied = await request("project.get", {}, { workspace: deniedWorkspaceId });
     let restartRead = project;
@@ -224,13 +279,20 @@ async function runProductionSmoke(): Promise<void> {
       write: committed.success,
       replay: replayed.success,
       replayTransaction: replayed.transactionId === committed.transactionId,
+      standardDryRun: standardDryRun.status === 200 && standardDryRun.result?.isError === false,
+      standardWrite:
+        standardCommitted.status === 200 && standardCommitted.result?.structuredContent?.resultVersion === 3,
+      standardReplay:
+        standardReplayed.status === 200 &&
+        standardReplayed.result?.structuredContent?.transactionId ===
+          standardCommitted.result?.structuredContent?.transactionId,
       workspaceIsolation: denied.errors[0]?.code === "MCP_WORKSPACE_ACCESS_DENIED",
       restartRead: restartRead.success,
       restartReplay: restartReplay.success && restartReplay.transactionId === committed.transactionId,
-      persistedVersion: storedDocument.data.current_version === 2,
+      persistedVersion: storedDocument.data.current_version === 3,
       persistedNode: Boolean(storedNodes?.[node.id]),
       audit: (auditRecords.data?.length ?? 0) >= 5,
-      idempotency: (idempotencyRecords.data?.length ?? 0) === 2,
+      idempotency: (idempotencyRecords.data?.length ?? 0) === 4,
     };
     const failedAssertions = Object.entries(assertions)
       .filter(([, passed]) => !passed)
@@ -332,7 +394,7 @@ async function runProductionSmoke(): Promise<void> {
         .eq("actor_subject", actorId.subject);
       if (viewerUpdate.error) throw new Error("Remote MCP permission fixture update failed.");
       const permissionDenied = await request("node.delete", {
-        expectedDocumentVersion: 2,
+        expectedDocumentVersion: 3,
         nodeId: node.id,
       });
       if (permissionDenied.errors[0]?.code !== "MCP_AUTHORIZATION_DENIED") {

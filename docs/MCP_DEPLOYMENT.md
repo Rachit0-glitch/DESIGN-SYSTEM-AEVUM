@@ -1,6 +1,6 @@
 # AEVUM MCP Deployment
 
-This runbook covers the Phase 12 `apps/mcp-server` service. It does not merge MCP into `apps/api`.
+This runbook covers the independent `apps/mcp-server` service. It does not merge MCP into `apps/api`.
 
 ## Supabase Migration
 
@@ -9,6 +9,9 @@ current document, immutable document version, MCP audit, idempotency, and schema
 atomic `aevum_mcp_commit_document` function. Migration `20260809000100_enable_mcp_audit_retention.sql` gives only the
 trusted `service_role` audit-delete permission for configured retention and verified smoke cleanup; client roles remain
 unable to read or mutate audit records.
+
+Phase 24 migration `20260814000100_phase24_release_hardening.sql` adds the atomic first-project bootstrap function,
+supporting indexes, and readiness schema version `202608140001`.
 
 Apply migrations with the linked Supabase CLI from the repository root:
 
@@ -83,8 +86,13 @@ GET /ready
 GET /version
 ```
 
-`POST /mcp` requires a signed Supabase bearer token in production. Never record production JWTs, service-role keys,
+`POST /mcp` requires a signed Supabase bearer token in production. It accepts both the versioned AEVUM envelope used
+by internal clients and standard stateless Streamable HTTP JSON-RPC used by external MCP clients. The standard URL
+includes non-secret `workspaceId`, `projectId`, and `documentId` query parameters; all authorization still resolves
+from the bearer identity and server-side membership. Never record production JWTs, service-role keys,
 database URLs, or full authenticated request dumps in deployment evidence.
+
+See [External MCP Connection](./EXTERNAL_MCP_CONNECTION.md) for the exact production endpoint and client setup.
 
 Build the server and run the local authenticated production smoke from the repository root:
 

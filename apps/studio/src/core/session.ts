@@ -11,6 +11,10 @@ export interface StudioPersistenceAdapter {
   save(projectId: string, serializedDocument: string): void;
 }
 
+export interface StudioCommandGateway {
+  execute(command: Command): Promise<void>;
+}
+
 export interface StudioSessionSnapshot {
   readonly document: CanonicalDesignDocument;
   readonly projection: SceneProjectionResult;
@@ -28,15 +32,16 @@ export interface StudioMutationOptions {
 }
 
 export interface StudioSession {
+  readonly mode: "LOCAL" | "REMOTE";
   getSnapshot(): StudioSessionSnapshot;
   subscribe(listener: () => void): () => void;
   setViewport(viewportId: string, animationTime?: number, reducedMotion?: boolean): void;
-  updateNode(nodeId: string, changes: Record<string, unknown>, options?: StudioMutationOptions): void;
+  updateNode(nodeId: string, changes: Record<string, unknown>, options?: StudioMutationOptions): void | Promise<void>;
   moveNode(nodeId: string, index: number, options?: StudioMutationOptions): void;
   duplicateNode(nodeId: string, options?: StudioMutationOptions): string;
-  deleteNode(nodeId: string, options?: StudioMutationOptions): void;
-  undo(): void;
-  redo(): void;
+  deleteNode(nodeId: string, options?: StudioMutationOptions): void | Promise<void>;
+  undo(): void | Promise<void>;
+  redo(): void | Promise<void>;
 }
 
 const humanActor = Object.freeze({ id: "studio-user", type: "USER" as const, displayName: "You" });
@@ -113,9 +118,11 @@ export function createStudioSession(input: {
   readonly project: ProjectMetadata;
   readonly document: CanonicalDesignDocument;
   readonly persistence: StudioPersistenceAdapter;
+  readonly commandGateway?: StudioCommandGateway;
+  readonly restoreFromPersistence?: boolean;
   readonly openedAt?: string;
 }): StudioSession {
-  const stored = input.persistence.load(input.project.id);
+  const stored = input.restoreFromPersistence === false ? null : input.persistence.load(input.project.id);
   const initial = stored ? deserialize(stored) : input.document;
   const store = createProjectStore({
     project: input.project,
@@ -130,6 +137,9 @@ export function createStudioSession(input: {
   let saveState: StudioSaveState = "SAVED";
   let lastError: string | undefined;
   let snapshot: StudioSessionSnapshot;
+  const remoteUndo: { forward: Command; inverse: Command }[] = [];
+  const remoteRedo: { forward: Command; inverse: Command }[] = [];
+  let remotePending = false;
 
   const rebuild = (): void => {
     const document = store.getDocument();
@@ -141,7 +151,13 @@ export function createStudioSession(input: {
       renderer,
       viewportId,
       saveState,
-      history: store.getHistory(),
+      history: input.commandGateway
+        ? {
+            ...store.getHistory(),
+            canUndo: remoteUndo.length > 0,
+            canRedo: remoteRedo.length > 0,
+          }
+        : store.getHistory(),
       ...(lastError ? { lastError } : {}),
     });
   };
@@ -173,9 +189,30 @@ export function createStudioSession(input: {
     }
     notify();
   };
+  const executeRemote = async (command: Command): Promise<void> => {
+    if (remotePending) throw new Error("Another canonical edit is still being saved.");
+    remotePending = true;
+    saveState = "SAVING";
+    notify();
+    try {
+      await input.commandGateway?.execute(command);
+      store.execute(command);
+      persist();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Canonical remote mutation failed.";
+      saveState = message.includes("version") || message.includes("VERSION") ? "CONFLICT" : "ERROR";
+      lastError = message;
+      notify();
+      remotePending = false;
+      throw error;
+    }
+    remotePending = false;
+    notify();
+  };
 
   rebuild();
   return Object.freeze({
+    mode: input.commandGateway ? "REMOTE" : "LOCAL",
     getSnapshot: () => snapshot,
     subscribe(listener: () => void) {
       listeners.add(listener);
@@ -189,13 +226,36 @@ export function createStudioSession(input: {
     },
     updateNode(nodeId: string, changes: Record<string, unknown>, options: StudioMutationOptions = {}) {
       const document = store.getDocument();
-      execute({ ...commandBase(document, options), type: "node.update", payload: { nodeId, changes } });
+      const forward: Command = {
+        ...commandBase(document, options),
+        type: "node.update",
+        payload: { nodeId, changes },
+      };
+      if (!input.commandGateway) return execute(forward);
+      const node = document.nodes[nodeId];
+      if (!node) throw new Error(`Node ${nodeId} does not exist.`);
+      const inverseChanges = Object.fromEntries(
+        Object.keys(changes).map((key) => [key, node[key as keyof typeof node]]),
+      );
+      const inverse: Command = {
+        ...commandBase(document, options),
+        expectedDocumentVersion: document.documentVersion + 1,
+        type: "node.update",
+        payload: { nodeId, changes: inverseChanges },
+      };
+      return executeRemote(forward).then(() => {
+        remoteUndo.push({ forward, inverse });
+        remoteRedo.length = 0;
+        notify();
+      });
     },
     moveNode(nodeId: string, index: number, options: StudioMutationOptions = {}) {
+      if (input.commandGateway) throw new Error("Remote layer reordering is not exposed by the current MCP contract.");
       const document = store.getDocument();
       execute({ ...commandBase(document, options), type: "node.move", payload: { nodeId, index } });
     },
     duplicateNode(nodeId: string, options: StudioMutationOptions = {}) {
+      if (input.commandGateway) throw new Error("Remote duplication is not exposed by the current MCP contract.");
       const document = store.getDocument();
       const node = document.nodes[nodeId];
       if (!node) throw new Error(`Node ${nodeId} does not exist.`);
@@ -221,17 +281,50 @@ export function createStudioSession(input: {
     },
     deleteNode(nodeId: string, options: StudioMutationOptions = {}) {
       const document = store.getDocument();
-      execute({ ...commandBase(document, options), type: "node.delete", payload: { nodeId } });
+      const command: Command = { ...commandBase(document, options), type: "node.delete", payload: { nodeId } };
+      if (input.commandGateway) return executeRemote(command);
+      execute(command);
+      return undefined;
     },
     undo() {
+      if (input.commandGateway) {
+        const entry = remoteUndo.pop();
+        if (!entry) throw new Error("There is no remote edit to undo.");
+        const document = store.getDocument();
+        const inverse = {
+          ...entry.inverse,
+          ...commandBase(document),
+          expectedDocumentVersion: document.documentVersion,
+        };
+        return executeRemote(inverse).then(() => {
+          remoteRedo.push(entry);
+          notify();
+        });
+      }
       store.undo();
       persist();
       notify();
+      return undefined;
     },
     redo() {
+      if (input.commandGateway) {
+        const entry = remoteRedo.pop();
+        if (!entry) throw new Error("There is no remote edit to redo.");
+        const document = store.getDocument();
+        const forward = {
+          ...entry.forward,
+          ...commandBase(document),
+          expectedDocumentVersion: document.documentVersion,
+        };
+        return executeRemote(forward).then(() => {
+          remoteUndo.push(entry);
+          notify();
+        });
+      }
       store.redo();
       persist();
       notify();
+      return undefined;
     },
   });
 }

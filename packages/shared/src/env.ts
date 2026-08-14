@@ -43,9 +43,15 @@ export const aevumEnvironmentVariablesSchema = z
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
     AEVUM_RUNTIME_MODE: z.enum(["foundation", "full"]).default("full"),
-    AEVUM_SERVICE: z.enum(["platform", "mcp-server", "agent-worker"]).default("platform"),
+    AEVUM_SERVICE: z.enum(["platform", "api", "mcp-server", "agent-worker"]).default("platform"),
     AEVUM_FEATURE_FLAGS: z.string().default(""),
     PORT: positiveIntegerFromString.optional(),
+
+    API_ALLOWED_ORIGINS: z.string().default(""),
+    API_MAX_PAYLOAD_BYTES: positiveIntegerFromString.default(65_536),
+    API_REQUEST_TIMEOUT_MS: positiveIntegerFromString.default(15_000),
+    API_RATE_LIMIT_PER_MINUTE: positiveIntegerFromString.default(120),
+    API_DEPLOYMENT_VERSION: z.string().min(1).default("development"),
 
     SUPABASE_URL: optionalUrl,
     SUPABASE_ANON_KEY: optionalString,
@@ -204,7 +210,9 @@ export const aevumEnvironmentVariablesSchema = z
 
     if (variables.NODE_ENV === "production" && variables.AEVUM_RUNTIME_MODE === "full") {
       const requiredKeys =
-        variables.AEVUM_SERVICE === "mcp-server" || variables.AEVUM_SERVICE === "agent-worker"
+        variables.AEVUM_SERVICE === "mcp-server" ||
+        variables.AEVUM_SERVICE === "agent-worker" ||
+        variables.AEVUM_SERVICE === "api"
           ? (["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_PROJECT_ID"] as const)
           : requiredInProduction;
       for (const key of requiredKeys) {
@@ -212,25 +220,44 @@ export const aevumEnvironmentVariablesSchema = z
           context.addIssue({ code: "custom", path: [key], message: `${key} is required in production.` });
         }
       }
-      if (variables.AEVUM_SERVICE !== "agent-worker" && variables.MCP_AUTH_MODE !== "supabase") {
+      if (
+        variables.AEVUM_SERVICE !== "agent-worker" &&
+        variables.AEVUM_SERVICE !== "api" &&
+        variables.MCP_AUTH_MODE !== "supabase"
+      ) {
         context.addIssue({
           code: "custom",
           path: ["MCP_AUTH_MODE"],
           message: "MCP_AUTH_MODE must be supabase in a full production runtime.",
         });
       }
-      if (variables.AEVUM_SERVICE !== "agent-worker" && variables.MCP_ALLOWED_ORIGINS.trim() === "") {
+      if (
+        variables.AEVUM_SERVICE !== "agent-worker" &&
+        variables.AEVUM_SERVICE !== "api" &&
+        variables.MCP_ALLOWED_ORIGINS.trim() === ""
+      ) {
         context.addIssue({
           code: "custom",
           path: ["MCP_ALLOWED_ORIGINS"],
           message: "MCP_ALLOWED_ORIGINS is required in a full production runtime.",
         });
       }
-      if (variables.AEVUM_SERVICE !== "agent-worker" && variables.MCP_SERVER_HOST !== "0.0.0.0") {
+      if (
+        variables.AEVUM_SERVICE !== "agent-worker" &&
+        variables.AEVUM_SERVICE !== "api" &&
+        variables.MCP_SERVER_HOST !== "0.0.0.0"
+      ) {
         context.addIssue({
           code: "custom",
           path: ["MCP_SERVER_HOST"],
           message: "MCP_SERVER_HOST must be 0.0.0.0 in a full production runtime.",
+        });
+      }
+      if (variables.AEVUM_SERVICE === "api" && variables.API_ALLOWED_ORIGINS.trim() === "") {
+        context.addIssue({
+          code: "custom",
+          path: ["API_ALLOWED_ORIGINS"],
+          message: "API_ALLOWED_ORIGINS is required for a production API runtime.",
         });
       }
       if (variables.AEVUM_SERVICE === "agent-worker") {
@@ -264,6 +291,13 @@ export const aevumEnvironmentVariablesSchema = z
         message: "Wildcard MCP origins are forbidden.",
       });
     }
+    if (variables.API_ALLOWED_ORIGINS.split(",").some((origin) => origin.trim() === "*")) {
+      context.addIssue({
+        code: "custom",
+        path: ["API_ALLOWED_ORIGINS"],
+        message: "Wildcard API origins are forbidden.",
+      });
+    }
   });
 
 export type AevumEnvironmentVariables = z.infer<typeof aevumEnvironmentVariablesSchema>;
@@ -272,7 +306,14 @@ export interface AevumEnvironment {
   readonly nodeEnv: "development" | "test" | "production";
   readonly logLevel: "debug" | "info" | "warn" | "error";
   readonly runtimeMode: "foundation" | "full";
-  readonly service: "platform" | "mcp-server" | "agent-worker";
+  readonly service: "platform" | "api" | "mcp-server" | "agent-worker";
+  readonly api: {
+    readonly allowedOrigins: readonly string[];
+    readonly maxPayloadBytes: number;
+    readonly requestTimeoutMs: number;
+    readonly rateLimitPerMinute: number;
+    readonly deploymentVersion: string;
+  };
   readonly featureFlags: readonly string[];
   readonly supabase: {
     readonly url?: string;
@@ -441,6 +482,15 @@ function toEnvironment(variables: AevumEnvironmentVariables): AevumEnvironment {
     logLevel: variables.LOG_LEVEL,
     runtimeMode: variables.AEVUM_RUNTIME_MODE,
     service: variables.AEVUM_SERVICE,
+    api: {
+      allowedOrigins: variables.API_ALLOWED_ORIGINS.split(",")
+        .map((origin) => origin.trim())
+        .filter(Boolean),
+      maxPayloadBytes: variables.API_MAX_PAYLOAD_BYTES,
+      requestTimeoutMs: variables.API_REQUEST_TIMEOUT_MS,
+      rateLimitPerMinute: variables.API_RATE_LIMIT_PER_MINUTE,
+      deploymentVersion: variables.API_DEPLOYMENT_VERSION,
+    },
     featureFlags,
     supabase: {
       ...(variables.SUPABASE_URL ? { url: variables.SUPABASE_URL } : {}),

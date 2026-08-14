@@ -17,6 +17,9 @@
     "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@aevum/shared": "workspace:*"
+    "@aevum/document-model": "workspace:*",
+    "@aevum/project-store": "workspace:*",
+    "@aevum/shared": "workspace:*",
+    "@supabase/supabase-js": "2.99.0"
   }
 }

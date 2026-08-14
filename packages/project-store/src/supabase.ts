@@ -11,7 +11,7 @@ import {
   type ProjectRepository,
 } from "./repository.js";
 
-export const AEVUM_MCP_DATABASE_SCHEMA_VERSION = "202608020001" as const;
+export const AEVUM_MCP_DATABASE_SCHEMA_VERSION = "202608140001" as const;
 
 export interface SupabaseProjectRepositoryOptions {
   readonly url: string;
@@ -71,6 +71,26 @@ export function createSupabaseProjectRepository(options: SupabaseProjectReposito
   });
 
   return {
+    async listMemberships(actorSubject) {
+      const { data, error } = await client
+        .from("workspace_memberships")
+        .select("workspace_id,actor_subject,status,role,permissions,project_ids,updated_at")
+        .eq("actor_subject", actorSubject)
+        .eq("status", "ACTIVE")
+        .order("updated_at", { ascending: false });
+      if (error) persistenceError("Workspace membership listing failed", error);
+      return (data ?? []).map((entry) =>
+        WorkspaceMembershipRecordSchema.parse({
+          workspaceId: entry.workspace_id,
+          actorSubject: entry.actor_subject,
+          status: entry.status,
+          role: entry.role,
+          permissions: entry.permissions,
+          projectIds: entry.project_ids,
+          updatedAt: entry.updated_at,
+        }),
+      );
+    },
     async getMembership(actorSubject, workspaceId) {
       const { data, error } = await client
         .from("workspace_memberships")
@@ -89,6 +109,25 @@ export function createSupabaseProjectRepository(options: SupabaseProjectReposito
         projectIds: data.project_ids,
         updatedAt: data.updated_at,
       });
+    },
+    async listProjects(workspaceId) {
+      const { data, error } = await client
+        .from("projects")
+        .select("id,workspace_id,name,status,current_document_id,current_document_version,updated_at")
+        .eq("workspace_id", workspaceId)
+        .order("updated_at", { ascending: false });
+      if (error) persistenceError("Project listing failed", error);
+      return (data ?? []).map((entry) =>
+        StoredProjectRecordSchema.parse({
+          id: entry.id,
+          workspaceId: entry.workspace_id,
+          name: entry.name,
+          status: entry.status,
+          currentDocumentId: entry.current_document_id,
+          currentDocumentVersion: entry.current_document_version,
+          updatedAt: entry.updated_at,
+        }),
+      );
     },
     async getProject(workspaceId, projectId) {
       const { data, error } = await client
@@ -210,6 +249,19 @@ export function createSupabaseProjectRepository(options: SupabaseProjectReposito
         throw new ProjectRepositoryError("IDEMPOTENCY_CONFLICT", "Idempotency key already exists.");
       }
       persistenceError("Idempotency persistence failed", error);
+    },
+    async bootstrapProject(input) {
+      const { error } = await client.rpc("aevum_bootstrap_project", {
+        p_workspace_id: input.workspaceId,
+        p_workspace_name: input.workspaceName,
+        p_actor_subject: input.actorSubject,
+        p_project_id: input.project.id,
+        p_project_name: input.project.name,
+        p_document_id: input.document.metadata.id,
+        p_document: input.document,
+        p_created_at: input.document.metadata.createdAt,
+      });
+      if (error) persistenceError("Atomic project bootstrap failed", error);
     },
     async readiness() {
       const { data, error } = await client

@@ -94,4 +94,31 @@ describe("AEVUM Studio canonical session", () => {
       }),
     ).rejects.toThrow(/version/i);
   });
+
+  it("keeps production edits remote-first and performs auditable undo and redo writes", async () => {
+    const fixture = createStudioProjectFixture();
+    const commands: string[] = [];
+    const session = createStudioSession({
+      ...fixture,
+      persistence: createMemoryPersistence(),
+      restoreFromPersistence: false,
+      commandGateway: {
+        async execute(command) {
+          commands.push(`${command.type}@${command.expectedDocumentVersion}`);
+        },
+      },
+    });
+
+    await session.updateNode(studioFixtureIds.heading, { name: "Production heading" });
+    expect(session.mode).toBe("REMOTE");
+    expect(session.getSnapshot().document.nodes[studioFixtureIds.heading]?.name).toBe("Production heading");
+    expect(session.getSnapshot().history.canUndo).toBe(true);
+
+    await session.undo();
+    expect(session.getSnapshot().document.nodes[studioFixtureIds.heading]?.name).toBe("Hero heading");
+    await session.redo();
+    expect(session.getSnapshot().document.nodes[studioFixtureIds.heading]?.name).toBe("Production heading");
+    expect(commands).toEqual(["node.update@1", "node.update@2", "node.update@3"]);
+    expect(() => session.duplicateNode(studioFixtureIds.heading)).toThrow(/MCP contract/);
+  });
 });

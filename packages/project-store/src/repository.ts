@@ -64,6 +64,14 @@ export interface CommitDocumentInput {
   readonly idempotency?: PersistedIdempotencyRecord;
 }
 
+export interface BootstrapProjectInput {
+  readonly workspaceId: string;
+  readonly workspaceName: string;
+  readonly actorSubject: string;
+  readonly project: StoredProjectRecord;
+  readonly document: CanonicalDesignDocument;
+}
+
 export interface ProjectRepositoryReadiness {
   readonly ok: boolean;
   readonly schemaVersion?: string;
@@ -71,7 +79,9 @@ export interface ProjectRepositoryReadiness {
 }
 
 export interface ProjectRepository {
+  listMemberships(actorSubject: string): Promise<readonly WorkspaceMembershipRecord[]>;
   getMembership(actorSubject: string, workspaceId: string): Promise<WorkspaceMembershipRecord | null>;
+  listProjects(workspaceId: string): Promise<readonly StoredProjectRecord[]>;
   getProject(workspaceId: string, projectId: string): Promise<StoredProjectRecord | null>;
   getCurrentDocument(workspaceId: string, projectId: string): Promise<CanonicalDesignDocument | null>;
   getDocumentVersion(
@@ -90,6 +100,7 @@ export interface ProjectRepository {
   appendAudit(record: Readonly<Record<string, unknown>>): Promise<void>;
   getIdempotency(actorId: string, workspaceId: string, key: string): Promise<PersistedIdempotencyRecord | null>;
   saveIdempotency(record: PersistedIdempotencyRecord): Promise<void>;
+  bootstrapProject(input: BootstrapProjectInput): Promise<void>;
   readiness(): Promise<ProjectRepositoryReadiness>;
   close(): Promise<void>;
 }
@@ -145,8 +156,16 @@ export function createInMemoryProjectRepository(seed: InMemoryProjectRepositoryS
   }
 
   return {
+    async listMemberships(actorSubject) {
+      return [...memberships.values()].filter(
+        (record) => record.actorSubject === actorSubject && record.status === "ACTIVE",
+      );
+    },
     async getMembership(actorSubject, workspaceId) {
       return memberships.get(`${actorSubject}:${workspaceId}`) ?? null;
+    },
+    async listProjects(workspaceId) {
+      return [...projects.values()].filter((record) => record.workspaceId === workspaceId);
     },
     async getProject(workspaceId, projectId) {
       return projects.get(`${workspaceId}:${projectId}`) ?? null;
@@ -218,8 +237,43 @@ export function createInMemoryProjectRepository(seed: InMemoryProjectRepositoryS
       if (idempotency.has(key)) throw new ProjectRepositoryError("IDEMPOTENCY_CONFLICT", "Idempotency key exists.");
       idempotency.set(key, deepFreeze(structuredClone(record)));
     },
+    async bootstrapProject(input) {
+      if (
+        memberships.has(`${input.actorSubject}:${input.workspaceId}`) ||
+        projects.has(`${input.workspaceId}:${input.project.id}`)
+      ) {
+        throw new ProjectRepositoryError("PERSISTENCE_ERROR", "Bootstrap scope already exists.");
+      }
+      const document = deepFreeze(CanonicalDesignDocumentSchema.parse(structuredClone(input.document)));
+      const project = deepFreeze(StoredProjectRecordSchema.parse(structuredClone(input.project)));
+      memberships.set(
+        `${input.actorSubject}:${input.workspaceId}`,
+        deepFreeze(
+          WorkspaceMembershipRecordSchema.parse({
+            workspaceId: input.workspaceId,
+            actorSubject: input.actorSubject,
+            status: "ACTIVE",
+            role: "OWNER",
+            permissions: [],
+            projectIds: [project.id],
+            updatedAt: project.updatedAt,
+          }),
+        ),
+      );
+      projects.set(`${input.workspaceId}:${project.id}`, project);
+      documents.set(`${input.workspaceId}:${project.id}`, document);
+      versions.set(`${input.workspaceId}:${project.id}:${document.metadata.id}:${document.documentVersion}`, document);
+      versionMetadata.set(`${input.workspaceId}:${project.id}:${document.metadata.id}`, [
+        {
+          documentId: document.metadata.id,
+          version: document.documentVersion,
+          createdAt: document.metadata.createdAt,
+          actorId: input.actorSubject,
+        },
+      ]);
+    },
     async readiness() {
-      return { ok: true, schemaVersion: "202608020001", checks: { repository: true, schema: true } };
+      return { ok: true, schemaVersion: "202608140001", checks: { repository: true, schema: true } };
     },
     async close() {},
   };

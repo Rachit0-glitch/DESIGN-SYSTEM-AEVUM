@@ -43,6 +43,10 @@ Read tools: `system.get_capabilities`, `project.get`, `document.get`, `document.
 
 Write tools: `document.rename`, `node.create`, `node.update`, and `node.delete`.
 
+Phase 24 exposes these same registered tools to external clients through a stateless Streamable HTTP JSON-RPC
+adapter at `/mcp`. The adapter translates standard `initialize`, `tools/list`, and `tools/call` requests into this
+versioned protocol; it does not duplicate tool execution, authorization, audit, idempotency, or Command Engine logic.
+
 Phase 14 adds tool contract version `1.1.0`: read tools `three.inspect_asset` and `three.inspect_scene`, plus the
 dry-run and idempotency capable write tool `three.update_node_transform`. The tools use dedicated `three.read` and
 `three.write` permissions in addition to the canonical asset/document permissions required by each operation.
