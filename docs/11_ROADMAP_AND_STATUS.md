@@ -4475,7 +4475,44 @@ material editing UI exists today). **Status: implemented and tested.**
 
 ---
 
-## 69. Final Roadmap Statement
+## 69. Block D3: Reliability + Real Studio Component Test Infrastructure (2026-08-15)
+
+Two real gaps closed. **Status: implemented and tested.**
+
+- **Reliability**: the audit found no test for a genuinely unreachable MCP server (a rejected
+  `fetch` promise — a network-level `TypeError`, distinct from every other test's resolved-but-
+  unsuccessful HTTP response). Added two tests to `tests/unit/studio-production.test.ts`: one
+  confirming `loadProductionStudioProject` rejects cleanly (not hangs) when the server is
+  unreachable during initial load, one confirming `commandGateway.execute` rejects cleanly when the
+  server becomes unreachable mid-write. Both already worked correctly (the underlying MCP client's
+  retry/throw logic was already sound) — this closes a real test-coverage gap, not a bug.
+- **Studio component test infrastructure**: `apps/studio` had zero test tooling (no test script, no
+  jsdom, no testing-library — confirmed by the D-audit). Added `jsdom`, `@testing-library/react`,
+  `@testing-library/dom`, `@testing-library/jest-dom` as root devDependencies; per-file
+  `// @vitest-environment jsdom` directive scopes the DOM environment to component test files only,
+  leaving the rest of the suite on the faster, dependency-free Node environment.
+- **Real architectural blocker found and fixed**: `apps/studio/src/main.tsx` unconditionally called
+  `createRoot(...).render(...)` at module load time, mixing component definitions with the app's
+  bootstrap side effect — importing it for a test would have tried to boot the whole app. Split the
+  mount call into a new `apps/studio/src/entry.tsx`; `index.html`'s script tag now points there.
+  `main.tsx` is now a pure, side-effect-free component module. Verified via `vite build` and a live
+  dev-server smoke check that the app still boots identically.
+- `ReferencesPanel` and two module-scope test-only setters (`__setStudioSessionForTesting`,
+  `__setStudioAgentContextForTesting`, needed because `session`/`agentContext` are module-level
+  bindings set once during real bootstrap) exported — purely additive, zero behavior change.
+- New `tests/unit/studio-components.test.tsx`: renders the real `ReferencesPanel` component in a
+  real DOM, fires a real file-selection event, and verifies two real outcomes — a successful
+  `asset.register` → `reconstruction.import_reference` → `document.get` MCP sequence produces the
+  real success message, and a failed `asset.register` response produces the real, visible error
+  text. Only `createImageBitmap` (a real browser Canvas API jsdom doesn't implement) is stubbed —
+  nothing about the component or its MCP call sequence is faked.
+- `pnpm validate` (docs, dependency rules, format, lint, typecheck, 439/439 tests, build across all
+  65 packages) passed clean.
+- Next action: Block D4 (real planner reasoning).
+
+---
+
+## 70. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.
 

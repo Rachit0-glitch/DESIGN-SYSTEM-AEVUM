@@ -47,7 +47,6 @@ import React, {
   useState,
   useSyncExternalStore,
 } from "react";
-import { createRoot } from "react-dom/client";
 import type { Session, SupabaseClient } from "@supabase/supabase-js";
 import { CanonicalDesignDocumentSchema, type DesignNode } from "@aevum/document-model";
 import type { RenderGraphNode, RenderPaint } from "@aevum/renderer-2d";
@@ -90,13 +89,27 @@ const storage = {
 };
 let session: StudioSession;
 let agentContext: StudioAgentContext;
+
+// Test-only. session/agentContext are module-scope bindings set once during real bootstrap
+// (ProductionBootstrap / the dev fixture path); component tests need a way to seed them before
+// rendering a component that closes over them, without restructuring the app's real bootstrap
+// flow. Never call these outside a test.
+export function __setStudioSessionForTesting(value: StudioSession): void {
+  session = value;
+}
+export function __setStudioAgentContextForTesting(value: StudioAgentContext): void {
+  agentContext = value;
+}
 const ThreeViewport = lazy(() => import("./workspaces/ThreeViewport.js"));
 
 function useStudioSnapshot(source: StudioSession): StudioSessionSnapshot {
   return useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot);
 }
 
-class StudioErrorBoundary extends Component<{ children: React.ReactNode }, { failed: boolean; message: string }> {
+export class StudioErrorBoundary extends Component<
+  { children: React.ReactNode },
+  { failed: boolean; message: string }
+> {
   override state = { failed: false, message: "" };
   static getDerivedStateFromError(error: unknown) {
     return { failed: true, message: error instanceof Error ? error.message : "Unknown panel failure" };
@@ -397,7 +410,7 @@ async function readImageDimensions(file: File): Promise<{ width: number; height:
 
 type ReferenceImportStage = "IDLE" | "UPLOADING" | "ANALYZING" | "IMPORTING" | "DONE" | "FAILED";
 
-function ReferencesPanel({ snapshot }: { snapshot: StudioSessionSnapshot }) {
+export function ReferencesPanel({ snapshot }: { snapshot: StudioSessionSnapshot }) {
   const [importStage, setImportStage] = useState<ReferenceImportStage>("IDLE");
   const [importMessage, setImportMessage] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1759,7 +1772,7 @@ function ProductionBootstrap({ configuration }: { configuration: StudioBrowserCo
   );
 }
 
-function StudioRoot() {
+export function StudioRoot() {
   try {
     const configuration = readStudioBrowserConfiguration();
     return <ProductionBootstrap configuration={configuration} />;
@@ -1784,11 +1797,3 @@ function StudioRoot() {
     );
   }
 }
-
-createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    <StudioErrorBoundary>
-      <StudioRoot />
-    </StudioErrorBoundary>
-  </React.StrictMode>,
-);

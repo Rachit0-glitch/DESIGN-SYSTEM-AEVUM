@@ -378,4 +378,43 @@ describe("Studio production MCP command gateway", () => {
 
     expect(seenTokens.some((header) => header.includes("token-refreshed"))).toBe(true);
   });
+
+  it("surfaces a real, catchable error instead of hanging when the MCP server is unreachable during project load (Block D3)", async () => {
+    // A genuinely unreachable server rejects the fetch promise itself (a network-level TypeError),
+    // not an HTTP error response — a distinct failure mode from every other test in this file, which
+    // exercise resolved-but-unsuccessful MCP responses.
+    const fetchMock = vi.fn(async (requestInput: RequestInfo | URL) => {
+      const url = requestInput.toString();
+      if (url.endsWith("/v1/bootstrap")) return new Response(JSON.stringify(bootstrapBody()), { status: 200 });
+      throw new TypeError("Failed to fetch");
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    await expect(loadProductionStudioProject(configuration, makeSession("token-1"))).rejects.toThrow(
+      /failed to fetch/i,
+    );
+  });
+
+  it("surfaces a real, catchable error instead of hanging when the MCP server becomes unreachable mid-write (Block D3)", async () => {
+    const fixture = createStudioProjectFixture();
+    let writesShouldFail = false;
+    const fetchMock = vi.fn(async (requestInput: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestInput.toString();
+      if (url.endsWith("/v1/bootstrap")) return new Response(JSON.stringify(bootstrapBody()), { status: 200 });
+      const body = JSON.parse(String(init?.body)) as { tool: string };
+      if (body.tool === "document.get")
+        return new Response(JSON.stringify(successEnvelope(body.tool, fixture.document)));
+      if (body.tool === "system.get_capabilities")
+        return new Response(JSON.stringify(successEnvelope(body.tool, capabilitiesData(["node.update"]))));
+      if (writesShouldFail) throw new TypeError("Failed to fetch");
+      return new Response(JSON.stringify(successEnvelope(body.tool, writeOutput(1))));
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const project = await loadProductionStudioProject(configuration, makeSession("token-1"));
+    writesShouldFail = true;
+    const command = testCommand({ type: "node.update", payload: { nodeId: "heading", changes: { name: "Renamed" } } });
+
+    await expect(project.commandGateway.execute(command)).rejects.toThrow(/failed to fetch/i);
+  });
 });
