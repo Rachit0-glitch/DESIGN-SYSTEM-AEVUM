@@ -4384,7 +4384,56 @@ in the running Studio app**, not just in unit tests.
 
 ---
 
-## 67. Final Roadmap Statement
+## 67. Block D1: Studio MCP Capability Registry (2026-08-15)
+
+Preceded by a five-way parallel repository audit of the whole Studio↔MCP integration surface
+(command gateway, MCP server tool registry, Agent Planner/approval policy, reconstruction/asset
+wiring, Fidelity/References + test inventory), ground-truthed against real code rather than prior
+documentation. **Status: implemented and tested.**
+
+- Replaced `apps/studio/src/core/production.ts`'s hardcoded `STUDIO_MCP_COMMAND_TYPES: ReadonlySet<Command["type"]>`
+  (4 command types, no metadata beyond "allowed or not") with a real, typed capability registry —
+  `apps/studio/src/core/capabilities.ts`'s `STUDIO_CAPABILITIES`. Each entry records its MCP tool,
+  Command Engine type (when it has one), dry-run support, a destructive/safe/read-only
+  classification, and a real Studio use case — not invented ones.
+- The registry stays honest about what's genuinely possible vs. genuinely needed: it lists
+  `node.create`/`node.update`/`node.delete`/`document.rename` (unchanged, gateway-routable — their
+  Command Engine payload shape is verified identical to their MCP tool's input) alongside
+  `asset.register`/`reconstruction.import_reference`/`document.get`, which are real, already-working
+  capabilities Studio's References panel uses today but whose payload shapes don't match the
+  generic Command-shaped gateway, so they remain invoked directly by their existing call sites —
+  now formally documented rather than silently bypassing the gateway with no record of why.
+  `token.register` is listed as `NOT_YET_AVAILABLE` with a real reason (no MCP tool exists for it
+  yet) rather than omitted or faked. Speculative entries (camera/lighting/cinematic commands that
+  have real MCP tools but no Studio UI exercising them) were deliberately left out — the audit's own
+  instruction was not to invent capability nobody uses.
+- `production.ts`'s `execute()` now invokes `capability.mcpTool` (the registry's declared mapping)
+  instead of implicitly reusing `command.type` as the tool name — the same value today, but now
+  correct by construction instead of coincidentally correct because the two strings happen to
+  match.
+- All existing security, authorization, dry-run-then-commit, revision-conflict, and MCP error
+  handling in `production.ts` is unchanged — only the permission-check source changed, from a bare
+  `Set.has()` to a registry lookup with a more honest error message when a command is documented as
+  not-yet-available versus genuinely unmapped.
+- New tests in `tests/unit/studio-production.test.ts`: registry-shape tests (every gateway-routable
+  entry's declared `mcpTool` really matches its own `commandType`; `asset.register`/
+  `reconstruction.import_reference` are real and documented but correctly not gateway-routable;
+  `token.register` is honestly `NOT_YET_AVAILABLE`; an undocumented command type returns
+  `undefined`) plus two new gateway-integration tests (a `token.register` command now gets its real
+  unavailability reason instead of the generic "no mapping" message; `asset.register` sent as a
+  *Command* through the generic gateway is still correctly rejected, preserving today's exact
+  behavior). All 4 pre-existing gateway tests pass unchanged.
+- `pnpm validate` (docs, dependency rules, format, lint, typecheck, 433/433 tests, build across all
+  65 packages) passed clean.
+- Explicitly not done in this block, per instruction: D5 (approval UI) and all other Block D
+  sub-blocks. The audit found the deterministic approval adapter currently auto-rejects every
+  approval-gated action in production with no UI — that remains untouched until D5.
+- Next action: D5 (approval UX) is the recommended next sub-block per the audit's priority
+  ordering, pending confirmation.
+
+---
+
+## 68. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.
 

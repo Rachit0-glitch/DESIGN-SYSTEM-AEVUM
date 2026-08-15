@@ -3,6 +3,11 @@ import { CURRENT_COMMAND_VERSION, type Command } from "@aevum/command-engine";
 import { CURRENT_SCHEMA_VERSION } from "@aevum/document-model";
 import { MCP_PROTOCOL_VERSION } from "@aevum/mcp-protocol";
 import { createStudioProjectFixture } from "@aevum/studio";
+import {
+  findStudioCapability,
+  isGatewayRoutable,
+  STUDIO_CAPABILITIES,
+} from "../../apps/studio/src/core/capabilities.js";
 import { loadProductionStudioProject, type StudioBrowserConfiguration } from "../../apps/studio/src/core/production.js";
 
 /**
@@ -158,6 +163,54 @@ function stubTransport(input: {
   return { fetchMock, calls };
 }
 
+describe("Studio capability registry (Block D1)", () => {
+  it("verifies every routable capability's declared mcpTool matches its own commandType", () => {
+    // The generic gateway forwards command.payload unchanged to writeClient.invoke(mcpTool, ...),
+    // so a capability can only be safely gateway-routable when its declared MCP tool name is
+    // literally the same string as the Command Engine type it claims to back — otherwise the
+    // payload shape guarantee this registry exists to encode would be false.
+    for (const capability of STUDIO_CAPABILITIES) {
+      if (capability.status !== "AVAILABLE" || !capability.commandType) continue;
+      expect(isGatewayRoutable(capability.commandType)).toBe(capability.mcpTool === capability.commandType);
+    }
+  });
+
+  it("documents node.create, node.update, node.delete, and document.rename as gateway-routable", () => {
+    for (const type of ["node.create", "node.update", "node.delete", "document.rename"] as const) {
+      expect(isGatewayRoutable(type), type).toBe(true);
+    }
+  });
+
+  it("documents asset.register and reconstruction.import_reference as real, available capabilities that are not gateway-routable", () => {
+    // Both have real MCP tools Studio genuinely uses (References panel import flow) but their
+    // payload shapes don't match the generic Command-shaped gateway, so they're invoked directly
+    // with tool-specific input rather than through commandGateway.execute. They're deliberately not
+    // findable by commandType (findStudioCapability searches on commandType, which neither sets),
+    // since they were never meant to be routed as a generic Command in the first place.
+    const assetRegister = STUDIO_CAPABILITIES.find(
+      (capability) => capability.status === "AVAILABLE" && capability.mcpTool === "asset.register",
+    );
+    expect(assetRegister?.status).toBe("AVAILABLE");
+    expect(isGatewayRoutable("asset.register")).toBe(false);
+
+    expect(isGatewayRoutable("reconstruction.import_reference" as Command["type"])).toBe(false);
+  });
+
+  it("honestly documents token.register as not yet available, with a real reason, rather than omitting or faking it", () => {
+    const capability = findStudioCapability("token.register");
+    expect(capability?.status).toBe("NOT_YET_AVAILABLE");
+    if (capability?.status === "NOT_YET_AVAILABLE") {
+      expect(capability.unavailableReason.length).toBeGreaterThan(0);
+    }
+    expect(isGatewayRoutable("token.register")).toBe(false);
+  });
+
+  it("returns undefined for a command type with no documented capability at all", () => {
+    expect(findStudioCapability("node.move")).toBeUndefined();
+    expect(isGatewayRoutable("node.move")).toBe(false);
+  });
+});
+
 describe("Studio production MCP command gateway", () => {
   const originalFetch = global.fetch;
   beforeEach(() => {
@@ -215,6 +268,55 @@ describe("Studio production MCP command gateway", () => {
 
     await expect(project.commandGateway.execute(command)).resolves.toBeUndefined();
     expect(calls).toEqual(["document.get", "system.get_capabilities", "node.update", "node.update"]);
+  });
+
+  it("rejects a documented-but-not-yet-available command type with its real unavailability reason, not the generic mapping error", async () => {
+    const fixture = createStudioProjectFixture();
+    const { fetchMock, calls } = stubTransport({ fixtureDocument: fixture.document, enabledTools: [] });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const project = await loadProductionStudioProject(configuration, makeSession("token-1"));
+    const command = testCommand({
+      type: "token.register",
+      payload: { token: { id: "token_1", name: "color.test", type: "COLOR", value: { r: 0, g: 0, b: 0 } } },
+    });
+
+    const capability = findStudioCapability("token.register");
+    await expect(project.commandGateway.execute(command)).rejects.toThrow(
+      capability?.status === "NOT_YET_AVAILABLE" ? capability.unavailableReason : "unreachable",
+    );
+    // The dedicated message must not be confused with the generic "no mapping exists at all" one.
+    await expect(project.commandGateway.execute(command)).rejects.not.toThrow(/no MCP tool mapping exists/i);
+    expect(calls).toEqual(["document.get", "system.get_capabilities"]);
+  });
+
+  it("rejects asset.register sent as a Command through the generic gateway, since only its tool-shaped call site is valid", async () => {
+    const fixture = createStudioProjectFixture();
+    const { fetchMock, calls } = stubTransport({
+      fixtureDocument: fixture.document,
+      enabledTools: ["asset.register"],
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const project = await loadProductionStudioProject(configuration, makeSession("token-1"));
+    const command = testCommand({
+      type: "asset.register",
+      payload: {
+        asset: {
+          id: "asset_1",
+          type: "IMAGE",
+          name: "test",
+          hash: `sha256:${"a".repeat(64)}`,
+          source: { kind: "UPLOAD", uri: "x" },
+          mimeType: "image/png",
+          byteSize: 1,
+          metadata: {},
+        },
+      },
+    });
+
+    await expect(project.commandGateway.execute(command)).rejects.toThrow(/no MCP tool mapping/i);
+    expect(calls).toEqual(["document.get", "system.get_capabilities"]);
   });
 
   it("uses the latest access token for MCP calls after a background token refresh, without re-bootstrapping", async () => {

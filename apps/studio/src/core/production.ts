@@ -7,6 +7,7 @@ import { z } from "zod";
 import type { StudioAgentContext } from "./agent.js";
 import type { StudioCommandGateway } from "./session.js";
 import type { Command } from "@aevum/command-engine";
+import { findStudioCapability, isGatewayRoutable } from "./capabilities.js";
 
 const BrowserConfigurationSchema = z.strictObject({
   supabaseUrl: z.url().startsWith("https://"),
@@ -53,22 +54,6 @@ export interface ProductionStudioProject {
   readonly commandGateway: StudioCommandGateway;
   readonly agentContext: StudioAgentContext;
 }
-
-/**
- * Command Engine command types Studio may forward to MCP. Each entry's Command Engine payload
- * shape has been verified to match its MCP tool's input schema exactly (see packages/command-engine
- * /src/schemas.ts vs. apps/mcp-server/src/tools.ts), so the command payload can be forwarded as-is.
- * Most Command Engine command types (material.update, node.move, node.reparent, page.*, lighting.*,
- * scene3d.import, etc.) have no matching MCP tool name or a differently-shaped MCP tool input, and
- * are deliberately left unmapped rather than guessed at — Studio must reject those honestly instead
- * of forwarding a payload the server was never designed to receive from this path.
- */
-const STUDIO_MCP_COMMAND_TYPES: ReadonlySet<Command["type"]> = new Set([
-  "node.create",
-  "node.update",
-  "node.delete",
-  "document.rename",
-]);
 
 export function readStudioBrowserConfiguration(): StudioBrowserConfiguration {
   return BrowserConfigurationSchema.parse({
@@ -152,10 +137,19 @@ export async function loadProductionStudioProject(
 
   const execute = async (command: Command): Promise<void> => {
     if (!navigator.onLine) throw new Error("You are offline. Reconnect before changing the canonical document.");
-    if (!STUDIO_MCP_COMMAND_TYPES.has(command.type)) {
+    if (!isGatewayRoutable(command.type)) {
+      const capability = findStudioCapability(command.type);
+      if (capability?.status === "NOT_YET_AVAILABLE") {
+        throw new Error(`Studio cannot remotely execute "${command.type}" yet: ${capability.unavailableReason}`);
+      }
       throw new Error(`Studio cannot remotely execute "${command.type}": no MCP tool mapping exists for it yet.`);
     }
-    if (!enabledTools.has(command.type)) {
+    // isGatewayRoutable already confirmed a documented, available capability exists for this
+    // command type, so this lookup cannot miss its mcpTool field.
+    const capability = findStudioCapability(command.type);
+    if (capability?.status !== "AVAILABLE") throw new Error(`Studio cannot remotely execute "${command.type}".`);
+    const mcpTool = capability.mcpTool;
+    if (!enabledTools.has(mcpTool)) {
       throw new Error(`Your role does not have permission to execute "${command.type}" through MCP.`);
     }
     const payload = { ...command.payload, expectedDocumentVersion: command.expectedDocumentVersion };
@@ -167,13 +161,13 @@ export async function loadProductionStudioProject(
       documentId: record.currentDocumentId,
       correlationId: command.correlationId,
     });
-    const dryRun = await writeClient.invoke(command.type, payload, {
+    const dryRun = await writeClient.invoke(mcpTool, payload, {
       dryRun: true,
       documentVersion: command.expectedDocumentVersion,
       idempotencyKey: `studio-dry-${command.id}`,
     });
     if (!dryRun.success) throw new Error(dryRun.errors[0]?.message ?? "Canonical dry run failed.");
-    const applied = await writeClient.invoke(command.type, payload, {
+    const applied = await writeClient.invoke(mcpTool, payload, {
       documentVersion: command.expectedDocumentVersion,
       idempotencyKey: `studio-${command.id}`,
     });
