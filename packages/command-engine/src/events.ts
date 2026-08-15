@@ -25,7 +25,8 @@ export type CommandEventType =
   | "ReferenceRegistered"
   | "TimelineCreated"
   | "TimelineUpdated"
-  | "TimelineDeleted";
+  | "TimelineDeleted"
+  | "ValidationRecorded";
 
 export interface CommandEventDraft {
   readonly type: CommandEventType;

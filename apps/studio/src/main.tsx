@@ -1391,6 +1391,41 @@ function FidelityWorkspace({ snapshot }: { snapshot: StudioSessionSnapshot }) {
     a.createdAt < b.createdAt ? 1 : -1,
   )[0];
   const averageOf = averageScore(validation?.scores ?? {});
+  const reference = Object.values(snapshot.document.references)[0];
+  const [measureStage, setMeasureStage] = useState<"IDLE" | "MEASURING" | "FAILED">("IDLE");
+  const [measureError, setMeasureError] = useState("");
+
+  const runMeasurement = async () => {
+    if (!reference) return;
+    setMeasureStage("MEASURING");
+    setMeasureError("");
+    try {
+      const correlationId = `studio_fidelity_${crypto.randomUUID()}`;
+      const client = agentContext.createMcpClient(correlationId);
+      const measured = await client.invoke(
+        "fidelity.measure",
+        {
+          expectedDocumentVersion: snapshot.document.documentVersion,
+          referenceAssetId: reference.assetId,
+          profile: "STANDARD",
+        },
+        { idempotencyKey: `${correlationId}-measure` },
+      );
+      if (!measured.success || measured.data === undefined) {
+        throw new Error(measured.errors[0]?.message ?? "Fidelity measurement failed.");
+      }
+      const read = await client.invoke("document.get", { projection: "full" });
+      if (!read.success || read.data === undefined) {
+        throw new Error(read.errors[0]?.message ?? "Could not reload the document after measurement.");
+      }
+      session.resyncDocument(CanonicalDesignDocumentSchema.parse(read.data));
+      setMeasureStage("IDLE");
+    } catch (error) {
+      setMeasureStage("FAILED");
+      setMeasureError(error instanceof Error ? error.message : "Fidelity measurement failed.");
+    }
+  };
+
   return (
     <main className="fidelity-workspace">
       <header>
@@ -1405,7 +1440,22 @@ function FidelityWorkspace({ snapshot }: { snapshot: StudioSessionSnapshot }) {
           </button>
           <button type="button">Heatmap</button>
         </div>
+        {reference ? (
+          <button
+            type="button"
+            className="secondary-command"
+            disabled={measureStage === "MEASURING"}
+            onClick={() => void runMeasurement()}
+          >
+            {measureStage === "MEASURING" ? "Measuring…" : "Run fidelity measurement"}
+          </button>
+        ) : null}
       </header>
+      {measureStage === "FAILED" ? (
+        <p className="fidelity-measure-error" role="alert">
+          {measureError}
+        </p>
+      ) : null}
       <div className="fidelity-body">
         {validation ? (
           <>

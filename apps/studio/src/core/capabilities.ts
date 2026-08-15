@@ -134,6 +134,14 @@ export const STUDIO_CAPABILITIES: readonly StudioCapability[] = [
       "Read the canonical document: initial project load, and resyncing after a multi-command server-side transaction (e.g. reconstruction import) whose exact command list isn't returned to the caller for a local replay.",
   },
   {
+    status: "AVAILABLE",
+    mcpTool: "fidelity.measure",
+    supportsDryRun: true,
+    classification: "SAFE_WRITE",
+    studioUseCase:
+      "Run a real Maximum Fidelity measurement (Fidelity workspace's 'Run fidelity measurement' button) against a registered reference image and persist the resulting ValidationRecord (Block D8). Its input ({ referenceAssetId, profile }) does not match any single Command Engine payload — the server computes the ValidationRecord itself from a real render — so it is invoked directly with tool-specific input rather than through the generic command-shaped gateway.",
+  },
+  {
     status: "NOT_YET_AVAILABLE",
     commandType: "node.reparent",
     studioUseCase: "Move a node to a different parent (e.g. drag a layer out of one frame and into another).",

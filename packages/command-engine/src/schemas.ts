@@ -18,6 +18,7 @@ import {
   ReferenceRecordSchema,
   TimelineSchema,
   TokenSchema,
+  ValidationRecordSchema,
 } from "@aevum/document-model";
 import { z } from "zod";
 
@@ -218,6 +219,11 @@ export const RegisterLightingBakeCommandSchema = z.strictObject({
   type: z.literal("lighting.register_bake"),
   payload: z.strictObject({ asset: AssetSchema, bake: LightingBakeSchema }),
 });
+export const RecordValidationCommandSchema = z.strictObject({
+  ...BaseCommandShape,
+  type: z.literal("validation.record"),
+  payload: z.strictObject({ record: ValidationRecordSchema }),
+});
 
 export type CreateDocumentCommand = z.infer<typeof CreateDocumentCommandSchema>;
 export type RenameDocumentCommand = z.infer<typeof RenameDocumentCommandSchema>;
@@ -246,6 +252,7 @@ export type ApplyCinematicSequenceCommand = z.infer<typeof ApplyCinematicSequenc
 export type UpdateLightCommand = z.infer<typeof UpdateLightCommandSchema>;
 export type ApplyLightingRigCommand = z.infer<typeof ApplyLightingRigCommandSchema>;
 export type RegisterLightingBakeCommand = z.infer<typeof RegisterLightingBakeCommandSchema>;
+export type RecordValidationCommand = z.infer<typeof RecordValidationCommandSchema>;
 export type Command =
   | CreateDocumentCommand
   | RenameDocumentCommand
@@ -273,7 +280,8 @@ export type Command =
   | ApplyCinematicSequenceCommand
   | UpdateLightCommand
   | ApplyLightingRigCommand
-  | RegisterLightingBakeCommand;
+  | RegisterLightingBakeCommand
+  | RecordValidationCommand;
 
 export const CommandSchema: z.ZodType<Command> = z.discriminatedUnion("type", [
   CreateDocumentCommandSchema,
@@ -303,6 +311,7 @@ export const CommandSchema: z.ZodType<Command> = z.discriminatedUnion("type", [
   UpdateLightCommandSchema,
   ApplyLightingRigCommandSchema,
   RegisterLightingBakeCommandSchema,
+  RecordValidationCommandSchema,
 ]);
 
 export type CommandType = Command["type"];

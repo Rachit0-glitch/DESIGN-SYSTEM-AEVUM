@@ -84,6 +84,7 @@ export const McpToolNameSchema = z.enum([
   "cinematic.inspect",
   "cinematic.apply_sequence",
   "fidelity.inspect",
+  "fidelity.measure",
   "fidelity.validate_report",
   "fidelity.propose_corrections",
   "fidelity.apply_correction",
@@ -616,6 +617,25 @@ export const FidelityInspectOutputSchema = z.strictObject({
   capabilities: z.array(z.string()),
   blockers: z.array(z.string()),
 });
+export const FidelityMeasureInputSchema = WriteBaseSchema.extend({
+  referenceAssetId: EntityIdSchema,
+  profile: FidelityProfileNameSchema.default("STANDARD"),
+});
+export const FidelityMeasureOutputSchema = z.strictObject({
+  dryRun: z.boolean(),
+  baseVersion: z.number().int().positive(),
+  resultVersion: z.number().int().positive(),
+  predictedDocumentVersion: z.number().int().positive().optional(),
+  transactionId: z.string().min(1).max(128),
+  commandIds: z.array(z.string().min(1).max(128)),
+  validationRecordId: EntityIdSchema,
+  status: z.enum(["PENDING", "PASSED", "FAILED", "WARNING"]),
+  scores: z.record(z.string(), z.number().min(0).max(1)),
+  overallScore: z.number().min(0).max(1),
+  coverage: z.number().min(0).max(1),
+  confidence: z.number().min(0).max(1),
+  stopReason: z.string(),
+});
 export const FidelityValidateReportInputSchema = z.strictObject({ report: FidelityReportSchema });
 export const FidelityValidateReportOutputSchema = z.strictObject({
   valid: z.boolean(),
@@ -1093,6 +1113,7 @@ export const TOOL_SCHEMAS = Object.freeze({
   "cinematic.inspect": { input: CinematicInspectInputSchema, output: CinematicInspectOutputSchema },
   "cinematic.apply_sequence": { input: CinematicApplySequenceInputSchema, output: BlenderWriteOutputSchema },
   "fidelity.inspect": { input: FidelityInspectInputSchema, output: FidelityInspectOutputSchema },
+  "fidelity.measure": { input: FidelityMeasureInputSchema, output: FidelityMeasureOutputSchema },
   "fidelity.validate_report": { input: FidelityValidateReportInputSchema, output: FidelityValidateReportOutputSchema },
   "fidelity.propose_corrections": {
     input: FidelityProposeCorrectionsInputSchema,

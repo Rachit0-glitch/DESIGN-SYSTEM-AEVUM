@@ -327,6 +327,9 @@ importers:
       '@aevum/reconstruction-vision':
         specifier: workspace:*
         version: link:../../packages/reconstruction-vision
+      '@aevum/renderer-2d':
+        specifier: workspace:*
+        version: link:../../packages/renderer-2d
       '@aevum/renderer-3d':
         specifier: workspace:*
         version: link:../../packages/renderer-3d

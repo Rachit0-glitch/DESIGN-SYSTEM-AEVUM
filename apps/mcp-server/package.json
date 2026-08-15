@@ -30,6 +30,7 @@
     "@aevum/project-store": "workspace:*",
     "@aevum/reconstruction": "workspace:*",
     "@aevum/reconstruction-vision": "workspace:*",
+    "@aevum/renderer-2d": "workspace:*",
     "@aevum/renderer-3d": "workspace:*",
     "@aevum/rigging": "workspace:*",
     "@aevum/scene-runtime": "workspace:*",

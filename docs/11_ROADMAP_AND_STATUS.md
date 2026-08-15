@@ -4793,7 +4793,75 @@ one real, previously-untested guardrail interaction is now covered by a regressi
 
 ---
 
-## 77. Final Roadmap Statement
+## 77. Block D8: Real Fidelity Integration (2026-08-15)
+
+Connected `packages/fidelity` (real, already-tested, but previously completely unwired to
+`apps/`) to MCP and Studio. **Status: implemented and tested — real ValidationRecords are now
+computed from actual pixel comparison and persisted.**
+
+- **New Command Engine command `validation.record`** (`packages/command-engine/src/commands/validation.ts`,
+  schema in `schemas.ts`, registered in `builtins.ts`): validates that `record.referenceIds` resolve
+  into `document.references` and `record.heatmapAssetIds`/`reportAssetId` resolve into
+  `document.assets` before applying, then adds the record to `document.validations`. Mirrors
+  `asset.register`'s exact shape (caller supplies a complete, pre-validated record; the command only
+  checks references and applies it).
+- **New MCP tool `fidelity.measure`** (`packages/mcp-protocol/src/tools.ts` schemas,
+  `apps/mcp-server/src/tools.ts` handler): given an already-registered reference IMAGE asset,
+  real decodes the reference bytes (`sharp`), projects the *current* canonical document through the
+  same, unmodified Scene Runtime + Renderer 2D pipeline Studio's own canvas and D6's sushi-poster
+  test use, rasterizes it with the real `createPlaywrightRasterBackend` (headless Chromium — already
+  built and tested in `packages/fidelity`, just never invoked from `apps/` before this), and runs
+  `createFidelityEngine(...).run(...)` — a genuine single-pass render→compare, no correction adapter
+  (auto-correction is out of scope here). The resulting `FidelityReport`'s domain scores/status are
+  mapped into a real `ValidationRecord` (status: PASS→PASSED, FAIL→FAILED, WARNING→WARNING,
+  BLOCKED→PENDING) and committed via `validation.record`, dry-run-first like every other write tool.
+  Honestly disabled (`MCP_TOOL_DISABLED`) when no asset-byte adapter is configured, matching
+  `three.import_scene`'s existing pattern.
+- **Deliberately scoped down from the full ValidationRecord shape**: `referenceIds` stays empty (no
+  `document.references` entry is required or fabricated for this to work) and `heatmapAssetIds`/
+  `reportAssetId` stay empty/absent (no heatmap-PNG generation or full-report-as-asset persistence
+  was built) — both fields are genuinely optional/empty-array-safe in the schema, and building
+  heatmap generation or report-asset persistence would be new, separate feature work, not part of
+  wiring the existing measurement pipeline through. The record's `metadata` still carries the real
+  report id/fingerprint/task id/stopReason for traceability.
+- **Studio wiring**: `apps/studio/src/core/capabilities.ts` documents `fidelity.measure` as a real,
+  available (but not gateway-routable — its input doesn't match a single Command payload) capability.
+  `FidelityWorkspace` (`apps/studio/src/main.tsx`) gained a real "Run fidelity measurement" button
+  (visible only when the document has a registered reference, mirroring `ReferencesPanel`'s existing
+  invoke → `document.get` → `session.resyncDocument()` pattern) that calls the new tool directly.
+  `FidelityWorkspace`'s score/status display itself required no changes — it already read
+  `document.validations` honestly and showed a real "Not evaluated" empty state; it was simply
+  starved of data because nothing had ever written a record before this block.
+- **Fabricated-value removal deferred to D10 by design**: the "94.8\nFIDELITY" demo text
+  (`apps/studio/src/core/fixture.ts`) and the hardcoded `fontMatchStatus: "EXACT"` (both in
+  `fixture.ts`'s `style()` factory and `main.tsx`'s font-picker handler) are explicitly named in the
+  user's own D10 description ("Remove remaining hardcoded/fabricated status values such as
+  fontMatchStatus: EXACT") — left untouched here to avoid doing D10's work prematurely under a
+  different block's banner.
+- New `tests/unit/command-engine.test.ts` coverage: `validation.record` commits a real record and
+  rejects one referencing a non-existent asset/reference. New
+  `tests/integration/mcp-fidelity-measure.test.ts`: a genuine end-to-end run — renders a real
+  document via the exact same Playwright backend as a reference image, registers it, dry-runs then
+  commits `fidelity.measure`, and asserts a real high score (the reference IS a render of the same
+  document, so a high score is the honest expected outcome, not a rigged one) that matches what's
+  actually persisted in `document.validations`; plus the disabled-adapter honesty check.
+- `apps/mcp-server/package.json` gained `@aevum/renderer-2d` as a real dependency (previously used
+  only indirectly).
+- Targeted: `command-engine.test.ts`, `mcp-protocol.test.ts`, `mcp-server.test.ts`,
+  `fidelity.test.ts`, `fidelity-workflow.test.ts`, `mcp-fidelity-measure.test.ts`,
+  `studio-production.test.ts`, `studio.test.ts` all passing (66 tests). Full `pnpm validate` (docs,
+  dependency rules, format, lint, typecheck, **464/464 tests**, build across all 65 packages) passed
+  clean.
+- **Out of scope, intentionally**: heatmap PNG generation, persisting the full `FidelityReport` JSON
+  as a `reportAssetId` asset, region-level per-node domain expectations (LAYOUT/COLOR/etc. domains
+  stay at real 0-coverage — honestly "not independently measured" — rather than a fabricated
+  breakdown), and bounded auto-correction (`FidelityCorrectionAdapter`) — the engine already supports
+  passing one in, but building a real correction-proposal adapter is separate feature work. The
+  fabricated `fontMatchStatus`/demo-score cleanup itself, per D10.
+
+---
+
+## 78. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.
 

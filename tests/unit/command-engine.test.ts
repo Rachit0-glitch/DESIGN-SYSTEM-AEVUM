@@ -13,10 +13,12 @@ import {
 import {
   createAsset,
   createDocument,
+  createEntityId,
   createFrame,
   fixtures,
   serialize,
   validateDocument,
+  ValidationRecordSchema,
   type CanonicalDesignDocument,
 } from "@aevum/document-model";
 import { buildMechanicalChainTemplate, buildRigNodes } from "@aevum/rigging";
@@ -78,6 +80,7 @@ describe("Command Engine", () => {
       "timeline.delete",
       "timeline.update",
       "token.register",
+      "validation.record",
     ]);
   });
 
@@ -174,6 +177,44 @@ describe("Command Engine", () => {
 
     expect(registered.assets[asset.id]).toEqual(asset);
     expect(removed.assets[asset.id]).toBeUndefined();
+  });
+
+  it("records a real fidelity ValidationRecord into document.validations (Block D8)", () => {
+    const document = fixtures.empty();
+    const record = ValidationRecordSchema.parse({
+      id: createEntityId("validation"),
+      createdAt: TIME,
+      status: "WARNING",
+      scores: { RASTER: 0.82 },
+      referenceIds: [],
+      heatmapAssetIds: [],
+      metadata: {},
+    });
+    const result = executeCommand(document, {
+      ...base(document),
+      type: "validation.record",
+      payload: { record },
+    }).newDocument;
+
+    expect(result.validations[record.id]).toEqual(record);
+    expect(document.validations[record.id]).toBeUndefined();
+  });
+
+  it("rejects a ValidationRecord that references a non-existent asset or reference", () => {
+    const document = fixtures.empty();
+    const record = ValidationRecordSchema.parse({
+      id: createEntityId("validation"),
+      createdAt: TIME,
+      status: "PASSED",
+      scores: {},
+      referenceIds: [],
+      heatmapAssetIds: ["asset_00000000-0000-4000-8000-000000000000"],
+      metadata: {},
+    });
+    expectCommandError(
+      () => executeCommand(document, { ...base(document), type: "validation.record", payload: { record } }),
+      "REFERENCE_MISSING",
+    );
   });
 
   it("deletes a node subtree and detaches it from its parent", () => {

@@ -10,11 +10,21 @@ import {
 import { evaluateCamera, validateCinematics } from "@aevum/camera-cinematics";
 import {
   CURRENT_SCHEMA_VERSION,
+  createEntityId,
+  ValidationRecordSchema,
   type AssetRecord,
   type CanonicalDesignDocument,
   type DesignNode,
 } from "@aevum/document-model";
-import { prioritizeFidelityIssues, resolveFidelityProfile } from "@aevum/fidelity";
+import {
+  createFidelityEngine,
+  createPlaywrightRasterBackend,
+  normalizeReference,
+  prioritizeFidelityIssues,
+  resolveFidelityProfile,
+  type RasterAssetResolver,
+} from "@aevum/fidelity";
+import { buildRenderGraph } from "@aevum/renderer-2d";
 import {
   MCP_PROTOCOL_VERSION,
   MCP_TOOL_VERSION,
@@ -482,6 +492,189 @@ export function registerInitialTools(
         };
       },
       config,
+    ),
+  );
+
+  registry.registerTool(
+    definition(
+      "fidelity.measure",
+      "Compute a real Maximum Fidelity measurement of the current document against a registered " +
+        "reference image (real headless-browser rasterization + pixel comparison, no fabricated " +
+        "scores), and persist the result as a canonical ValidationRecord.",
+      ["document.read", "asset.read", "document.write", "fidelity.read"],
+      "WRITE",
+      async (raw, context) => {
+        const input = TOOL_SCHEMAS["fidelity.measure"].input.parse(raw);
+        const document = await currentDocument(context);
+        if (document.documentVersion !== input.expectedDocumentVersion) {
+          throw new McpProtocolError({
+            code: "MCP_DOCUMENT_VERSION_CONFLICT",
+            message: "The requested document version is stale.",
+            recoverable: true,
+            retryable: true,
+            suggestedAction: "Read the latest document version and retry with a new idempotency key.",
+            requestId: context.request.requestId,
+            workspaceId: context.request.workspaceId,
+            projectId: context.request.projectId,
+            documentId: document.metadata.id,
+            documentVersion: document.documentVersion,
+            details: { expectedVersion: input.expectedDocumentVersion, currentVersion: document.documentVersion },
+          });
+        }
+
+        const referenceAsset = document.assets[input.referenceAssetId];
+        if (!referenceAsset) {
+          fail(context, "MCP_INPUT_INVALID", `Reference asset ${input.referenceAssetId} does not exist.`);
+        }
+        if (referenceAsset.type !== "IMAGE") {
+          fail(context, "MCP_INPUT_INVALID", `Reference asset ${input.referenceAssetId} is not an IMAGE asset.`);
+        }
+        if (!["image/png", "image/jpeg", "image/webp"].includes(referenceAsset.mimeType)) {
+          fail(
+            context,
+            "MCP_INPUT_INVALID",
+            `Reference asset ${input.referenceAssetId} has unsupported mime type ${referenceAsset.mimeType}.`,
+          );
+        }
+        if (!adapters.assetBytes) {
+          fail(context, "MCP_TOOL_DISABLED", "No asset-byte storage adapter is configured for this deployment.");
+        }
+        const referenceBytes = await adapters.assetBytes.resolve(referenceAsset.id);
+        if (!referenceBytes) {
+          fail(context, "MCP_DOCUMENT_NOT_FOUND", `Bytes for asset ${referenceAsset.id} could not be resolved.`);
+        }
+
+        // A real decode of the actual reference bytes into raw RGBA8 pixels — normalizeReference()
+        // requires already-decoded pixel data, it never accepts encoded JPEG/PNG bytes directly.
+        const decoded = await sharp(Buffer.from(referenceBytes))
+          .ensureAlpha()
+          .raw()
+          .toBuffer({ resolveWithObject: true });
+        const normalized = normalizeReference({
+          data: new Uint8ClampedArray(decoded.data),
+          width: decoded.info.width,
+          height: decoded.info.height,
+          colorSpace: "SRGB",
+          mimeType: referenceAsset.mimeType as "image/png" | "image/jpeg" | "image/webp",
+          hash: referenceAsset.hash as `sha256:${string}`,
+          sourceAssetId: referenceAsset.id,
+          devicePixelRatio: 1,
+        });
+
+        const viewport: RuntimeViewport = {
+          id: "fidelity-measure",
+          width: decoded.info.width,
+          height: decoded.info.height,
+          deviceScaleFactor: 1,
+          orientation: decoded.info.width >= decoded.info.height ? "LANDSCAPE" : "PORTRAIT",
+          category: "CUSTOM",
+          reducedMotion: false,
+        };
+        // The real, unmodified Scene Runtime + Renderer 2D pipeline — the exact same projection and
+        // render graph Studio's own canvas and D6's sushi-poster acceptance test use, not a
+        // fidelity-specific reimplementation.
+        const projection = projectScene(document, viewport, { strictMode: false });
+        const graph = buildRenderGraph(projection);
+
+        const rasterAssetResolver: RasterAssetResolver = {
+          id: "aevum.mcp-asset-bytes",
+          version: "1.0.0",
+          async resolve(assetId) {
+            const candidate = document.assets[assetId];
+            if (!candidate || !adapters.assetBytes) return undefined;
+            const resolvedBytes = await adapters.assetBytes.resolve(assetId);
+            if (!resolvedBytes) return undefined;
+            return { id: candidate.id, hash: candidate.hash, mimeType: candidate.mimeType, bytes: resolvedBytes };
+          },
+        };
+        const rasterBackend = createPlaywrightRasterBackend({ assetResolver: rasterAssetResolver });
+        const engine = createFidelityEngine({ rasterBackend });
+        const { projectId } = requireScope(context);
+        const task = engine.createTask({
+          projectId,
+          documentId: document.metadata.id,
+          documentVersion: document.documentVersion,
+          profile: input.profile,
+          references: [normalized.reference],
+          createdAt: context.timestamp,
+          createdBy: actorForCommand(context),
+          correlationId: context.request.correlationId ?? context.request.requestId,
+        });
+
+        let measured: Awaited<ReturnType<typeof engine.run>>;
+        try {
+          measured = await engine.run({
+            task,
+            document,
+            views: [{ reference: normalized.reference, referenceRaster: normalized.raster, graph, regions: [] }],
+            timestamp: context.timestamp,
+          });
+        } catch (error) {
+          fail(
+            context,
+            "MCP_INTERNAL_ERROR",
+            `Fidelity measurement failed: ${error instanceof Error ? error.message : "unknown error"}`,
+          );
+        } finally {
+          await rasterBackend.close();
+        }
+
+        const report = measured.report;
+        const recordStatus =
+          report.status === "PASS"
+            ? ("PASSED" as const)
+            : report.status === "FAIL"
+              ? ("FAILED" as const)
+              : report.status === "WARNING"
+                ? ("WARNING" as const)
+                : ("PENDING" as const);
+        const record = ValidationRecordSchema.parse({
+          id: createEntityId("validation"),
+          createdAt: context.timestamp,
+          status: recordStatus,
+          scores: Object.fromEntries(report.domainScores.map((entry) => [entry.domain, entry.score])),
+          referenceIds: [],
+          heatmapAssetIds: [],
+          metadata: {
+            fidelityReportId: report.id,
+            fidelityReportFingerprint: report.fingerprint,
+            taskId: task.id,
+            stopReason: report.stopReason,
+            overallScore: report.overallScore,
+            coverage: report.coverage,
+            confidence: report.confidence,
+          },
+        });
+
+        const base = commandBase(context, document);
+        const command: Command = {
+          ...base,
+          type: "validation.record",
+          payload: { record },
+        };
+        const commit = context.request.dryRun ? dryRunCommand(document, command) : executeCommand(document, command);
+
+        return {
+          data: {
+            dryRun: context.request.dryRun,
+            baseVersion: document.documentVersion,
+            resultVersion: context.request.dryRun ? document.documentVersion : commit.newDocument.documentVersion,
+            ...(context.request.dryRun ? { predictedDocumentVersion: commit.newDocument.documentVersion } : {}),
+            transactionId: command.transactionId,
+            commandIds: [command.id],
+            validationRecordId: record.id,
+            status: record.status,
+            scores: record.scores,
+            overallScore: report.overallScore,
+            coverage: report.coverage,
+            confidence: report.confidence,
+            stopReason: report.stopReason,
+          },
+          mutation: { commit, sourceDocument: document },
+        };
+      },
+      config,
+      Boolean(adapters.assetBytes),
     ),
   );
 

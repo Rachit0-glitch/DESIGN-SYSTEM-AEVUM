@@ -1073,6 +1073,13 @@ svg {
   background: #e8ede7;
   color: #1a1e1c;
 }
+.fidelity-measure-error {
+  padding: 6px 14px;
+  margin: 0;
+  background: #3a1f1f;
+  color: #f2a3a3;
+  font-size: 10px;
+}
 .fidelity-body {
   display: grid;
   min-height: 0;
