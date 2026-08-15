@@ -8,7 +8,12 @@ import {
   type Command,
 } from "@aevum/command-engine";
 import { evaluateCamera, validateCinematics } from "@aevum/camera-cinematics";
-import { CURRENT_SCHEMA_VERSION, type CanonicalDesignDocument, type DesignNode } from "@aevum/document-model";
+import {
+  CURRENT_SCHEMA_VERSION,
+  type AssetRecord,
+  type CanonicalDesignDocument,
+  type DesignNode,
+} from "@aevum/document-model";
 import { prioritizeFidelityIssues, resolveFidelityProfile } from "@aevum/fidelity";
 import {
   MCP_PROTOCOL_VERSION,
@@ -37,12 +42,14 @@ import {
 } from "@aevum/rigging";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { assetIdFromHash, computeSha256, registerAsset } from "@aevum/assets";
+import sharp from "sharp";
+import { assetIdFromHash, computeSha256, createDerivative, findAssetByHash, registerAsset } from "@aevum/assets";
 import {
   createAssetRegistryResolver,
   createReconstructionEngine,
   RECONSTRUCTION_MANIFEST_KEY,
   type ReconstructionManifest,
+  type ReconstructionManifestRegion,
 } from "@aevum/reconstruction";
 import { buildManifestFromImage } from "@aevum/reconstruction-vision";
 import { VisionProviderError, visionAnalysisToManifest, type VisionProvider } from "@aevum/vision";
@@ -158,6 +165,155 @@ function actorForCommand(context: ToolExecutionContext) {
     type: context.actor.type === "USER" ? ("USER" as const) : ("MCP_AGENT" as const),
     ...(context.actor.email ? { displayName: context.actor.email } : {}),
     provider: context.actor.authProvider,
+  };
+}
+
+// A region below this size in either dimension is treated as noise, not a real photographic
+// subject worth an independent asset. A region covering almost the entire source frame is left
+// as a source crop instead of "extracted" — cropping the whole poster and calling it an
+// independent extraction would misrepresent what actually happened.
+const EXTRACTABLE_REGION_MIN_DIMENSION_PX = 8;
+const EXTRACTABLE_REGION_MAX_AREA_FRACTION = 0.98;
+
+interface ExtractedImageAssetsResult {
+  readonly manifest: ReconstructionManifest;
+  readonly derivedAssets: readonly AssetRecord[];
+  readonly extractedCount: number;
+}
+
+/**
+ * Crops a real, independently stored derived asset out of the source reference bytes for each
+ * eligible IMAGE-category manifest region, with full DERIVED lineage back to the source asset
+ * (AssetSchema.source.originalAssetId + provenance.processingChain). Without this, every
+ * reconstructed IMAGE node would just reference a crop of the original reference asset forever —
+ * editable in position/size, but never independently replaceable or exportable on its own.
+ */
+async function extractIndependentImageAssets(params: {
+  readonly manifest: ReconstructionManifest;
+  readonly sourceBytes: Uint8Array;
+  readonly sourceAssetId: string;
+  readonly sourceDimensions: { readonly width: number; readonly height: number };
+  readonly documentAssets: Readonly<Record<string, AssetRecord>>;
+  readonly context: ToolExecutionContext;
+  readonly assetStorage: AssetStorageAdapter | undefined;
+  readonly dryRun: boolean;
+}): Promise<ExtractedImageAssetsResult> {
+  const { manifest, sourceBytes, sourceAssetId, sourceDimensions, documentAssets, context, assetStorage, dryRun } =
+    params;
+  const sourceWidth = sourceDimensions.width;
+  const sourceHeight = sourceDimensions.height;
+  const sourceArea = sourceWidth * sourceHeight;
+  if (!assetStorage || sourceArea === 0) {
+    return { manifest, derivedAssets: [], extractedCount: 0 };
+  }
+
+  // createDerivative() only checks that the original asset id exists in the registry it's given;
+  // the source asset may not be committed to the document yet (it's being registered in this same
+  // MCP call), so a minimal placeholder stands in for it when there's no committed asset already.
+  // Its hash is the real source content hash — not a dummy value — so findAssetByHash() correctly
+  // recognizes a would-be "extraction" that's byte-identical to the whole source as the source
+  // itself rather than crashing on a missing field or minting a pointless duplicate.
+  const workingRegistry: Record<string, AssetRecord> = {
+    ...documentAssets,
+    [sourceAssetId]:
+      documentAssets[sourceAssetId] ?? ({ id: sourceAssetId, hash: computeSha256(sourceBytes) } as AssetRecord),
+  };
+  const derivedAssets: AssetRecord[] = [];
+  const updatedRegions: ReconstructionManifestRegion[] = [];
+  const actor = actorForCommand(context);
+
+  for (const region of manifest.regions) {
+    if (region.category !== "IMAGE" || !region.image || region.image.extracted) {
+      updatedRegions.push(region);
+      continue;
+    }
+    const { x, y, width, height } = region.bounds;
+    const left = Math.max(0, Math.round(x));
+    const top = Math.max(0, Math.round(y));
+    const cropWidth = Math.min(Math.round(width), sourceWidth - left);
+    const cropHeight = Math.min(Math.round(height), sourceHeight - top);
+    const areaFraction = sourceArea > 0 ? (cropWidth * cropHeight) / sourceArea : 1;
+    if (
+      cropWidth < EXTRACTABLE_REGION_MIN_DIMENSION_PX ||
+      cropHeight < EXTRACTABLE_REGION_MIN_DIMENSION_PX ||
+      areaFraction > EXTRACTABLE_REGION_MAX_AREA_FRACTION
+    ) {
+      updatedRegions.push(region);
+      continue;
+    }
+
+    const cropBytes = new Uint8Array(
+      await sharp(Buffer.from(sourceBytes))
+        .extract({ left, top, width: cropWidth, height: cropHeight })
+        .png()
+        .toBuffer(),
+    );
+    const contentHash = computeSha256(cropBytes);
+    const existing = findAssetByHash(workingRegistry, contentHash);
+    let derivedAsset: AssetRecord;
+    if (existing) {
+      derivedAsset = existing;
+    } else {
+      const sourceUri = dryRun
+        ? `pending:${contentHash}`
+        : (
+            await assetStorage.storeDerivative({
+              asset: {
+                id: assetIdFromHash(contentHash),
+                type: "IMAGE",
+                name: `${region.key} (extracted)`,
+                hash: contentHash,
+                source: { kind: "DERIVED", uri: `pending:${contentHash}`, originalAssetId: sourceAssetId },
+                mimeType: "image/png",
+                byteSize: cropBytes.byteLength,
+                dimensions: { width: cropWidth, height: cropHeight },
+                metadata: {},
+              },
+              bytes: cropBytes,
+              expectedHash: contentHash,
+            })
+          ).uri;
+
+      const registration = createDerivative(workingRegistry, {
+        originalAssetId: sourceAssetId,
+        bytes: cropBytes,
+        kind: "IMAGE",
+        originalFilename: `${region.key}.png`,
+        displayName: `${region.key} (extracted)`,
+        mimeType: "image/png",
+        sourceUri,
+        createdAt: context.timestamp,
+        registeredAt: context.timestamp,
+        operation: "SEGMENTED",
+        operationParameters: { regionKey: region.key, x: left, y: top, width: cropWidth, height: cropHeight },
+        actor,
+        tool: "@aevum/mcp-server:asset.register:image-extraction",
+        toolVersion: MCP_TOOL_VERSION,
+        details: { kind: "IMAGE", alpha: true, exif: {} },
+        dimensions: { width: cropWidth, height: cropHeight },
+        security: { status: "PASSED", inspectedAt: context.timestamp, inspector: "NONE", issues: [] },
+      });
+      if (registration.kind !== "REGISTERED") {
+        // A hash collision against a quarantined asset is the only other outcome here; fall back
+        // to the source crop rather than fail the whole registration for one region.
+        updatedRegions.push(region);
+        continue;
+      }
+      derivedAsset = registration.asset;
+      derivedAssets.push(derivedAsset);
+    }
+
+    workingRegistry[derivedAsset.id] = derivedAsset;
+    updatedRegions.push({
+      ...region,
+      image: { assetId: derivedAsset.id, fit: region.image.fit, extracted: true },
+    });
+  }
+
+  return {
+    manifest: { ...manifest, regions: updatedRegions },
+    derivedAssets,
+    extractedCount: derivedAssets.length,
   };
 }
 
@@ -795,19 +951,46 @@ export function registerInitialTools(
         }
         if (bytes.byteLength === 0) fail(context, "MCP_INPUT_INVALID", "Decoded asset bytes are empty.");
 
+        const contentHash = computeSha256(bytes);
+
+        // Duplicate content is detected purely from already-canonical data, before any storage
+        // write OR vision analysis is attempted — this keeps a dry run free of side effects, avoids
+        // a redundant upload on a real commit when the bytes are already registered, and (per the
+        // vision-provider cost guardrails) never pays for a Vision API call whose result would be
+        // discarded a moment later for an asset that already exists.
+        const existingDuplicate = Object.values(document.assets).find(
+          (candidate) => candidate.hash.toLowerCase() === contentHash.toLowerCase(),
+        );
+        if (existingDuplicate) {
+          return {
+            data: {
+              dryRun: context.request.dryRun,
+              baseVersion: document.documentVersion,
+              resultVersion: document.documentVersion,
+              commandIds: [],
+              outcome: "DUPLICATE",
+              assetId: existingDuplicate.id,
+              assetHash: existingDuplicate.hash,
+            },
+          };
+        }
+
         // Real pixel/vision analysis (via the configured VisionProvider — Google Cloud Vision or
         // the local pixel-math fallback, never a hardcoded choice here) — skipped on a dry run
         // since it costs real CPU/provider cost for a result that would be discarded, and the
         // caller requested it, not the platform, so a dry run cannot silently make it free.
         let reconstructionManifest: ReconstructionManifest | undefined;
-        let reconstructionAnalysis: { regionCount: number; textRegionCount: number; diagnostics: string[] } | undefined;
+        let reconstructionAnalysis:
+          | { regionCount: number; textRegionCount: number; extractedImageCount: number; diagnostics: string[] }
+          | undefined;
+        let extractedAssets: readonly AssetRecord[] = [];
         if (input.analyzeForReconstruction && !context.request.dryRun) {
           const { workspaceId } = requireScope(context);
           const visionProvider = adapters.vision?.(workspaceId);
           let built: { manifest: ReconstructionManifest; diagnostics: readonly string[] };
           if (visionProvider) {
             try {
-              const analysis = await visionProvider.analyzeImage(bytes, { sourceHash: computeSha256(bytes) });
+              const analysis = await visionProvider.analyzeImage(bytes, { sourceHash: contentHash });
               built = await visionAnalysisToManifest(analysis, bytes);
             } catch (error) {
               if (error instanceof VisionProviderError && error.code === "VISION_PROVIDER_QUOTA_EXCEEDED") {
@@ -826,33 +1009,31 @@ export function registerInitialTools(
           } else {
             built = await buildManifestFromImage(bytes, { ocrCacheDir: reconstructionVisionOcrCacheDir() });
           }
-          reconstructionManifest = built.manifest;
+
+          // Independent image extraction: crop real, individually-editable derived assets out of
+          // IMAGE-category regions (with full DERIVED lineage back to this source asset) before the
+          // manifest is embedded on the source — so downstream reconstruction never has to reduce
+          // an eligible region to "IMAGE node = a crop of the whole reference." assetIdFromHash() is
+          // a pure function of content hash, so the prospective source id computed here is exactly
+          // the id registerAsset() below will produce — no manifest patch-up needed afterward.
+          const extraction = await extractIndependentImageAssets({
+            manifest: built.manifest,
+            sourceBytes: bytes,
+            sourceAssetId: assetIdFromHash(contentHash),
+            sourceDimensions: { width: input.width, height: input.height },
+            documentAssets: document.assets,
+            context,
+            assetStorage: adapters.assetStorage,
+            dryRun: context.request.dryRun,
+          });
+
+          reconstructionManifest = extraction.manifest;
+          extractedAssets = extraction.derivedAssets;
           reconstructionAnalysis = {
-            regionCount: built.manifest.regions.length,
-            textRegionCount: built.manifest.regions.filter((region) => region.category === "TEXT").length,
+            regionCount: extraction.manifest.regions.length,
+            textRegionCount: extraction.manifest.regions.filter((region) => region.category === "TEXT").length,
+            extractedImageCount: extraction.extractedCount,
             diagnostics: [...built.diagnostics],
-          };
-        }
-
-        const contentHash = computeSha256(bytes);
-
-        // Duplicate content is detected purely from already-canonical data, before any storage
-        // write is attempted — this keeps a dry run free of side effects and avoids a redundant
-        // upload on a real commit when the bytes are already registered.
-        const existingDuplicate = Object.values(document.assets).find(
-          (candidate) => candidate.hash.toLowerCase() === contentHash.toLowerCase(),
-        );
-        if (existingDuplicate) {
-          return {
-            data: {
-              dryRun: context.request.dryRun,
-              baseVersion: document.documentVersion,
-              resultVersion: document.documentVersion,
-              commandIds: [],
-              outcome: "DUPLICATE",
-              assetId: existingDuplicate.id,
-              assetHash: existingDuplicate.hash,
-            },
           };
         }
 
@@ -906,17 +1087,30 @@ export function registerInitialTools(
           fail(context, "MCP_INTERNAL_ERROR", "Asset registration was unexpectedly quarantined or duplicate.");
         }
 
+        // The source asset must be registered before any derived asset that declares it as
+        // source.originalAssetId — document-model validation checks that reference on every
+        // command application, so command order within the transaction is not interchangeable.
         const asset = registration.asset;
-        const command: Command = { ...commandBase(context, document), type: "asset.register", payload: { asset } };
-        const commit = context.request.dryRun ? dryRunCommand(document, command) : executeCommand(document, command);
+        const base = commandBase(context, document);
+        const sourceCommand: Command = { ...base, type: "asset.register", payload: { asset } };
+        const derivedCommands: Command[] = extractedAssets.map((derived) => ({
+          ...base,
+          id: createCommandId(),
+          type: "asset.register" as const,
+          payload: { asset: derived },
+        }));
+        let transaction = beginTransaction(document, { transactionId: base.transactionId }).execute(sourceCommand);
+        for (const derivedCommand of derivedCommands) transaction = transaction.execute(derivedCommand);
+        const commit = transaction.commit();
+        const commandIds = [sourceCommand.id, ...derivedCommands.map((command) => command.id)];
         return {
           data: {
             dryRun: context.request.dryRun,
             baseVersion: document.documentVersion,
             resultVersion: context.request.dryRun ? document.documentVersion : commit.newDocument.documentVersion,
             ...(context.request.dryRun ? { predictedDocumentVersion: commit.newDocument.documentVersion } : {}),
-            transactionId: command.transactionId,
-            commandIds: [command.id],
+            transactionId: base.transactionId,
+            commandIds,
             outcome: "REGISTERED",
             assetId: asset.id,
             assetHash: asset.hash,

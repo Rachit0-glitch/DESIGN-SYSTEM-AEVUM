@@ -4089,7 +4089,54 @@ keeping that local pipeline available as a free, offline fallback.
 
 ---
 
-## 60. Final Roadmap Statement
+## 60. Block C (partial): Independent Image Extraction and Derived Asset Lineage (2026-08-15)
+
+Continuation of Block B, addressing Block C's C5/C6 items specifically. **Status: implemented and
+tested. Block C overall remains IN PROGRESS** — typography inference with confidence (C2),
+rounded/vector shape geometry (C3), and gradients/strokes (C4) are not yet done; this entry covers
+only image extraction and lineage.
+
+- Fixed the real gap named in Section 58: every reconstructed IMAGE node previously referenced a
+  crop of the whole source reference asset, never an independently extracted image. `asset.register`
+  now crops a real, individually-stored derived asset out of each eligible IMAGE-category manifest
+  region (`apps/mcp-server/src/tools.ts`'s new `extractIndependentImageAssets()`), using
+  `@aevum/assets`'s existing `createDerivative()`/`AssetStorageAdapter.storeDerivative()` — full
+  DERIVED lineage (`source.kind: "DERIVED"`, `source.originalAssetId`, `provenance.processingChain`)
+  was already supported by the asset schema and storage contracts; nothing in this block populated
+  it until now.
+- Eligibility is deliberately narrow and honestly bounded: a region must be IMAGE-category (not
+  ICON, not SHAPE — flat-color regions are correctly left as SHAPE nodes, verified by test), at
+  least 8×8 source pixels, and cover no more than 98% of the source frame — a region covering
+  nearly the whole reference is left as a source crop rather than falsely reported as "extracted"
+  when its content is effectively identical to the whole reference.
+- Content-hash deduplication is real, not assumed: identical crops (or a crop that happens to match
+  an already-registered asset) resolve to the existing asset instead of writing a duplicate.
+- Real cost-guardrail fix found while restructuring this code path: `asset.register`'s duplicate-
+  content check previously ran **after** Vision analysis, meaning a duplicate upload still paid for
+  a full Vision API call whose result was discarded a moment later. The duplicate check now runs
+  first, before any Vision or extraction work — consistent with the plan's explicit "never call
+  Vision unnecessarily" cost guardrail from Block B.
+- `reconstruction.import_reference`'s downstream pipeline required no changes: `packages/reconstruction`'s
+  `AssetExtractionAdapter`/`analyzeReference()`/proposal-to-command-plan logic already honored a
+  manifest region's `image.assetId`/`image.extracted` fields correctly — the only real gap was that
+  nothing upstream ever populated them with a genuine extraction.
+- `packages/mcp-protocol`'s `asset.register` output schema gained `reconstructionAnalysis.extractedImageCount`
+  (MCP tool version bumped `1.12.0` → `1.12.1`, an additive, backward-compatible output field on an
+  existing tool, not a new tool).
+- Verified end to end via two new integration tests
+  (`tests/integration/mcp-image-extraction.test.ts`): a real high-variance photographic region gets
+  extracted into a real, separately stored, hash-distinct DERIVED asset that
+  `packages/reconstruction`'s unmodified pipeline correctly builds a `NATIVE`-fallback IMAGE node
+  around; a flat-color SHAPE region is confirmed to never trigger extraction. Full `pnpm validate`
+  (docs, dependency rules, format, lint, typecheck, 411/411 tests, build across all 65 packages)
+  passed clean.
+- Next action: continue Block C — C2 (typography inference with confidence and provenance, never
+  fabricating exact font names), C3 (rounded-corner and vector/polygon shape geometry), C4
+  (gradient and stroke inference) — per the implementation plan's explicit block order.
+
+---
+
+## 61. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.
 

@@ -28,7 +28,7 @@ import { z } from "zod";
 import { McpPermissionSchema } from "./permissions.js";
 import { MCP_PROTOCOL_VERSION } from "./version.js";
 
-export const MCP_TOOL_VERSION = "1.12.0" as const;
+export const MCP_TOOL_VERSION = "1.12.1" as const;
 export const McpAuthModeSchema = z.enum(["development", "supabase", "disabled"]);
 export const McpToolNameSchema = z.enum([
   "system.get_capabilities",
@@ -265,6 +265,9 @@ export const AssetRegisterOutputSchema = z.strictObject({
     .strictObject({
       regionCount: z.number().int().nonnegative(),
       textRegionCount: z.number().int().nonnegative(),
+      // Independently extracted derived assets (with real DERIVED lineage back to this source
+      // asset) rather than IMAGE nodes that only ever reference a crop of the whole reference.
+      extractedImageCount: z.number().int().nonnegative(),
       diagnostics: z.array(z.string()),
     })
     .optional(),
