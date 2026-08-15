@@ -724,6 +724,16 @@ function nodeUpdatePlan(
     data: { projection: "node-subtree", nodeId },
     approvalPolicy: policy,
   });
+  // A real, free-text edit request (Block D4): interpretation happens here, at plan-execution
+  // time, where the ANALYZE step can see the node's real current state via the `source` binding
+  // below — not blind, client-side guessing before any real document read.
+  const prompt = typeof intent.parameters.prompt === "string" ? intent.parameters.prompt : undefined;
+  const operation =
+    prompt && prompt.trim().length > 0
+      ? "INTERPRET_NODE_EDIT_PROMPT"
+      : intent.parameters.deltaY === undefined
+        ? "NODE_CHANGES"
+        : "NODE_OFFSET_Y";
   const analyze = step({
     goalId: intent.goalId,
     index: 1,
@@ -731,10 +741,16 @@ function nodeUpdatePlan(
     label: "Calculate canonical node changes",
     dependencies: [read.id],
     data: {
-      operation: intent.parameters.deltaY === undefined ? "NODE_CHANGES" : "NODE_OFFSET_Y",
+      operation,
       nodeId,
       deltaY: intent.parameters.deltaY ?? 0,
       changes: intent.parameters.changes ?? {},
+      ...(prompt
+        ? {
+            prompt,
+            viewportWidth: typeof intent.parameters.viewportWidth === "number" ? intent.parameters.viewportWidth : 1440,
+          }
+        : {}),
     },
     bindings: [{ targetPath: "source", sourceStepId: read.id, sourcePath: "data" }],
     approvalPolicy: policy,

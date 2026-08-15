@@ -115,7 +115,96 @@ function diagnosticForResponse(response: McpResponseEnvelope, step: AgentPlanSte
   };
 }
 
+interface InterpretableNode {
+  readonly name?: string;
+  readonly transform?: { readonly position?: { readonly x?: number; readonly y?: number; readonly z?: number } };
+  readonly dimensions?: {
+    readonly width?: { readonly value?: number };
+    readonly height?: { readonly value?: number };
+  };
+}
+
+/**
+ * Deterministic, rule-based natural-language interpretation of a node edit request — no LLM, no
+ * network call. Runs here (server-side, plan-execution time) rather than in Studio's UI, because
+ * only here does the interpreter see the node's REAL current state (fetched by the READ step that
+ * always precedes this in nodeUpdatePlan): a relocation of the same rule set Studio's UI used to
+ * run blind before this block, not a rewrite of its capabilities. Real, honest failure — an
+ * unrecognized prompt throws rather than guessing, exactly as NODE_OFFSET_Y already does above for
+ * a missing transform.
+ */
+function interpretNodeEditPrompt(input: Record<string, unknown>): Record<string, unknown> {
+  const source = input.source as { nodes?: Array<Record<string, unknown>> } | undefined;
+  const node = (source?.nodes?.find((entry) => entry.id === input.nodeId) ?? source?.nodes?.[0]) as
+    | InterpretableNode
+    | undefined;
+  const prompt = typeof input.prompt === "string" ? input.prompt : "";
+  const viewportWidth = typeof input.viewportWidth === "number" ? input.viewportWidth : 1440;
+  if (!node) throw new Error("Target node is unavailable for prompt interpretation.");
+
+  const renameMatch = prompt.match(/rename(?: it| this)? to ["']?([^"'.]+)["']?/i);
+  if (renameMatch?.[1]?.trim()) {
+    return { changes: { name: renameMatch[1].trim() } };
+  }
+
+  const text = prompt.toLowerCase();
+  if (text.includes("center")) {
+    const width = node.dimensions?.width?.value ?? 0;
+    const position = node.transform?.position;
+    if (!position || typeof position.x !== "number") {
+      throw new Error("Target node transform is unavailable for centering.");
+    }
+    const x = Math.round((viewportWidth - width) / 2);
+    return { changes: { transform: { ...node.transform, position: { ...position, x } } } };
+  }
+
+  const resizeFactor = /\b(bigger|larger|grow)\b/.test(text)
+    ? 1.2
+    : /\b(smaller|shrink)\b/.test(text)
+      ? 0.8
+      : undefined;
+  if (resizeFactor !== undefined) {
+    const width = node.dimensions?.width;
+    const height = node.dimensions?.height;
+    if (!width || !height || typeof width.value !== "number" || typeof height.value !== "number") {
+      throw new Error("Target node has no dimensions to resize.");
+    }
+    return {
+      changes: {
+        dimensions: {
+          ...node.dimensions,
+          width: { ...width, value: Math.round(width.value * resizeFactor) },
+          height: { ...height, value: Math.round(height.value * resizeFactor) },
+        },
+      },
+    };
+  }
+
+  const directions: Record<string, { readonly axis: "x" | "y"; readonly sign: 1 | -1 }> = {
+    right: { axis: "x", sign: 1 },
+    left: { axis: "x", sign: -1 },
+    down: { axis: "y", sign: 1 },
+    up: { axis: "y", sign: -1 },
+  };
+  for (const [word, { axis, sign }] of Object.entries(directions)) {
+    if (!text.includes(word)) continue;
+    const position = node.transform?.position;
+    if (!position || typeof position[axis] !== "number") {
+      throw new Error("Target node transform is unavailable for a directional move.");
+    }
+    const distanceMatch = text.match(/(\d+)\s*px/);
+    const distance = (distanceMatch?.[1] ? Number(distanceMatch[1]) : 20) * sign;
+    const nextValue = position[axis] + distance;
+    return { changes: { transform: { ...node.transform, position: { ...position, [axis]: nextValue } } } };
+  }
+
+  throw new Error(
+    `Could not map "${prompt}" to a supported edit. Try things like "center it", "make it bigger", "move right 40px", or "rename to New name".`,
+  );
+}
+
 function analyzeStep(input: Record<string, unknown>): Record<string, unknown> {
+  if (input.operation === "INTERPRET_NODE_EDIT_PROMPT") return interpretNodeEditPrompt(input);
   if (input.operation === "NODE_OFFSET_Y") {
     const source = input.source as { nodes?: Array<Record<string, unknown>> } | undefined;
     const node = source?.nodes?.find((entry) => entry.id === input.nodeId) ?? source?.nodes?.[0];

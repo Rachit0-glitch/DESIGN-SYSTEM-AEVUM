@@ -124,6 +124,96 @@ describe("AEVUM Studio canonical session", () => {
     expect(session.getSnapshot().document.nodes[studioFixtureIds.heading]?.name).toBe("Second AI edit");
   });
 
+  describe("real planner reasoning from a raw prompt (Block D4)", () => {
+    function runPromptScenario() {
+      const fixture = createStudioProjectFixture();
+      const session = createStudioSession({ ...fixture, persistence: createMemoryPersistence() });
+      const agentContext = createDeterministicStudioAgentContext({
+        session,
+        workspaceId: fixture.project.workspaceId,
+        projectId: fixture.project.id,
+        documentId: fixture.document.metadata.id,
+        actorId: "test-agent",
+      });
+      const runPrompt = async (prompt: string, correlationId: string) => {
+        const goal = createAgentGoal({
+          category: "EDIT",
+          request: prompt,
+          targetProjectId: agentContext.projectId,
+          targetDocumentId: agentContext.documentId,
+          targetNodeIds: [studioFixtureIds.heading],
+          parameters: { prompt, viewportWidth: 1440 },
+        });
+        const agentSession = createAgentSession({
+          actorId: agentContext.actorId,
+          workspaceId: agentContext.workspaceId,
+          projectId: agentContext.projectId,
+          documentId: agentContext.documentId,
+          goal,
+          createdAt: new Date().toISOString(),
+        });
+        const engine = createAgentEngine({
+          reasoningProvider: createDeterministicReasoningProvider(),
+          mcpClient: agentContext.createMcpClient(correlationId),
+          approvalAdapter: createDeterministicApprovalAdapter(),
+          persistence: createInMemoryAgentPersistence(),
+        });
+        return engine.execute({
+          session: agentSession,
+          contextRecords: [],
+          actorPermissions: agentContext.actorPermissions,
+        });
+      };
+      return { session, runPrompt };
+    }
+
+    it('interprets "center it" using the node\'s real current width and the real viewport width', async () => {
+      const { session, runPrompt } = runPromptScenario();
+      const before = session.getSnapshot().document.nodes[studioFixtureIds.heading];
+      const result = await runPrompt("center it", "d4-center");
+      expect(result.run.status, JSON.stringify(result.run.outcome?.diagnostics)).toBe("SUCCEEDED");
+      const width = before?.dimensions?.width.value ?? 0;
+      const expectedX = Math.round((1440 - width) / 2);
+      expect(session.getSnapshot().document.nodes[studioFixtureIds.heading]?.transform.position.x).toBe(expectedX);
+    });
+
+    it('interprets "move right 40px" as a real, correctly-added offset to the node\'s actual current x', async () => {
+      const { session, runPrompt } = runPromptScenario();
+      const before = session.getSnapshot().document.nodes[studioFixtureIds.heading];
+      const startX = before?.transform.position.x ?? 0;
+      const result = await runPrompt("move right 40px", "d4-move");
+      expect(result.run.status, JSON.stringify(result.run.outcome?.diagnostics)).toBe("SUCCEEDED");
+      expect(session.getSnapshot().document.nodes[studioFixtureIds.heading]?.transform.position.x).toBe(startX + 40);
+    });
+
+    it('interprets "make it bigger" as a real 1.2x resize of the node\'s actual current dimensions', async () => {
+      const { session, runPrompt } = runPromptScenario();
+      const before = session.getSnapshot().document.nodes[studioFixtureIds.heading];
+      const startWidth = before?.dimensions?.width.value ?? 0;
+      const result = await runPrompt("make it bigger", "d4-resize");
+      expect(result.run.status, JSON.stringify(result.run.outcome?.diagnostics)).toBe("SUCCEEDED");
+      const after = session.getSnapshot().document.nodes[studioFixtureIds.heading];
+      expect(after?.dimensions?.width.value).toBe(Math.round(startWidth * 1.2));
+    });
+
+    it('interprets "rename to Launch Title" as a real name change', async () => {
+      const { session, runPrompt } = runPromptScenario();
+      const result = await runPrompt("rename to Launch Title", "d4-rename");
+      expect(result.run.status, JSON.stringify(result.run.outcome?.diagnostics)).toBe("SUCCEEDED");
+      expect(session.getSnapshot().document.nodes[studioFixtureIds.heading]?.name).toBe("Launch Title");
+    });
+
+    it("fails a genuinely unrecognized prompt with a real, honest diagnostic instead of guessing or silently no-op'ing", async () => {
+      const { session, runPrompt } = runPromptScenario();
+      const before = session.getSnapshot().document.nodes[studioFixtureIds.heading];
+      const result = await runPrompt("frobnicate the whatsit", "d4-unrecognized");
+      expect(result.run.status).not.toBe("SUCCEEDED");
+      expect(result.run.outcome?.diagnostics.some((entry) => entry.message.includes("Could not map"))).toBe(true);
+      // The document must be untouched by a failed interpretation.
+      expect(session.getSnapshot().document.nodes[studioFixtureIds.heading]).toEqual(before);
+    });
+  });
+
   it("keeps production edits remote-first and performs auditable undo and redo writes", async () => {
     const fixture = createStudioProjectFixture();
     const commands: string[] = [];
