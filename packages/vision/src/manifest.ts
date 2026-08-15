@@ -49,12 +49,27 @@ function collectTextBlocks(blocks: readonly VisionTextBlock[], level: VisionText
   return result;
 }
 
+/**
+ * Samples a region's real fill color, "is this photographic" variance, and shape fill ratio in one
+ * pass. Fill/variance are measured within the *majority luminance cluster* (the same bimodal split
+ * sampleTextInkColor() uses), not the raw whole-bbox mean — a rounded rectangle's corners expose
+ * background color, which used to inflate whole-bbox variance enough to misclassify a plain
+ * rounded rectangle as a photo (caught by this file's own shape-geometry test) before this fix. A
+ * real photo's *majority* color cluster still has real internal diversity; a flat-colored shape's
+ * does not (measured near 0), which is exactly the distinction "is this a photo" needs. fillRatio
+ * (majority cluster size / total) is the same real signal reconstruction-vision's segmentation
+ * exposes as `blob.fillRatio`, used by classifyShapeGeometry() below.
+ */
 async function sampleRegionColor(
   sourceBytes: Uint8Array,
   sourceWidth: number,
   sourceHeight: number,
   rect: Rect,
-): Promise<{ readonly meanColor: readonly [number, number, number]; readonly variance: number }> {
+): Promise<{
+  readonly meanColor: readonly [number, number, number];
+  readonly variance: number;
+  readonly fillRatio: number;
+}> {
   const left = Math.max(0, Math.min(sourceWidth - 1, Math.round(rect.x0)));
   const top = Math.max(0, Math.min(sourceHeight - 1, Math.round(rect.y0)));
   const width = Math.max(1, Math.min(sourceWidth - left, Math.round(rect.x1 - rect.x0)));
@@ -64,35 +79,61 @@ async function sampleRegionColor(
     .ensureAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
-  let sumR = 0;
-  let sumG = 0;
-  let sumB = 0;
   const pixelCount = data.length / 4;
-  for (let index = 0; index < data.length; index += 4) {
-    sumR += data[index] ?? 0;
-    sumG += data[index + 1] ?? 0;
-    sumB += data[index + 2] ?? 0;
+  const luminances = new Float64Array(pixelCount);
+  let sumLuminance = 0;
+  for (let pixel = 0; pixel < pixelCount; pixel += 1) {
+    const index = pixel * 4;
+    const luminance = 0.2126 * (data[index] ?? 0) + 0.7152 * (data[index + 1] ?? 0) + 0.0722 * (data[index + 2] ?? 0);
+    luminances[pixel] = luminance;
+    sumLuminance += luminance;
   }
-  const meanColor: [number, number, number] = [sumR / pixelCount, sumG / pixelCount, sumB / pixelCount];
+  const meanLuminance = sumLuminance / Math.max(1, pixelCount);
+  let belowCount = 0;
+  let belowR = 0;
+  let belowG = 0;
+  let belowB = 0;
+  let aboveCount = 0;
+  let aboveR = 0;
+  let aboveG = 0;
+  let aboveB = 0;
+  for (let pixel = 0; pixel < pixelCount; pixel += 1) {
+    const index = pixel * 4;
+    const r = data[index] ?? 0;
+    const g = data[index + 1] ?? 0;
+    const b = data[index + 2] ?? 0;
+    if ((luminances[pixel] ?? 0) < meanLuminance) {
+      belowCount += 1;
+      belowR += r;
+      belowG += g;
+      belowB += b;
+    } else {
+      aboveCount += 1;
+      aboveR += r;
+      aboveG += g;
+      aboveB += b;
+    }
+  }
+  const majorityIsBelow = belowCount >= aboveCount;
+  const majorityCount = Math.max(1, majorityIsBelow ? belowCount : aboveCount);
+  const meanColor: [number, number, number] = majorityIsBelow
+    ? [belowR / majorityCount, belowG / majorityCount, belowB / majorityCount]
+    : [aboveR / majorityCount, aboveG / majorityCount, aboveB / majorityCount];
   let varianceSum = 0;
-  for (let index = 0; index < data.length; index += 4) {
+  for (let pixel = 0; pixel < pixelCount; pixel += 1) {
+    const isMajority = majorityIsBelow
+      ? (luminances[pixel] ?? 0) < meanLuminance
+      : (luminances[pixel] ?? 0) >= meanLuminance;
+    if (!isMajority) continue;
+    const index = pixel * 4;
     const r = data[index] ?? 0;
     const g = data[index + 1] ?? 0;
     const b = data[index + 2] ?? 0;
     varianceSum += (r - meanColor[0]) ** 2 + (g - meanColor[1]) ** 2 + (b - meanColor[2]) ** 2;
   }
-  return { meanColor, variance: varianceSum / pixelCount };
+  return { meanColor, variance: varianceSum / majorityCount, fillRatio: majorityCount / Math.max(1, pixelCount) };
 }
 
-/**
- * Estimates real text glyph ("ink") color from a text region's raw pixels. A text bounding box is
- * mostly background with glyph strokes covering a minority of the area, so a plain mean color would
- * just blend the two. Instead this splits pixels into two clusters by luminance (a simplified
- * two-means/Otsu-style split — a real, if simple, per-pixel signal, not a canned assumption) and
- * takes the mean color of whichever cluster covers less area, since ink is normally the minority.
- * When the split is close to even (no clear minority — e.g. a low-contrast or noisy crop), this is
- * genuinely ambiguous, so the caller is told via a lower confidence rather than a fabricated color.
- */
 /**
  * Estimates a coarse OpenType weight class from real ink coverage (the same minority-cluster
  * fraction sampleTextInkColor() already computes): bold glyph strokes measurably cover more of
@@ -111,6 +152,15 @@ function estimateFontWeight(inkAreaFraction: number): number {
   return 400;
 }
 
+/**
+ * Estimates real text glyph ("ink") color from a text region's raw pixels. A text bounding box is
+ * mostly background with glyph strokes covering a minority of the area, so a plain mean color would
+ * just blend the two. Instead this splits pixels into two clusters by luminance (a simplified
+ * two-means/Otsu-style split — a real, if simple, per-pixel signal, not a canned assumption) and
+ * takes the mean color of whichever cluster covers less area, since ink is normally the minority.
+ * When the split is close to even (no clear minority — e.g. a low-contrast or noisy crop), this is
+ * genuinely ambiguous, so the caller is told via a lower confidence rather than a fabricated color.
+ */
 async function sampleTextInkColor(
   sourceBytes: Uint8Array,
   sourceWidth: number,
@@ -181,6 +231,27 @@ async function sampleTextInkColor(
   const minorityFraction = minorityCount / pixelCount;
   const confidence = Math.max(0, 1 - minorityFraction * 2);
   return { color, confidence, inkAreaFraction: minorityFraction };
+}
+
+/**
+ * Classifies a region's real geometry (sharp rectangle, rounded rectangle, or ellipse) from its
+ * measured fill ratio — see packages/reconstruction-vision's identical function for the full
+ * derivation (a real, invertible geometric formula relating missing corner area to corner radius,
+ * verified against real rendered shapes). Kept in sync between both packages rather than shared
+ * as a dependency, matching this file's existing pattern of local, provider-agnostic pixel math.
+ */
+function classifyShapeGeometry(
+  fillRatio: number,
+  width: number,
+  height: number,
+): { readonly shapeType: "RECTANGLE" | "ELLIPSE"; readonly cornerRadius?: number } {
+  const missingAreaFraction = Math.max(0, 1 - fillRatio);
+  if (missingAreaFraction < 0.02) return { shapeType: "RECTANGLE" };
+  const cornerCutConstant = 4 * (1 - Math.PI / 4);
+  const estimatedRadius = Math.sqrt((missingAreaFraction * width * height) / cornerCutConstant);
+  const maxValidCornerRadius = Math.min(width, height) / 2;
+  if (estimatedRadius > maxValidCornerRadius * 1.02) return { shapeType: "ELLIPSE" };
+  return { shapeType: "RECTANGLE", cornerRadius: Math.round(Math.min(estimatedRadius, maxValidCornerRadius)) };
 }
 
 export interface VisionAnalysisToManifestOptions {
@@ -291,11 +362,11 @@ export async function visionAnalysisToManifest(
     const h = rect.y1 - rect.y0;
     if (w < 4 || h < 4) continue;
 
-    let sample: { meanColor: readonly [number, number, number]; variance: number };
+    let sample: { meanColor: readonly [number, number, number]; variance: number; fillRatio: number };
     try {
       sample = await sampleRegionColor(sourceBytes, width, height, rect);
     } catch {
-      sample = { meanColor: [128, 128, 128], variance: 0 };
+      sample = { meanColor: [128, 128, 128], variance: 0, fillRatio: 1 };
       diagnostics.push(`Could not sample pixel color for region ${object.name || regionIndex}; used a neutral fill.`);
     }
     const area = w * h;
@@ -320,7 +391,7 @@ export async function visionAnalysisToManifest(
         ? { image: { fit: "COVER" as const, extracted: false } }
         : {
             shape: {
-              shapeType: "RECTANGLE" as const,
+              ...classifyShapeGeometry(sample.fillRatio, w, h),
               geometry: {},
               fill: {
                 r: Math.round(sample.meanColor[0]),

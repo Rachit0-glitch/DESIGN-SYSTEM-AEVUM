@@ -304,6 +304,75 @@ describe("@aevum/vision manifest conversion", () => {
     );
     expect(nonTextRegions).toHaveLength(0);
   });
+
+  it("detects real shape geometry (rounded-rectangle radius, ellipse) from measured pixels, not just RECTANGLE", async () => {
+    // The bounding box comes from the (mocked, in real usage Vision-provided) object annotation —
+    // but the shapeType/cornerRadius classification is always real local pixel math, regardless of
+    // provider, so a real rendered rounded-rect/ellipse must classify correctly here too.
+    const roundedRectSvg = `
+      <svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
+        <rect width="400" height="300" fill="#ffffff" />
+        <rect x="60" y="80" width="150" height="100" rx="25" fill="#2255aa" />
+      </svg>
+    `;
+    const roundedRectImage = await sharp(Buffer.from(roundedRectSvg)).png().toBuffer();
+    const roundedRectAnalysis = fixtureAnalysis({
+      imageWidth: 400,
+      imageHeight: 300,
+      textBlocks: [],
+      objects: [
+        {
+          name: "rounded-rect",
+          score: 0.6,
+          boundingPoly: {
+            vertices: [
+              { x: 60, y: 80 },
+              { x: 210, y: 80 },
+              { x: 210, y: 180 },
+              { x: 60, y: 180 },
+            ],
+          },
+        },
+      ],
+    });
+    const { manifest: roundedRectManifest } = await visionAnalysisToManifest(roundedRectAnalysis, roundedRectImage);
+    const roundedShape = roundedRectManifest.regions.find((region) => region.category === "SHAPE");
+    expect(roundedShape, JSON.stringify(roundedRectManifest.regions)).toBeDefined();
+    expect(roundedShape?.shape?.shapeType).toBe("RECTANGLE");
+    expect(roundedShape?.shape?.cornerRadius).toBeGreaterThan(10);
+    expect(roundedShape?.shape?.cornerRadius).toBeLessThan(45);
+
+    const ellipseSvg = `
+      <svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
+        <rect width="400" height="300" fill="#ffffff" />
+        <ellipse cx="135" cy="130" rx="75" ry="50" fill="#2255aa" />
+      </svg>
+    `;
+    const ellipseImage = await sharp(Buffer.from(ellipseSvg)).png().toBuffer();
+    const ellipseAnalysis = fixtureAnalysis({
+      imageWidth: 400,
+      imageHeight: 300,
+      textBlocks: [],
+      objects: [
+        {
+          name: "ellipse",
+          score: 0.6,
+          boundingPoly: {
+            vertices: [
+              { x: 60, y: 80 },
+              { x: 210, y: 80 },
+              { x: 210, y: 180 },
+              { x: 60, y: 180 },
+            ],
+          },
+        },
+      ],
+    });
+    const { manifest: ellipseManifest } = await visionAnalysisToManifest(ellipseAnalysis, ellipseImage);
+    const ellipseShape = ellipseManifest.regions.find((region) => region.category === "SHAPE");
+    expect(ellipseShape, JSON.stringify(ellipseManifest.regions)).toBeDefined();
+    expect(ellipseShape?.shape?.shapeType).toBe("ELLIPSE");
+  });
 });
 
 describe("@aevum/vision cache and quota guardrails", () => {

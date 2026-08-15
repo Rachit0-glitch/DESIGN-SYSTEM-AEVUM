@@ -76,6 +76,40 @@ describe("reconstruction-vision manifest builder (OCR disabled — deterministic
     expect(shapeRegions[0]?.bounds.height).toBeGreaterThan(50);
     expect(diagnostics).toContain("OCR disabled by caller; no text regions were produced.");
   });
+
+  it("detects a real rounded-rectangle's corner radius from measured pixels, not just RECTANGLE", async () => {
+    const svg = `
+      <svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
+        <rect width="400" height="300" fill="#ffffff" />
+        <rect x="60" y="80" width="150" height="100" rx="25" fill="#2255aa" />
+      </svg>
+    `;
+    const image = await sharp(Buffer.from(svg)).png().toBuffer();
+    const { manifest } = await buildManifestFromImage(image, { enableOcr: false });
+
+    const shape = manifest.regions.find((region) => region.category === "SHAPE");
+    expect(shape, JSON.stringify(manifest.regions)).toBeDefined();
+    expect(shape?.shape?.shapeType).toBe("RECTANGLE");
+    // The real SVG corner radius was 25px; the estimate should land in the same ballpark, not be
+    // absent or wildly off (this is a bucketed geometric estimate, not exact reconstruction).
+    expect(shape?.shape?.cornerRadius).toBeGreaterThan(10);
+    expect(shape?.shape?.cornerRadius).toBeLessThan(45);
+  });
+
+  it("detects a real ellipse as ELLIPSE, not RECTANGLE", async () => {
+    const svg = `
+      <svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
+        <rect width="400" height="300" fill="#ffffff" />
+        <ellipse cx="135" cy="130" rx="75" ry="50" fill="#2255aa" />
+      </svg>
+    `;
+    const image = await sharp(Buffer.from(svg)).png().toBuffer();
+    const { manifest } = await buildManifestFromImage(image, { enableOcr: false });
+
+    const shape = manifest.regions.find((region) => region.category === "SHAPE");
+    expect(shape, JSON.stringify(manifest.regions)).toBeDefined();
+    expect(shape?.shape?.shapeType).toBe("ELLIPSE");
+  });
 });
 
 describe("reconstruction-vision real local OCR (tesseract.js — no paid API)", () => {
