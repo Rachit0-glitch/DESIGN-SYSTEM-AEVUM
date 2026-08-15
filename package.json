@@ -65,6 +65,7 @@
     "@aevum/typography": "workspace:*",
     "@aevum/validation": "workspace:*",
     "@aevum/validation-worker": "workspace:*",
+    "@aevum/vision": "workspace:*",
     "@biomejs/biome": "2.5.6",
     "@playwright/test": "1.62.1",
     "@types/node": "26.1.2",

@@ -45,6 +45,7 @@ import {
   type ReconstructionManifest,
 } from "@aevum/reconstruction";
 import { buildManifestFromImage } from "@aevum/reconstruction-vision";
+import { VisionProviderError, visionAnalysisToManifest, type VisionProvider } from "@aevum/vision";
 
 // A stable, explicit path (not tesseract.js's cwd-relative default) so the OCR trained-data file
 // downloads once per deployment instead of once per request, and never lands in the repo/cwd.
@@ -273,6 +274,8 @@ export function registerInitialTools(
     readonly blender?: BlenderToolAdapter;
     readonly assetBytes?: AssetBytesResolver;
     readonly assetStorage?: AssetStorageAdapter;
+    /** Workspace-scoped so per-workspace quota (see @aevum/vision) is enforced per caller, not globally. */
+    readonly vision?: (workspaceId: string) => VisionProvider;
   } = {},
 ): void {
   registry.registerTool(
@@ -792,13 +795,37 @@ export function registerInitialTools(
         }
         if (bytes.byteLength === 0) fail(context, "MCP_INPUT_INVALID", "Decoded asset bytes are empty.");
 
-        // Real, local pixel analysis (no paid vision/OCR API involved) — skipped on a dry run
-        // since it costs real CPU time for a result that would be discarded, and the caller
-        // requested it, not the platform, so a dry run cannot silently make it free.
+        // Real pixel/vision analysis (via the configured VisionProvider — Google Cloud Vision or
+        // the local pixel-math fallback, never a hardcoded choice here) — skipped on a dry run
+        // since it costs real CPU/provider cost for a result that would be discarded, and the
+        // caller requested it, not the platform, so a dry run cannot silently make it free.
         let reconstructionManifest: ReconstructionManifest | undefined;
         let reconstructionAnalysis: { regionCount: number; textRegionCount: number; diagnostics: string[] } | undefined;
         if (input.analyzeForReconstruction && !context.request.dryRun) {
-          const built = await buildManifestFromImage(bytes, { ocrCacheDir: reconstructionVisionOcrCacheDir() });
+          const { workspaceId } = requireScope(context);
+          const visionProvider = adapters.vision?.(workspaceId);
+          let built: { manifest: ReconstructionManifest; diagnostics: readonly string[] };
+          if (visionProvider) {
+            try {
+              const analysis = await visionProvider.analyzeImage(bytes, { sourceHash: computeSha256(bytes) });
+              built = await visionAnalysisToManifest(analysis, bytes);
+            } catch (error) {
+              if (error instanceof VisionProviderError && error.code === "VISION_PROVIDER_QUOTA_EXCEEDED") {
+                fail(
+                  context,
+                  "MCP_RATE_LIMITED",
+                  error.message,
+                  "Retry after your workspace's vision quota window resets.",
+                );
+              }
+              if (error instanceof VisionProviderError) {
+                fail(context, "MCP_INTERNAL_ERROR", `Vision analysis failed: ${error.message}`);
+              }
+              throw error;
+            }
+          } else {
+            built = await buildManifestFromImage(bytes, { ocrCacheDir: reconstructionVisionOcrCacheDir() });
+          }
           reconstructionManifest = built.manifest;
           reconstructionAnalysis = {
             regionCount: built.manifest.regions.length,

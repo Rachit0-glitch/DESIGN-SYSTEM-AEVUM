@@ -5,10 +5,12 @@ packages:
 
 onlyBuiltDependencies:
   - esbuild
+  - protobufjs
   - sharp
   - tesseract.js
 
 allowBuilds:
   esbuild: true
+  protobufjs: true
   sharp: true
   tesseract.js: true

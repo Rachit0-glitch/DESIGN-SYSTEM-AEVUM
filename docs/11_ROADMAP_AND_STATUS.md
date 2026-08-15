@@ -4026,7 +4026,70 @@ give it a phase number. Full detail, including every known limitation, lives in
 
 ---
 
-## 59. Final Roadmap Statement
+## 59. Google Cloud Vision Provider Block (2026-08-15, Block B of AEVUM System Fix Plan)
+
+This is a continuation of the Studio ↔ MCP ↔ Agent stabilization work (Section 58), not a new
+numbered phase. It implements the "AEVUM System Fix + Google Cloud Vision Implementation Plan"
+Block B: a real, provider-neutral vision abstraction with Google Cloud Vision as the selected
+provider, replacing the local-only OCR/segmentation pipeline as the *default* analysis path while
+keeping that local pipeline available as a free, offline fallback.
+
+- **Status: implemented and tested against mocked/injected providers. NOT production-verified —
+  no real Google Cloud Vision credentials have been exercised in this environment.** Per explicit
+  instruction, credential unavailability does not block implementation; the adapter and its full
+  test architecture are complete and ready for real credentials.
+- Added `@aevum/vision`, a new package defining a provider-neutral `VisionProvider` contract
+  (`analyzeImage(bytes, options) -> VisionAnalysis`) with two real implementations:
+  - `createGoogleVisionProvider()` — wraps the official `@google-cloud/vision` SDK
+    (`ImageAnnotatorClient`), normalizing DOCUMENT_TEXT_DETECTION (full PAGE→BLOCK→PARAGRAPH→
+    WORD→SYMBOL hierarchy with real detected-break-aware text concatenation), LABEL_DETECTION,
+    OBJECT_LOCALIZATION (normalized 0–1 vertices converted to absolute source pixels), and
+    IMAGE_PROPERTIES (0–1 float color channels converted to 0–255 ints) into the shared
+    `VisionAnalysis` shape. No Google-specific type ever leaves this adapter.
+  - `createLocalVisionProvider()` — the same real, free, offline segmentation+OCR pipeline from
+    Section 58 (`@aevum/reconstruction-vision`), now wrapped behind the identical interface so it
+    remains available with zero credentials for local dev, CI, and as an explicit fallback.
+  - `visionAnalysisToManifest()` converts either provider's output into the same
+    `ReconstructionManifest` shape `packages/reconstruction`'s unmodified pipeline already
+    consumes — provider swap requires no change to reconstruction, Studio, or MCP tool code.
+  - Real cost/quota guardrails: `requestFingerprint()` (SHA-256 of provider+source hash+options)
+    keys an in-memory analysis cache (`withVisionAnalysisCache`) so unchanged bytes are never
+    re-analyzed, and an in-memory per-workspace daily call counter
+    (`withVisionQuota`/`VISION_MAX_CALLS_PER_WORKSPACE_PER_DAY`) fails safely with a
+    `VISION_PROVIDER_QUOTA_EXCEEDED` error rather than making unbounded paid calls. Both are
+    disclosed as in-memory (not durable/cross-replica) — a real limitation for multi-instance
+    deployments, not hidden behind a "PASSED" claim.
+- Wired into `apps/mcp-server`: `asset.register`'s `analyzeForReconstruction` path now resolves a
+  per-workspace `VisionProvider` from `environment.vision.provider` (`GOOGLE_CLOUD` or `LOCAL`,
+  default `LOCAL`) and falls back to the original direct `buildManifestFromImage()` call when no
+  vision adapter is configured at all (test fixtures that don't inject one), so no existing
+  behavior regressed. Google credentials, when present, are read only from discrete server-side
+  env vars (`GOOGLE_CLOUD_CLIENT_EMAIL`/`GOOGLE_CLOUD_PRIVATE_KEY`/`GOOGLE_CLOUD_PROJECT_ID`,
+  documented with placeholders in `.env.example`) — never hardcoded, never exposed to
+  Studio/browser code.
+- Verified end to end at the MCP boundary (not just the package level): an integration test
+  injects a `GoogleVisionClient` mock shaped exactly like the real SDK's `annotateImage()`
+  response into `createMcpTestFixture()`, calls the real `asset.register` tool with
+  `analyzeForReconstruction: true`, and confirms the persisted document's manifest and
+  `packages/reconstruction`'s unmodified `analyzeReference()` recover the exact injected text
+  content — proving the new `adapters.vision` wiring in `apps/mcp-server/src/tools.ts` actually
+  consumes Google-shaped analysis, not just that the package compiles.
+- Tests and gates: `@aevum/vision` package tests (9/9) plus the new MCP-boundary integration test
+  pass; full `pnpm validate` (docs, dependency rules, format, lint, typecheck, full test suite,
+  build across all 65 packages) passed clean after these changes.
+- Honest gap: the real Google Cloud Vision network path (actual API calls, actual auth failure
+  modes, actual latency/cost) has never been exercised — only the SDK's documented response shape
+  (verified directly against the installed `@google-cloud/vision@6.0.0` package's own
+  `protos.d.ts`/`helpers.d.ts`, not guessed) via a mocked client. This must be validated against a
+  real GCP project and real credentials before any claim of production readiness for this
+  provider.
+- Next action: Block C (reconstruction quality — typography inference, rounded/vector geometry,
+  gradients/strokes, independent image extraction with lineage) per the implementation plan's
+  explicit block order.
+
+---
+
+## 60. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.
 

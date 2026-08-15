@@ -113,6 +113,18 @@ export const aevumEnvironmentVariablesSchema = z
     RECONSTRUCTION_ENABLE_COMPONENT_INFERENCE: booleanFromString.default(true),
     RECONSTRUCTION_ENABLE_TOKEN_INFERENCE: booleanFromString.default(true),
     RECONSTRUCTION_ALLOW_RASTER_FALLBACK: booleanFromString.default(true),
+
+    // Vision provider selection defaults to LOCAL so nothing requires Google credentials to run.
+    // Google credentials are server-side only (apps/mcp-server) — never read by Studio/browser code.
+    VISION_PROVIDER: z.enum(["GOOGLE_CLOUD", "LOCAL"]).default("LOCAL"),
+    GOOGLE_CLOUD_PROJECT_ID: optionalString,
+    GOOGLE_CLOUD_CLIENT_EMAIL: optionalString,
+    GOOGLE_CLOUD_PRIVATE_KEY: optionalString,
+    VISION_ANALYSIS_TIMEOUT_MS: positiveIntegerFromString.default(15_000),
+    VISION_MAX_LABELS: positiveIntegerFromString.default(10),
+    VISION_MAX_OBJECTS: positiveIntegerFromString.default(10),
+    VISION_MAX_CALLS_PER_WORKSPACE_PER_DAY: positiveIntegerFromString.default(200),
+
     MCP_SERVER_HOST: z.string().min(1).default("127.0.0.1"),
     MCP_REQUIRE_AUTH: booleanFromString.default(false),
     MCP_SERVER_PORT: positiveIntegerFromString.default(3010),
@@ -404,6 +416,16 @@ export interface AevumEnvironment {
     readonly enableTokenInference: boolean;
     readonly allowRasterFallback: boolean;
   };
+  readonly vision: {
+    readonly provider: "GOOGLE_CLOUD" | "LOCAL";
+    readonly googleProjectId?: string;
+    readonly googleClientEmail?: string;
+    readonly googlePrivateKey?: string;
+    readonly analysisTimeoutMs: number;
+    readonly maxLabels: number;
+    readonly maxObjects: number;
+    readonly maxCallsPerWorkspacePerDay: number;
+  };
   readonly mcp: {
     readonly host: string;
     readonly port: number;
@@ -584,6 +606,16 @@ function toEnvironment(variables: AevumEnvironmentVariables): AevumEnvironment {
       enableComponentInference: variables.RECONSTRUCTION_ENABLE_COMPONENT_INFERENCE,
       enableTokenInference: variables.RECONSTRUCTION_ENABLE_TOKEN_INFERENCE,
       allowRasterFallback: variables.RECONSTRUCTION_ALLOW_RASTER_FALLBACK,
+    },
+    vision: {
+      provider: variables.VISION_PROVIDER,
+      ...(variables.GOOGLE_CLOUD_PROJECT_ID ? { googleProjectId: variables.GOOGLE_CLOUD_PROJECT_ID } : {}),
+      ...(variables.GOOGLE_CLOUD_CLIENT_EMAIL ? { googleClientEmail: variables.GOOGLE_CLOUD_CLIENT_EMAIL } : {}),
+      ...(variables.GOOGLE_CLOUD_PRIVATE_KEY ? { googlePrivateKey: variables.GOOGLE_CLOUD_PRIVATE_KEY } : {}),
+      analysisTimeoutMs: variables.VISION_ANALYSIS_TIMEOUT_MS,
+      maxLabels: variables.VISION_MAX_LABELS,
+      maxObjects: variables.VISION_MAX_OBJECTS,
+      maxCallsPerWorkspacePerDay: variables.VISION_MAX_CALLS_PER_WORKSPACE_PER_DAY,
     },
     mcp: {
       host: variables.MCP_SERVER_HOST,

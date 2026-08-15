@@ -18,6 +18,7 @@ import {
 } from "@aevum/mcp-server";
 import type { StoreAssetRequest, StoredAssetObject } from "@aevum/assets";
 import { createLogger } from "@aevum/shared";
+import type { VisionProvider } from "@aevum/vision";
 
 export const MCP_TEST_TIME = "2026-08-02T12:00:00.000Z";
 export const MCP_TEST_WORKSPACE_ID = "workspace_11111111-1111-4111-8111-111111111111";
@@ -91,6 +92,7 @@ export function createMcpTestFixture(
     readonly blenderAdapter?: BlenderToolAdapter;
     readonly assetBytesAdapter?: AssetBytesResolver;
     readonly assetStorageAdapter?: AssetStorageAdapter;
+    readonly visionAdapter?: (workspaceId: string) => VisionProvider;
   } = {},
 ) {
   const document = options.document ?? fixtures.assetDemo();
@@ -148,6 +150,7 @@ export function createMcpTestFixture(
     ...(options.blenderAdapter ? { blender: options.blenderAdapter } : {}),
     ...(options.assetBytesAdapter ? { assetBytes: options.assetBytesAdapter } : {}),
     ...(options.assetStorageAdapter ? { assetStorage: options.assetStorageAdapter } : {}),
+    ...(options.visionAdapter ? { vision: options.visionAdapter } : {}),
   });
   const executor = createMcpExecutor({
     config,

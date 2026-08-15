@@ -1,6 +1,12 @@
 import { createSupabaseAssetStorage, createSupabaseProjectRepository } from "@aevum/project-store";
 import { env, type AevumEnvironment, type AevumLogger, createLogger } from "@aevum/shared";
 import {
+  createInMemoryVisionQuotaTracker,
+  createVisionProvider,
+  withVisionQuota,
+  type VisionProvider,
+} from "@aevum/vision";
+import {
   createDevelopmentAuthVerifier,
   createDisabledAuthVerifier,
   createSupabaseAuthVerifier,
@@ -14,6 +20,39 @@ import { registerInitialTools } from "./tools.js";
 function required(value: string | undefined, name: string): string {
   if (!value) throw new Error(`${name} is required to start the MCP server.`);
   return value;
+}
+
+/**
+ * Deployments commonly store a service-account private key as a single-line env var with literal
+ * "\n" sequences (Railway/Vercel/etc.) rather than real newlines — un-escape it here, once, at the
+ * boundary, rather than expecting every caller to remember to.
+ */
+function unescapePrivateKey(value: string): string {
+  return value.includes("\\n") ? value.replace(/\\n/g, "\n") : value;
+}
+
+function visionProviderForEnvironment(environment: AevumEnvironment): (workspaceId: string) => VisionProvider {
+  const base = createVisionProvider({
+    providerId: environment.vision.provider,
+    google:
+      environment.vision.googleClientEmail && environment.vision.googlePrivateKey
+        ? {
+            credentials: {
+              clientEmail: environment.vision.googleClientEmail,
+              privateKey: unescapePrivateKey(environment.vision.googlePrivateKey),
+              ...(environment.vision.googleProjectId ? { projectId: environment.vision.googleProjectId } : {}),
+            },
+            timeoutMs: environment.vision.analysisTimeoutMs,
+            maxLabels: environment.vision.maxLabels,
+            maxObjects: environment.vision.maxObjects,
+          }
+        : {
+            timeoutMs: environment.vision.analysisTimeoutMs,
+            maxLabels: environment.vision.maxLabels,
+            maxObjects: environment.vision.maxObjects,
+          },
+  });
+  return withVisionQuota(base, createInMemoryVisionQuotaTracker(), environment.vision.maxCallsPerWorkspacePerDay);
 }
 
 function timeoutFetch(timeoutMs: number): typeof fetch {
@@ -73,7 +112,10 @@ export function createProductionMcpRuntime(environment: AevumEnvironment = env, 
           fetch: timeoutFetch(environment.mcp.databaseTimeoutMs),
         })
       : undefined;
-  registerInitialTools(registry, config, { ...(assetStorage ? { assetStorage } : {}) });
+  registerInitialTools(registry, config, {
+    ...(assetStorage ? { assetStorage } : {}),
+    vision: visionProviderForEnvironment(environment),
+  });
   return createMcpExecutor({
     config,
     authVerifier: authVerifier(environment),

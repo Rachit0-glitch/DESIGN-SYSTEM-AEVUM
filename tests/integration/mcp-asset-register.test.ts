@@ -1,6 +1,7 @@
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { analyzeReference, createAssetRegistryResolver, createReconstructionTask } from "@aevum/reconstruction";
+import { createGoogleVisionProvider, type GoogleVisionAnnotateResponse, type GoogleVisionClient } from "@aevum/vision";
 import { createInMemoryAssetStorage, createMcpTestFixture } from "../helpers/mcp-fixture.js";
 
 function pngBytesBase64(seed: number): string {
@@ -138,5 +139,143 @@ describe("asset.register MCP tool", () => {
     expect(result.analysis.regions.length).toBeGreaterThan(1);
     const textCandidate = result.analysis.textCandidates.find((candidate) => !candidate.unresolved);
     expect(textCandidate?.content?.toUpperCase()).toContain("HELLO");
+  }, 60_000);
+
+  it("routes analyzeForReconstruction through an injected Google Cloud Vision provider end to end", async () => {
+    const storage = createInMemoryAssetStorage();
+
+    // A mocked GoogleVisionClient shaped exactly like the real @google-cloud/vision SDK's
+    // annotateImage() response — this is what proves the apps/mcp-server adapters.vision wiring
+    // (not just the @aevum/vision package in isolation) consumes Google-shaped analysis correctly.
+    const googleClient: GoogleVisionClient = {
+      annotateImage: async () => {
+        const response: GoogleVisionAnnotateResponse = {
+          fullTextAnnotation: {
+            pages: [
+              {
+                width: 400,
+                height: 150,
+                confidence: 0.95,
+                blocks: [
+                  {
+                    boundingBox: {
+                      vertices: [
+                        { x: 20, y: 55 },
+                        { x: 363, y: 55 },
+                        { x: 363, y: 91 },
+                        { x: 20, y: 91 },
+                      ],
+                    },
+                    confidence: 0.92,
+                    blockType: "TEXT",
+                    paragraphs: [
+                      {
+                        boundingBox: {
+                          vertices: [
+                            { x: 20, y: 55 },
+                            { x: 363, y: 55 },
+                            { x: 363, y: 91 },
+                            { x: 20, y: 91 },
+                          ],
+                        },
+                        confidence: 0.92,
+                        words: [
+                          {
+                            boundingBox: {
+                              vertices: [
+                                { x: 20, y: 55 },
+                                { x: 363, y: 55 },
+                                { x: 363, y: 91 },
+                                { x: 20, y: 91 },
+                              ],
+                            },
+                            confidence: 0.93,
+                            symbols: [
+                              { text: "G", confidence: 0.94, boundingBox: { vertices: [] } },
+                              { text: "O", confidence: 0.94, boundingBox: { vertices: [] } },
+                              { text: "O", confidence: 0.94, boundingBox: { vertices: [] } },
+                              { text: "G", confidence: 0.94, boundingBox: { vertices: [] } },
+                              { text: "L", confidence: 0.94, boundingBox: { vertices: [] } },
+                              { text: "E", confidence: 0.94, boundingBox: { vertices: [] } },
+                            ],
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+            text: "GOOGLE",
+          },
+          labelAnnotations: [{ description: "Poster", score: 0.88, topicality: 0.88 }],
+          localizedObjectAnnotations: [],
+          imagePropertiesAnnotation: {
+            dominantColors: { colors: [{ color: { red: 1, green: 1, blue: 1 }, score: 0.9, pixelFraction: 0.8 }] },
+          },
+        };
+        return [response, undefined, undefined];
+      },
+    };
+    const visionProvider = createGoogleVisionProvider({ client: googleClient });
+    const fixture = createMcpTestFixture({
+      assetStorageAdapter: storage,
+      toolTimeoutMs: 30_000,
+      visionAdapter: () => visionProvider,
+    });
+
+    const flatImage = await sharp({
+      create: { width: 400, height: 150, channels: 3, background: { r: 255, g: 255, b: 255 } },
+    })
+      .png()
+      .toBuffer();
+
+    const registered = await fixture.execute(
+      "asset.register",
+      {
+        expectedDocumentVersion: fixture.document.documentVersion,
+        kind: "IMAGE",
+        bytesBase64: flatImage.toString("base64"),
+        originalFilename: "reference.png",
+        mimeType: "image/png",
+        width: 400,
+        height: 150,
+        alpha: false,
+        analyzeForReconstruction: true,
+      },
+      { idempotencyKey: "register-with-google-vision" },
+    );
+    expect(registered.success, JSON.stringify(registered.errors)).toBe(true);
+    const data = registered.data as {
+      assetId: string;
+      reconstructionAnalysis?: { regionCount: number; textRegionCount: number; diagnostics: readonly string[] };
+    };
+    // The mocked Google response has exactly one paragraph-level text block ("GOOGLE"), proving the
+    // manifest was built from the injected Google-shaped analysis and not the LOCAL OCR fallback,
+    // which would never produce this exact content against a blank white image.
+    expect(data.reconstructionAnalysis?.textRegionCount).toBe(1);
+
+    const stored = await fixture.repository.getCurrentDocument(fixture.workspaceId, fixture.projectId);
+    if (!stored) throw new Error("Document was not persisted.");
+
+    const task = createReconstructionTask({
+      projectId: fixture.projectId,
+      sourceAssetId: data.assetId,
+      qualityMode: "DRAFT",
+      targetViewport: { width: 400, height: 150, category: "CUSTOM", orientation: "LANDSCAPE" },
+      preserveEditability: true,
+      allowRasterFallbacks: true,
+      requestedCapabilities: ["REGION_DETECTION", "TEXT_DETECTION"],
+      deterministicSeed: 0,
+      createdAt: new Date().toISOString(),
+      createdBy: { id: "test-actor", type: "USER" },
+    });
+    const resolver = createAssetRegistryResolver(stored.assets);
+    const result = analyzeReference(task, resolver);
+
+    expect(result.success, JSON.stringify(!result.success ? result.diagnostics : undefined)).toBe(true);
+    if (!result.success) return;
+    const textCandidate = result.analysis.textCandidates.find((candidate) => !candidate.unresolved);
+    expect(textCandidate?.content?.toUpperCase()).toContain("GOOGLE");
   }, 60_000);
 });

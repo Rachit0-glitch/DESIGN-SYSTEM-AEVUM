@@ -1,0 +1,26 @@
+{
+  "name": "@aevum/vision",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
+    "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@aevum/reconstruction": "workspace:*",
+    "@aevum/reconstruction-vision": "workspace:*",
+    "@aevum/shared": "workspace:*",
+    "@google-cloud/vision": "6.0.0",
+    "sharp": "0.34.4",
+    "zod": "4.4.3"
+  }
+}
