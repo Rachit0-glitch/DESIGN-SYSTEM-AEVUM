@@ -261,38 +261,49 @@ to never claim validation before acceptance tests actually pass.
 
 ---
 
-## BLOCK C addendum (2026-08-15) — the real root blocker for typography color and gradients/strokes
+## BLOCK C addendum (2026-08-15) — the Paint model gap, found and then closed for solid color
 
 While implementing Block C (reconstruction quality), auditing why reconstructed SHAPE/TEXT fill
-colors were never visible surfaced a real, pre-existing architectural gap that is the actual root
-cause behind two separate roadmap items (typography color, and gradients/strokes) rather than two
-unrelated missing features:
+colors were never visible surfaced a real, pre-existing architectural gap. This section originally
+reported it as unaddressed; it has since been closed for the solid-color case in this same session
+(CDD 1.8.0). What follows is the corrected record, not the original (partially inaccurate) claim.
 
-- 🔴 **The canonical schema has no typed Paint model.** `SHAPE` nodes reference color only through
-  `fillTokenId`/`strokeTokenId` — a pointer to a plain COLOR `Token`, nothing else. `TEXT`'s
-  `TextStyle` has no color field at all (not even a token reference). There is no gradient type, no
-  inline paint value, anywhere in the schema. This is not new — the reconstruction code already
-  carried a `migrationTarget: "Canonical Paint, Stroke, Radius, and Effect model schema migration"`
-  marker in proposed-node metadata before this block; it was just never surfaced anywhere a human
-  would read it.
-- 🔴 **Studio's 2D canvas has no shape-painting layer at all.** `apps/studio/src/main.tsx`'s canvas
-  node component renders `TEXT` nodes as a styled `<textarea>` (font family/size/weight/line-height
-  only — no color) and every other node type as a bare, unstyled `<div>` with a CSS class. No fill,
-  stroke, corner radius, or gradient is painted for any node, reconstructed or hand-authored. This
-  is a foundational Studio rendering gap, not specific to reconstruction.
-- 🟡 **Fixed within Block C's actual scope:** real sampled fill/stroke/cornerRadius data was
-  previously computed by the vision pipeline and then silently discarded (captured only into inert
-  node metadata, `metadata.customData[...].styleCandidates`). It is now also merged into the
-  SHAPE node's own `geometry` JSON (`packages/reconstruction/src/proposal.ts`), so the real data is
-  at least retained and addressable — verified end to end by
-  `tests/integration/mcp-image-extraction.test.ts`'s SHAPE-geometry assertion. This does **not**
-  make the color render anywhere; it only stops the data from being thrown away.
-- 🔴 **Not attempted in this block:** the canonical Paint-model schema migration itself (adding a
-  typed `Paint`/`fillTokenId`-equivalent to `TextStyle`, a `CURRENT_SCHEMA_VERSION` bump, and a
-  document migration), and a real Studio 2D shape/text painter that would actually render any of
-  it. Both are real, bounded, buildable — but each is a project on the scale of the work already
-  done in this block, not a small addition to it, and neither was requested or sized before being
-  started. This is reported honestly rather than attempted partially and represented as done.
+- 🟢 **Fixed: the canonical schema now has a minimal Paint-by-token model.** `TextStyle` gained an
+  optional `fillTokenId` (CDD 1.8.0, `packages/document-model`), mirroring `ShapeNodeSchema`'s
+  existing `fillTokenId`/`strokeTokenId`. This is still solid-color-only — there is no gradient
+  type and no inline paint value anywhere in the schema — but text can now represent color at all,
+  which it could not before.
+- 🟢 **Fixed: reconstruction creates real, applied color tokens, not just captured metadata.**
+  `packages/reconstruction/src/proposal.ts` now samples real ink color (TEXT) and fill color
+  (SHAPE), deduplicates identical colors into shared `COLOR` Tokens, and sets `fillTokenId` on the
+  resulting nodes. This required a genuinely missing Command Engine capability — there was no way
+  to register a Token on a document at all — so `token.register` (command + schema + event) was
+  added, mirroring `asset.register`. Verified end to end: a node's `fillTokenId` resolves to a real
+  token actually committed in the persisted document, not a dangling reference
+  (`tests/integration/mcp-color-tokens.test.ts`).
+- 🟡 **Corrected: Studio's 2D canvas was not actually unpainted before this fix — the original
+  claim here was wrong.** `apps/studio/src/main.tsx`'s canvas node component already resolved a
+  node's `PAINT` operation from the real render graph and applied it as CSS `background` — SHAPE
+  fills (from a hand-set token, or now from reconstruction) already rendered before this session.
+  The real, narrower gaps were: (1) a TEXT node's resolved paint was never read at all — `color`
+  only ever fell back to legacy `metadata.customData["aevum.studio.color"]`; (2) `cornerRadius` was
+  never read from real `geometry.cornerRadius`, only from legacy customData; (3) no stroke/border
+  CSS was ever applied, even though `resolveStyle()` already resolved a `strokeTokenId` paint. All
+  three are now fixed, and — a step below `main.tsx` — `packages/scene-runtime`'s reference
+  resolver only ever collected token ids from `SHAPE.fillTokenId`/`strokeTokenId`; a TEXT run's
+  `style.fillTokenId` was never added to `resolvedReferences.tokens` at all, so `renderer-2d`'s
+  token lookup would have silently found nothing regardless of the `main.tsx` fix alone. Fixed
+  scene-runtime to also collect fill tokens from text runs. Verified live in the real Studio dev
+  server (not just typechecked): a real document with a token-backed SHAPE fill, stroke, and
+  `geometry.cornerRadius`, and a token-backed TEXT color, was loaded and its computed CSS
+  (`background`, `border`, `border-radius`, `color`) inspected directly in the running app,
+  alongside confirming zero change to every node still using the legacy customData path.
+- 🔴 **Still not built:** gradients and patterns as Paint (only solid COLOR tokens exist);
+  stroke *color sampling* in reconstruction (the stroke-rendering plumbing now exists end to end,
+  but nothing yet samples a real stroke color from pixels the way fill/ink color sampling does);
+  any Studio UI for a user to create or assign a token by hand (today only reconstruction and
+  hand-authored fixtures can set one); rounded-corner *detection* from pixels (the geometry field
+  and its rendering are both real now, but no analyzer infers a non-zero radius from an image).
 
 ---
 

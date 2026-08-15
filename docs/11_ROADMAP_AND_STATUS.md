@@ -4136,7 +4136,57 @@ only image extraction and lineage.
 
 ---
 
-## 61. Final Roadmap Statement
+## 61. Block C: Minimal Paint Model — Real Color Tokens End to End (2026-08-15)
+
+Closes the Paint-model gap Section 60 (and the STABILIZATION_KNOWN_LIMITATIONS.md addendum it
+pointed to) identified: reconstruction sampled real fill/ink colors but nothing in the schema,
+reconstruction, renderer, or Studio actually applied them as a real Paint. **Status: implemented
+and verified end to end, including live in the running Studio app — not just typechecked.** This
+is solid-color-only; gradients, patterns, and stroke color sampling remain out of scope (see the
+corrected STABILIZATION_KNOWN_LIMITATIONS.md addendum for the precise remaining gaps).
+
+- **Schema (CDD 1.8.0):** `TextStyle` gained an optional `fillTokenId`, referencing a COLOR Token —
+  the same Paint-by-token model `ShapeNodeSchema` already used, extended to text. Fixed a real
+  migration-chain bug found while making this change: the prior migration targeted the
+  `CURRENT_SCHEMA_VERSION` constant directly rather than a literal, so bumping the constant would
+  have silently jumped straight to 1.8.0 and left documents already persisted at 1.7.0 with no
+  migration path forward.
+- **Command Engine:** added `token.register` (command + schema + event) — there was previously no
+  way to register a Token on a document at all, only to embed one in `document.create`'s initial
+  (always-empty) payload.
+- **Reconstruction:** `packages/reconstruction/src/proposal.ts` samples real ink color (TEXT,
+  via a two-cluster luminance split — a text bounding box is mostly background with glyph strokes
+  as the minority, so a plain mean color would just blend the two) and fill color (SHAPE),
+  deduplicates identical colors into shared tokens, and sets `fillTokenId` on the resulting nodes —
+  registering the token in the *same transaction* as the nodes that reference it, before those
+  nodes, since document-model has no `fillTokenId` referential-integrity check today.
+- **Renderer:** `packages/renderer-2d`'s `resolveStyle()` now resolves a TEXT node's
+  `runs[0].style.fillTokenId` the same way it already resolved SHAPE's. This alone was not
+  sufficient — `packages/scene-runtime`'s reference resolver only ever collected token ids from
+  `SHAPE.fillTokenId`/`strokeTokenId`, so a TEXT run's `fillTokenId` was never added to
+  `resolvedReferences.tokens` and the renderer's lookup would have silently found nothing. Fixed.
+- **Studio:** `apps/studio/src/main.tsx`'s canvas node component already painted SHAPE fills from
+  the real render graph before this change (an earlier documentation claim that it painted
+  nothing was inaccurate and has been corrected). The real gaps were narrower: TEXT's resolved
+  paint was never read at all (`color` only fell back to legacy `customData`), `cornerRadius` was
+  never read from real `geometry.cornerRadius`, and no stroke/border CSS was ever applied even
+  though a stroke paint was already being resolved. All three fixed.
+- **Verification:** a real document (built through the actual reconstruction pipeline logic, not
+  hand-waved) with a token-backed SHAPE fill, a token-backed stroke, `geometry.cornerRadius: 20`,
+  and a token-backed TEXT color was loaded into the real, running Studio dev server; computed CSS
+  (`background`, `border`, `border-radius`, `color`) was read directly from the live DOM and
+  confirmed correct, alongside confirming every node still on the legacy `customData` path was
+  visually unchanged. `pnpm validate` (docs, dependency rules, format, lint, typecheck, 413/413
+  tests, build across all 65 packages) passed clean before and after this Studio change.
+- Next action: Block C's remaining items are C3 (rounded-corner/vector shape *detection* — the
+  geometry field and rendering now exist, but no analyzer infers a radius from pixels) and C4
+  (gradients, patterns, and stroke color sampling — the rendering plumbing for a resolved stroke
+  paint now exists, but nothing samples one). Per the implementation plan's block order, Block C
+  work continues before moving to Block D.
+
+---
+
+## 62. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.
 

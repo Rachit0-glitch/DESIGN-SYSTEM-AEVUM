@@ -794,17 +794,31 @@ function CanvasNode({
   const x = drag?.x ?? displayX;
   const y = drag?.y ?? displayY;
   const custom = node.metadata.customData;
+  const isText = node.type === "TEXT";
   const operationPaint =
     operation?.kind === "PAINT"
       ? operation.style.fills[0]
       : operation?.kind === "VECTOR"
         ? operation.fills[0]
         : undefined;
+  const operationStroke = operation?.kind === "PAINT" ? operation.style.strokes[0] : undefined;
+  // A TEXT node's resolved paint is its glyph color (runs[0].style.fillTokenId), not a background —
+  // painting it onto `background` would color the whole textarea box instead of the text itself.
   const fill =
-    paintCss(operationPaint) ??
+    (!isText ? paintCss(operationPaint) : undefined) ??
     (typeof custom["aevum.studio.fill"] === "string" ? custom["aevum.studio.fill"] : "transparent");
-  const color = typeof custom["aevum.studio.color"] === "string" ? custom["aevum.studio.color"] : "#e9ece8";
-  const radius = typeof custom["aevum.studio.radius"] === "number" ? custom["aevum.studio.radius"] : 0;
+  const color =
+    (isText ? paintCss(operationPaint) : undefined) ??
+    (typeof custom["aevum.studio.color"] === "string" ? custom["aevum.studio.color"] : "#e9ece8");
+  // node.geometry.cornerRadius is real sampled data from reconstruction (see
+  // packages/reconstruction/src/proposal.ts) when present; an explicit Studio override always wins.
+  const geometryCornerRadius =
+    node.type === "SHAPE" && typeof (node.geometry as { cornerRadius?: unknown }).cornerRadius === "number"
+      ? (node.geometry as { cornerRadius: number }).cornerRadius
+      : undefined;
+  const radius =
+    typeof custom["aevum.studio.radius"] === "number" ? custom["aevum.studio.radius"] : (geometryCornerRadius ?? 0);
+  const strokeCss = operationStroke ? paintCss(operationStroke.paint) : undefined;
   const style: React.CSSProperties = {
     left: x,
     top: y,
@@ -816,6 +830,7 @@ function CanvasNode({
     background: fill,
     borderRadius: radius,
     color,
+    ...(strokeCss ? { border: `${operationStroke?.width ?? 1}px solid ${strokeCss}`, boxSizing: "border-box" } : {}),
   };
   const pointerDown = (event: React.PointerEvent) => {
     if (node.locked) return;
