@@ -4861,7 +4861,54 @@ computed from actual pixel comparison and persisted.**
 
 ---
 
-## 78. Final Roadmap Statement
+## 78. Block D9: Multi-MCP Connection Abstraction (2026-08-15)
+
+Replaced the single hardcoded MCP connection model with a real, testable provider/connection
+abstraction. **Status: implemented and tested — current single-MCP production behavior is
+unchanged.**
+
+- **The gap**: `apps/studio/src/core/production.ts`'s `scopedClient()` built an `AgentMcpClient`
+  directly from one string, `configuration.mcpUrl` (itself from one env var,
+  `VITE_AEVUM_MCP_URL`), baked into every call site (the initial document read, every command-gateway
+  write, and the Agent Planner's `createMcpClient` factory). There was no concept of "which
+  connection" at all — just one endpoint threaded everywhere.
+- **New `apps/studio/src/core/mcp-connections.ts`**: `McpConnectionDescriptor` (`{id, endpoint,
+  label}`) and `McpConnectionProvider` (`{connections, resolve(connectionId?)}`).
+  `createMcpConnectionProvider(connections, defaultConnectionId?)` builds a real provider —
+  constructing one with zero connections, duplicate ids, or a default id that isn't among the
+  configured connections all throw immediately and descriptively (real, fail-fast construction-time
+  validation, not a silent fallback). `resolve()` returns the requested (or default) connection, or
+  throws a clear "MCP connection \"X\" is not configured" error naming the available ids — real,
+  testable connection *selection* and *failure*, not just a single string dereferenced everywhere.
+  `createSingleMcpConnectionProvider(endpoint)` wraps today's one configured endpoint in this same
+  shape.
+- **`production.ts` wired through the provider, not the raw string**: `loadProductionStudioProject`
+  now builds one `connectionProvider` (`createSingleMcpConnectionProvider(configuration.mcpUrl)`) and
+  passes it into every `scopedClient()` call instead of `configuration` directly; `scopedClient()`
+  itself now resolves its connection via `connectionProvider.resolve(connectionId?)` before building
+  the transport. `BrowserConfigurationSchema`/`readStudioBrowserConfiguration()` are untouched — still
+  exactly one `mcpUrl` from one env var — because the instruction was to preserve current single-MCP
+  behavior, not to add a second real deployment endpoint that doesn't exist yet.
+  All 15 pre-existing `studio-production.test.ts` tests (HTTP-mocked document reads, writes,
+  capability gating, version conflicts, etc.) pass unchanged, confirming production behavior is
+  byte-for-byte the same as before this refactor.
+- New `tests/unit/mcp-connections.test.ts` (7 tests): default-connection resolution, real
+  multi-connection selection by id, real failure on an unconfigured id, and the three construction-time
+  validation failures (empty connection list, duplicate ids, unresolvable default id), plus a check
+  that `createSingleMcpConnectionProvider` preserves today's exact single-endpoint shape.
+- Targeted: `mcp-connections.test.ts` (7/7), `studio-production.test.ts` (15/15) both passing. Full
+  `pnpm validate` (docs, dependency rules, format, lint, typecheck, **471/471 tests**, build across
+  all 65 packages) passed clean.
+- **Out of scope, intentionally**: no second real MCP deployment/endpoint exists to route to, no new
+  env var or UI for choosing a connection was added, and the dev-fixture path
+  (`createDeterministicStudioAgentContext`'s in-process transport, used when there is no real MCP
+  server) was left untouched — it has no "connection" concept to abstract in the first place. This
+  block builds the real extension point (a second `McpConnectionDescriptor` can be registered and
+  selected later without touching any call site again), not a second live connection.
+
+---
+
+## 79. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.
 

@@ -9,6 +9,7 @@ import type { StudioAgentContext } from "./agent.js";
 import type { StudioCommandGateway } from "./session.js";
 import type { Command } from "@aevum/command-engine";
 import { findStudioCapability, isGatewayRoutable } from "./capabilities.js";
+import { createSingleMcpConnectionProvider, type McpConnectionProvider } from "./mcp-connections.js";
 
 const BrowserConfigurationSchema = z.strictObject({
   supabaseUrl: z.url().startsWith("https://"),
@@ -78,15 +79,17 @@ export function createStudioAuthClient(configuration: StudioBrowserConfiguration
 }
 
 function scopedClient(input: {
-  configuration: StudioBrowserConfiguration;
+  connectionProvider: McpConnectionProvider;
   getAccessToken: () => string;
   workspaceId: string;
   projectId: string;
   documentId: string;
   correlationId?: string;
+  connectionId?: string;
 }) {
+  const connection = input.connectionProvider.resolve(input.connectionId);
   return createAgentMcpClient({
-    transport: createHttpMcpTransport({ endpoint: input.configuration.mcpUrl }),
+    transport: createHttpMcpTransport({ endpoint: connection.endpoint }),
     workspaceId: input.workspaceId,
     projectId: input.projectId,
     documentId: input.documentId,
@@ -117,8 +120,9 @@ export async function loadProductionStudioProject(
   const workspace = bootstrap.workspaces.find((entry) => entry.projects.some((project) => project.status === "ACTIVE"));
   const record = workspace?.projects.find((project) => project.status === "ACTIVE");
   if (!workspace || !record) throw new Error("No active AEVUM project is available for this account.");
+  const connectionProvider = createSingleMcpConnectionProvider(configuration.mcpUrl);
   const client = scopedClient({
-    configuration,
+    connectionProvider,
     getAccessToken,
     workspaceId: workspace.membership.workspaceId,
     projectId: record.id,
@@ -161,7 +165,7 @@ export async function loadProductionStudioProject(
     }
     const payload = { ...command.payload, expectedDocumentVersion: command.expectedDocumentVersion };
     const writeClient = scopedClient({
-      configuration,
+      connectionProvider,
       getAccessToken,
       workspaceId: workspace.membership.workspaceId,
       projectId: record.id,
@@ -193,7 +197,7 @@ export async function loadProductionStudioProject(
   const agentContext: StudioAgentContext = Object.freeze({
     createMcpClient: (correlationId: string) =>
       scopedClient({
-        configuration,
+        connectionProvider,
         getAccessToken,
         workspaceId: workspace.membership.workspaceId,
         projectId: record.id,
