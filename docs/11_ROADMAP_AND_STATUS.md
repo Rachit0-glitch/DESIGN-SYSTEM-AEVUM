@@ -4248,7 +4248,55 @@ arbitrary polygon/vector tracing is a separate, much larger project and was not 
 
 ---
 
-## 64. Final Roadmap Statement
+## 64. Block C4a/C4b: GRADIENT Token Type and Real Gradient Detection (2026-08-15)
+
+Two Block C4 sub-tasks, both scoped as the larger "stroke + gradient" option per explicit user
+choice. **Status: implemented and tested.**
+
+- **C4a (schema, CDD 1.9.0):** `GradientSchema`/`GradientStopSchema` added to
+  `packages/document-model/src/schema.ts`, mirroring `renderer-2d`'s existing `RenderPaint`
+  gradient shape (`LINEAR_GRADIENT`/`RADIAL_GRADIENT`, `stops`, `angle?`, `center?`, `radius?`)
+  exactly, so no shape translation is needed at the renderer boundary in C4d. `TokenValueSchema`
+  and `TokenSchema.type` extended for `GRADIENT`. Migration chain advanced 1.8.0 → 1.9.0 following
+  the established literal-target-version discipline. A pre-existing, unrelated schema looseness
+  (`TokenValueSchema`'s permissive `JsonObjectSchema` fallback lets a malformed value of *any*
+  token type slip through) was found while testing this, documented in the test, and flagged
+  separately rather than silently fixed or ignored.
+- **C4b (real detection from pixels):** a least-squares planar fit (`value = a*x + b*y + c` per RGB
+  channel, R² as the "is this really a linear trend" signal) run over a coarse sampled grid.
+  Calibrated against real rendered shapes before choosing a threshold: horizontal gradient R²≈1.0,
+  diagonal gradient R²≈0.96, flat fill R²≈0.0, photo-like noise R²≈0.008 — threshold set at 0.85.
+  When detected, the two stop colors are evaluated from the *fitted* plane at the two bounding-box
+  corners the gradient axis actually spans (found by projecting all 4 corners onto the fit's
+  gradient vector), not raw noisy endpoint pixels. Wired into both `packages/vision` (Google Vision
+  path) and `packages/reconstruction-vision` (LOCAL path).
+- **Real structural bug found and fixed:** the LOCAL segmentation pipeline's histogram-based color
+  quantization fragments a smooth gradient into several adjacent thin blobs of similar quantized
+  color (confirmed via direct debugging: a real 150px-wide test gradient produced a single ~19px
+  detected blob, whose "gradient" was really just the narrow reddish slice it was given — the
+  detection math itself was correct, the input span was not). Fixed with a bounded
+  connected-component merge pass: spatially adjacent shape-candidate blobs are grouped by rect
+  adjacency, each group's UNION bounding box is re-tested for a real gradient fit against
+  full-resolution pixels, and only a group that clears the same 0.85 R² threshold is emitted as one
+  merged gradient region — otherwise every blob falls through to the existing per-blob emission,
+  completely unchanged. The Google Vision path never had this problem, since Vision's
+  object-detection bounding boxes represent whole semantic objects, not color-clustered fragments.
+- **Known, documented limitation:** which of the two detected stops is "first" is not recoverable
+  from pixels alone — a rendered red-to-blue gradient is pixel-identical to blue-to-red read in
+  reverse (colors and a 180° angle flip move together), so stop *order* reflects measurement, not
+  necessarily the original authoring direction. Tests assert both a red-ish and a blue-ish stop
+  exist, not a fixed index. A merged multi-blob gradient region is also always reported as a sharp
+  rectangle — corner-radius/ellipse classification is not attempted across a merged group, since no
+  single fill-ratio measurement spans it cleanly; a rounded-corner gradient shape is a real,
+  out-of-scope limitation, not a silent approximation.
+- `pnpm validate` (docs, dependency rules, format, lint, typecheck, 420/420 tests, build across all
+  65 packages) passed clean.
+- Next action: Block C4c (real stroke color sampling), then C4d (reconstruction + renderer wiring
+  for gradient/stroke tokens), per the implementation plan's block order.
+
+---
+
+## 65. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.
 

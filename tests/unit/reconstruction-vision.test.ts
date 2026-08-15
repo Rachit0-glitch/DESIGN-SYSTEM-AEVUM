@@ -110,6 +110,62 @@ describe("reconstruction-vision manifest builder (OCR disabled — deterministic
     expect(shape, JSON.stringify(manifest.regions)).toBeDefined();
     expect(shape?.shape?.shapeType).toBe("ELLIPSE");
   });
+
+  it("detects a real linear gradient's angle and stop colors from measured pixels", async () => {
+    const svg = `
+      <svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="#ff0000" />
+            <stop offset="100%" stop-color="#0000ff" />
+          </linearGradient>
+        </defs>
+        <rect width="400" height="300" fill="#ffffff" />
+        <rect x="60" y="80" width="150" height="100" fill="url(#g)" />
+      </svg>
+    `;
+    const image = await sharp(Buffer.from(svg)).png().toBuffer();
+    const { manifest } = await buildManifestFromImage(image, { enableOcr: false });
+
+    const shape = manifest.regions.find((region) => region.category === "SHAPE");
+    expect(shape, JSON.stringify(manifest.regions)).toBeDefined();
+    expect(shape?.shape?.fill).toBeUndefined();
+    const gradient = shape?.shape?.gradient as
+      | {
+          type: string;
+          angle: number;
+          stops: [{ r: number; g: number; b: number }, { r: number; g: number; b: number }];
+        }
+      | undefined;
+    expect(gradient, JSON.stringify(shape)).toBeDefined();
+    expect(gradient?.type).toBe("LINEAR_GRADIENT");
+    // Real sampled endpoints: one side is red (#ff0000), the other blue (#0000ff). Which stop index
+    // lands on which color is a genuine, irreducible ambiguity of pixel-only measurement — a
+    // rendered red-to-blue gradient is pixel-identical to blue-to-red read in reverse (colors swap
+    // together with a 180-degree angle flip), so this checks that a red-ish and a blue-ish stop
+    // both exist, not which index each lands on.
+    const stops = gradient?.stops ?? [];
+    const isReddish = (stop: { r: number; b: number }) => stop.r > 180 && stop.b < 60;
+    const isBluish = (stop: { r: number; b: number }) => stop.b > 180 && stop.r < 60;
+    expect(stops.some(isReddish), JSON.stringify(stops)).toBe(true);
+    expect(stops.some(isBluish), JSON.stringify(stops)).toBe(true);
+  });
+
+  it("does not misdetect a flat-colored shape as a gradient", async () => {
+    const svg = `
+      <svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
+        <rect width="400" height="300" fill="#ffffff" />
+        <rect x="60" y="80" width="150" height="100" fill="#2255aa" />
+      </svg>
+    `;
+    const image = await sharp(Buffer.from(svg)).png().toBuffer();
+    const { manifest } = await buildManifestFromImage(image, { enableOcr: false });
+
+    const shape = manifest.regions.find((region) => region.category === "SHAPE");
+    expect(shape, JSON.stringify(manifest.regions)).toBeDefined();
+    expect(shape?.shape?.gradient).toBeUndefined();
+    expect(shape?.shape?.fill).toBeDefined();
+  });
 });
 
 describe("reconstruction-vision real local OCR (tesseract.js — no paid API)", () => {

@@ -273,6 +273,9 @@ export const ShapeCandidateSchema = z.strictObject({
   shapeType: z.enum(["RECTANGLE", "ELLIPSE", "POLYGON", "LINE", "CUSTOM"]),
   geometry: JsonObjectSchema,
   fill: JsonObjectSchema.optional(),
+  // Real sampled linear-gradient data (angle + >=2 real color stops), set instead of `fill` when a
+  // region's color varies with a real, measured linear trend rather than being flat.
+  gradient: JsonObjectSchema.optional(),
   stroke: JsonObjectSchema.optional(),
   cornerRadius: NonNegativeSchema.optional(),
   confidence: ConfidenceValueSchema,
@@ -585,6 +588,7 @@ export const ReconstructionManifestRegionSchema = z.strictObject({
       shapeType: z.enum(["RECTANGLE", "ELLIPSE", "POLYGON", "LINE", "CUSTOM"]),
       geometry: JsonObjectSchema.default({}),
       fill: JsonObjectSchema.optional(),
+      gradient: JsonObjectSchema.optional(),
       stroke: JsonObjectSchema.optional(),
       cornerRadius: NonNegativeSchema.optional(),
     })

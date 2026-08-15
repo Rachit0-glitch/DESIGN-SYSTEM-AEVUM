@@ -254,6 +254,148 @@ function classifyShapeGeometry(
   return { shapeType: "RECTANGLE", cornerRadius: Math.round(Math.min(estimatedRadius, maxValidCornerRadius)) };
 }
 
+/** Least-squares fit of value = a*x + b*y + c over a set of (x, y, value) samples, with R². */
+function planarFit(
+  samples: readonly (readonly [number, number])[],
+  values: readonly number[],
+): { readonly r2: number; readonly a: number; readonly b: number; readonly c: number } {
+  const n = samples.length;
+  let sx = 0;
+  let sy = 0;
+  let sv = 0;
+  let sxx = 0;
+  let syy = 0;
+  let sxy = 0;
+  let sxv = 0;
+  let syv = 0;
+  for (let index = 0; index < n; index += 1) {
+    const [x, y] = samples[index] ?? [0, 0];
+    const v = values[index] ?? 0;
+    sx += x;
+    sy += y;
+    sv += v;
+    sxx += x * x;
+    syy += y * y;
+    sxy += x * y;
+    sxv += x * v;
+    syv += y * v;
+  }
+  const matrix: readonly (readonly number[])[] = [
+    [sxx, sxy, sx],
+    [sxy, syy, sy],
+    [sx, sy, n],
+  ];
+  const rhs: readonly number[] = [sxv, syv, sv];
+  const det3 = (m: readonly (readonly number[])[]): number =>
+    (m[0]?.[0] ?? 0) * ((m[1]?.[1] ?? 0) * (m[2]?.[2] ?? 0) - (m[1]?.[2] ?? 0) * (m[2]?.[1] ?? 0)) -
+    (m[0]?.[1] ?? 0) * ((m[1]?.[0] ?? 0) * (m[2]?.[2] ?? 0) - (m[1]?.[2] ?? 0) * (m[2]?.[0] ?? 0)) +
+    (m[0]?.[2] ?? 0) * ((m[1]?.[0] ?? 0) * (m[2]?.[1] ?? 0) - (m[1]?.[1] ?? 0) * (m[2]?.[0] ?? 0));
+  const determinant = det3(matrix);
+  const meanV = n > 0 ? sv / n : 0;
+  if (Math.abs(determinant) < 1e-9) return { r2: 0, a: 0, b: 0, c: meanV };
+  const replaceColumn = (column: number, vector: readonly number[]) =>
+    matrix.map((row, rowIndex) =>
+      row.map((value, columnIndex) => (columnIndex === column ? (vector[rowIndex] ?? 0) : value)),
+    );
+  const a = det3(replaceColumn(0, rhs)) / determinant;
+  const b = det3(replaceColumn(1, rhs)) / determinant;
+  const c = det3(replaceColumn(2, rhs)) / determinant;
+  let ssTotal = 0;
+  let ssResidual = 0;
+  for (let index = 0; index < n; index += 1) {
+    const [x, y] = samples[index] ?? [0, 0];
+    const v = values[index] ?? 0;
+    const predicted = a * x + b * y + c;
+    ssTotal += (v - meanV) ** 2;
+    ssResidual += (v - predicted) ** 2;
+  }
+  return { r2: ssTotal < 1e-6 ? 0 : Math.max(0, 1 - ssResidual / ssTotal), a, b, c };
+}
+
+/**
+ * Detects a real linear gradient from a region's actual pixels: samples a coarse grid of real
+ * colors across the bounding box and fits value = a*x + b*y + c per channel — a flat fill has ~0
+ * R² (no linear relationship to explain), a real linear gradient has near-1.0 R² along its own
+ * axis, and photographic/noisy content has near-0 R² (no consistent linear trend). The threshold
+ * (0.85) was calibrated against real rendered shapes (a horizontal gradient measured ~1.0, a
+ * diagonal gradient ~0.96, a flat fill ~0.0, random-noise content ~0.01) before being chosen, not
+ * guessed. Stop colors are the real fitted values at the two bounding-box corners the gradient
+ * axis actually spans, not the raw endpoint pixels (which can be noisy individually).
+ */
+async function detectLinearGradient(
+  sourceBytes: Uint8Array,
+  sourceWidth: number,
+  sourceHeight: number,
+  rect: Rect,
+): Promise<
+  | {
+      readonly type: "LINEAR_GRADIENT";
+      readonly angle: number;
+      readonly stops: readonly [{ r: number; g: number; b: number }, { r: number; g: number; b: number }];
+    }
+  | undefined
+> {
+  const left = Math.max(0, Math.min(sourceWidth - 1, Math.round(rect.x0)));
+  const top = Math.max(0, Math.min(sourceHeight - 1, Math.round(rect.y0)));
+  const width = Math.max(1, Math.min(sourceWidth - left, Math.round(rect.x1 - rect.x0)));
+  const height = Math.max(1, Math.min(sourceHeight - top, Math.round(rect.y1 - rect.y0)));
+  if (width < 16 || height < 16) return undefined;
+  let data: Buffer;
+  try {
+    ({ data } = await sharp(Buffer.from(sourceBytes))
+      .extract({ left, top, width, height })
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true }));
+  } catch {
+    return undefined;
+  }
+  const step = Math.max(4, Math.round(Math.min(width, height) / 14));
+  const samples: [number, number][] = [];
+  const rValues: number[] = [];
+  const gValues: number[] = [];
+  const bValues: number[] = [];
+  for (let y = 0; y < height; y += step) {
+    for (let x = 0; x < width; x += step) {
+      const index = (y * width + x) * 4;
+      samples.push([x, y]);
+      rValues.push(data[index] ?? 0);
+      gValues.push(data[index + 1] ?? 0);
+      bValues.push(data[index + 2] ?? 0);
+    }
+  }
+  if (samples.length < 9) return undefined;
+  const rFit = planarFit(samples, rValues);
+  const gFit = planarFit(samples, gValues);
+  const bFit = planarFit(samples, bValues);
+  const best = [rFit, gFit, bFit].reduce((a, b) => (b.r2 > a.r2 ? b : a));
+  if (best.r2 < 0.85) return undefined;
+  // The gradient axis direction (a, b) points toward increasing value; project the box's four
+  // corners onto it to find the two real corners the gradient actually runs between.
+  const corners: [number, number][] = [
+    [0, 0],
+    [width, 0],
+    [0, height],
+    [width, height],
+  ];
+  const projections = corners.map(([x, y]) => best.a * x + best.b * y);
+  const minIndex = projections.indexOf(Math.min(...projections));
+  const maxIndex = projections.indexOf(Math.max(...projections));
+  const startCorner = corners[minIndex] ?? [0, 0];
+  const endCorner = corners[maxIndex] ?? [width, height];
+  const evaluate = (fit: { readonly a: number; readonly b: number; readonly c: number }, point: [number, number]) =>
+    Math.max(0, Math.min(255, Math.round(fit.a * point[0] + fit.b * point[1] + fit.c)));
+  const angle = (Math.atan2(endCorner[1] - startCorner[1], endCorner[0] - startCorner[0]) * 180) / Math.PI;
+  return {
+    type: "LINEAR_GRADIENT",
+    angle,
+    stops: [
+      { r: evaluate(rFit, startCorner), g: evaluate(gFit, startCorner), b: evaluate(bFit, startCorner) },
+      { r: evaluate(rFit, endCorner), g: evaluate(gFit, endCorner), b: evaluate(bFit, endCorner) },
+    ],
+  };
+}
+
 export interface VisionAnalysisToManifestOptions {
   readonly referenceType?: "WEBSITE_SCREENSHOT" | "UI_SCREENSHOT" | "LANDING_PAGE" | "POSTER" | "STATIC_2D";
   readonly maxObjectRegions?: number;
@@ -377,6 +519,7 @@ export async function visionAnalysisToManifest(
       `vision-provider:${analysis.provider.providerId.toLowerCase()}`,
       ...(object.name ? [`label:${object.name}`] : []),
     ];
+    const gradient = !isLikelyImage ? await detectLinearGradient(sourceBytes, width, height, rect) : undefined;
     regions.push({
       key: `region-${regionIndex}`,
       category,
@@ -393,11 +536,15 @@ export async function visionAnalysisToManifest(
             shape: {
               ...classifyShapeGeometry(sample.fillRatio, w, h),
               geometry: {},
-              fill: {
-                r: Math.round(sample.meanColor[0]),
-                g: Math.round(sample.meanColor[1]),
-                b: Math.round(sample.meanColor[2]),
-              },
+              ...(gradient
+                ? { gradient }
+                : {
+                    fill: {
+                      r: Math.round(sample.meanColor[0]),
+                      g: Math.round(sample.meanColor[1]),
+                      b: Math.round(sample.meanColor[2]),
+                    },
+                  }),
             },
           }),
     });

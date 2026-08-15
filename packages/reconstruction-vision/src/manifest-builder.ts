@@ -71,6 +71,240 @@ function classifyShapeGeometry(
   return { shapeType: "RECTANGLE", cornerRadius: Math.round(Math.min(estimatedRadius, maxValidCornerRadius)) };
 }
 
+/** Least-squares fit of value = a*x + b*y + c over a set of (x, y, value) samples, with R². */
+function planarFit(
+  samples: readonly (readonly [number, number])[],
+  values: readonly number[],
+): { readonly r2: number; readonly a: number; readonly b: number; readonly c: number } {
+  const n = samples.length;
+  let sx = 0;
+  let sy = 0;
+  let sv = 0;
+  let sxx = 0;
+  let syy = 0;
+  let sxy = 0;
+  let sxv = 0;
+  let syv = 0;
+  for (let index = 0; index < n; index += 1) {
+    const [x, y] = samples[index] ?? [0, 0];
+    const v = values[index] ?? 0;
+    sx += x;
+    sy += y;
+    sv += v;
+    sxx += x * x;
+    syy += y * y;
+    sxy += x * y;
+    sxv += x * v;
+    syv += y * v;
+  }
+  const matrix: readonly (readonly number[])[] = [
+    [sxx, sxy, sx],
+    [sxy, syy, sy],
+    [sx, sy, n],
+  ];
+  const rhs: readonly number[] = [sxv, syv, sv];
+  const det3 = (m: readonly (readonly number[])[]): number =>
+    (m[0]?.[0] ?? 0) * ((m[1]?.[1] ?? 0) * (m[2]?.[2] ?? 0) - (m[1]?.[2] ?? 0) * (m[2]?.[1] ?? 0)) -
+    (m[0]?.[1] ?? 0) * ((m[1]?.[0] ?? 0) * (m[2]?.[2] ?? 0) - (m[1]?.[2] ?? 0) * (m[2]?.[0] ?? 0)) +
+    (m[0]?.[2] ?? 0) * ((m[1]?.[0] ?? 0) * (m[2]?.[1] ?? 0) - (m[1]?.[1] ?? 0) * (m[2]?.[0] ?? 0));
+  const determinant = det3(matrix);
+  const meanV = n > 0 ? sv / n : 0;
+  if (Math.abs(determinant) < 1e-9) return { r2: 0, a: 0, b: 0, c: meanV };
+  const replaceColumn = (column: number, vector: readonly number[]) =>
+    matrix.map((row, rowIndex) =>
+      row.map((value, columnIndex) => (columnIndex === column ? (vector[rowIndex] ?? 0) : value)),
+    );
+  const a = det3(replaceColumn(0, rhs)) / determinant;
+  const b = det3(replaceColumn(1, rhs)) / determinant;
+  const c = det3(replaceColumn(2, rhs)) / determinant;
+  let ssTotal = 0;
+  let ssResidual = 0;
+  for (let index = 0; index < n; index += 1) {
+    const [x, y] = samples[index] ?? [0, 0];
+    const v = values[index] ?? 0;
+    const predicted = a * x + b * y + c;
+    ssTotal += (v - meanV) ** 2;
+    ssResidual += (v - predicted) ** 2;
+  }
+  return { r2: ssTotal < 1e-6 ? 0 : Math.max(0, 1 - ssResidual / ssTotal), a, b, c };
+}
+
+/**
+ * Detects a real linear gradient from a region's actual pixels — see packages/vision's identical
+ * function for the full derivation and calibration (a real, measured R² threshold against real
+ * rendered shapes, not guessed). Kept in sync between both packages rather than shared as a
+ * dependency, matching this file's existing pattern of local, provider-agnostic pixel math.
+ */
+async function detectLinearGradient(
+  sourceBytes: Uint8Array,
+  sourceWidth: number,
+  sourceHeight: number,
+  rect: Rect,
+): Promise<
+  | {
+      readonly type: "LINEAR_GRADIENT";
+      readonly angle: number;
+      readonly stops: readonly [{ r: number; g: number; b: number }, { r: number; g: number; b: number }];
+    }
+  | undefined
+> {
+  const left = Math.max(0, Math.min(sourceWidth - 1, Math.round(rect.x0)));
+  const top = Math.max(0, Math.min(sourceHeight - 1, Math.round(rect.y0)));
+  const width = Math.max(1, Math.min(sourceWidth - left, Math.round(rect.x1 - rect.x0)));
+  const height = Math.max(1, Math.min(sourceHeight - top, Math.round(rect.y1 - rect.y0)));
+  if (width < 16 || height < 16) return undefined;
+  let data: Buffer;
+  try {
+    ({ data } = await sharp(Buffer.from(sourceBytes))
+      .extract({ left, top, width, height })
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true }));
+  } catch {
+    return undefined;
+  }
+  const step = Math.max(4, Math.round(Math.min(width, height) / 14));
+  const samples: [number, number][] = [];
+  const rValues: number[] = [];
+  const gValues: number[] = [];
+  const bValues: number[] = [];
+  for (let y = 0; y < height; y += step) {
+    for (let x = 0; x < width; x += step) {
+      const index = (y * width + x) * 4;
+      samples.push([x, y]);
+      rValues.push(data[index] ?? 0);
+      gValues.push(data[index + 1] ?? 0);
+      bValues.push(data[index + 2] ?? 0);
+    }
+  }
+  if (samples.length < 9) return undefined;
+  const rFit = planarFit(samples, rValues);
+  const gFit = planarFit(samples, gValues);
+  const bFit = planarFit(samples, bValues);
+  const best = [rFit, gFit, bFit].reduce((a, b) => (b.r2 > a.r2 ? b : a));
+  if (best.r2 < 0.85) return undefined;
+  const corners: [number, number][] = [
+    [0, 0],
+    [width, 0],
+    [0, height],
+    [width, height],
+  ];
+  const projections = corners.map(([x, y]) => best.a * x + best.b * y);
+  const minIndex = projections.indexOf(Math.min(...projections));
+  const maxIndex = projections.indexOf(Math.max(...projections));
+  const startCorner = corners[minIndex] ?? [0, 0];
+  const endCorner = corners[maxIndex] ?? [width, height];
+  const evaluate = (fit: { readonly a: number; readonly b: number; readonly c: number }, point: [number, number]) =>
+    Math.max(0, Math.min(255, Math.round(fit.a * point[0] + fit.b * point[1] + fit.c)));
+  const angle = (Math.atan2(endCorner[1] - startCorner[1], endCorner[0] - startCorner[0]) * 180) / Math.PI;
+  return {
+    type: "LINEAR_GRADIENT",
+    angle,
+    stops: [
+      { r: evaluate(rFit, startCorner), g: evaluate(gFit, startCorner), b: evaluate(bFit, startCorner) },
+      { r: evaluate(rFit, endCorner), g: evaluate(gFit, endCorner), b: evaluate(bFit, endCorner) },
+    ],
+  };
+}
+
+/**
+ * A real gradient's smooth color sweep gets fragmented by segmentForeground()'s histogram color
+ * quantization into several adjacent thin blobs of similar quantized color — confirmed via direct
+ * debugging (a real 150px-wide test gradient produced a single ~19px-wide blob, whose detected
+ * "gradient" was really just the narrow reddish slice it was given). This groups spatially
+ * adjacent shape-candidate blobs via connected-component adjacency (rects that touch or overlap
+ * within a small pixel tolerance) and re-tests each group's UNION bounding box for a real gradient
+ * fit against full-resolution pixels — recovering the true gradient span instead of a misleading
+ * narrow fragment. Groups that don't confirm as a real gradient (R² < 0.85, the same calibrated
+ * threshold used everywhere else) are left alone; their member blobs fall through to the existing
+ * per-blob emission, completely unchanged.
+ */
+async function findGradientBlobGroups(
+  blobs: readonly Blob[],
+  candidateIndices: readonly number[],
+  toSourceScale: (value: number) => number,
+  sourceBytes: Uint8Array,
+  sourceWidth: number,
+  sourceHeight: number,
+): Promise<
+  readonly {
+    readonly rect: Rect;
+    readonly gradient: NonNullable<Awaited<ReturnType<typeof detectLinearGradient>>>;
+    readonly memberIndices: readonly number[];
+  }[]
+> {
+  // Tolerance is in working (downsampled) pixels: adjacent quantized-color bands from the same
+  // real gradient are typically 0-2px apart at that scale, with occasional anti-aliased seams.
+  const tolerance = 3;
+  const parent = new Map<number, number>(candidateIndices.map((index) => [index, index]));
+  const find = (start: number): number => {
+    let root = start;
+    while (parent.get(root) !== root) root = parent.get(root) ?? root;
+    let cursor = start;
+    while (parent.get(cursor) !== cursor) {
+      const next = parent.get(cursor) ?? cursor;
+      parent.set(cursor, root);
+      cursor = next;
+    }
+    return root;
+  };
+  for (let i = 0; i < candidateIndices.length; i += 1) {
+    for (let j = i + 1; j < candidateIndices.length; j += 1) {
+      const indexA = candidateIndices[i];
+      const indexB = candidateIndices[j];
+      const a = indexA === undefined ? undefined : blobs[indexA];
+      const b = indexB === undefined ? undefined : blobs[indexB];
+      if (!a || !b || indexA === undefined || indexB === undefined) continue;
+      const near =
+        a.minX - tolerance <= b.maxX &&
+        a.maxX + tolerance >= b.minX &&
+        a.minY - tolerance <= b.maxY &&
+        a.maxY + tolerance >= b.minY;
+      if (near) {
+        const rootA = find(indexA);
+        const rootB = find(indexB);
+        if (rootA !== rootB) parent.set(rootA, rootB);
+      }
+    }
+  }
+  const groups = new Map<number, number[]>();
+  for (const index of candidateIndices) {
+    const root = find(index);
+    const group = groups.get(root);
+    if (group) group.push(index);
+    else groups.set(root, [index]);
+  }
+  const results: {
+    rect: Rect;
+    gradient: NonNullable<Awaited<ReturnType<typeof detectLinearGradient>>>;
+    memberIndices: readonly number[];
+  }[] = [];
+  for (const memberIndices of groups.values()) {
+    if (memberIndices.length < 2) continue;
+    let minX = Number.POSITIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+    for (const index of memberIndices) {
+      const blob = blobs[index];
+      if (!blob) continue;
+      minX = Math.min(minX, blob.minX);
+      minY = Math.min(minY, blob.minY);
+      maxX = Math.max(maxX, blob.maxX);
+      maxY = Math.max(maxY, blob.maxY);
+    }
+    const rect: Rect = {
+      x0: toSourceScale(minX),
+      y0: toSourceScale(minY),
+      x1: toSourceScale(maxX),
+      y1: toSourceScale(maxY),
+    };
+    const gradient = await detectLinearGradient(sourceBytes, sourceWidth, sourceHeight, rect);
+    if (gradient) results.push({ rect, gradient, memberIndices });
+  }
+  return results;
+}
+
 /**
  * Two-pass local OCR: a whole-image, line-level pass gives rough candidate locations (tesseract
  * reading a busy scene end-to-end is noisy), then each candidate is cropped from the full-
@@ -355,8 +589,63 @@ export async function buildManifestFromImage(
   // Cap total shape/image regions — only the most significant color-cluster zones survive; small
   // fragments are dropped as noise rather than kept as spurious extra layers.
   const maxShapeRegions = 16;
-  for (const blob of segmentation.blobs) {
+
+  // Real gradients get fragmented into several adjacent thin blobs by color-quantization
+  // segmentation (see findGradientBlobGroups' doc comment); recover the true span before the
+  // per-blob loop runs, so a merged gradient region is emitted once instead of several
+  // misleadingly narrow, wrong-colored fragments.
+  const gradientCandidateIndices = segmentation.blobs
+    .map((blob, index) => ({ blob, index }))
+    .filter(({ blob }) => {
+      if (isConsumedByText(blob)) return false;
+      // Deliberately does NOT exclude high colorVariance blobs here (unlike the per-blob
+      // isLikelyImage check below): a real gradient color-band fragment legitimately has elevated
+      // internal variance, since it spans a range of the gradient rather than one flat color — that
+      // variance is exactly the signal that would wrongly exclude real gradient bands from ever
+      // being grouped. The R² check inside findGradientBlobGroups is the real, correct gate for
+      // "is this actually a gradient," not this coarse candidacy filter.
+      const area = toSourceScale(blob.maxX - blob.minX) * toSourceScale(blob.maxY - blob.minY);
+      const isLikelyBackground = area / sourceArea > 0.55;
+      return !isLikelyBackground;
+    })
+    .map(({ index }) => index);
+  const gradientGroups = await findGradientBlobGroups(
+    segmentation.blobs,
+    gradientCandidateIndices,
+    toSourceScale,
+    bytes,
+    width,
+    height,
+  );
+  const mergedBlobIndices = new Set<number>();
+  for (const group of gradientGroups) {
     if (regionIndex >= maxShapeRegions) break;
+    const x = Math.max(0, Math.round(group.rect.x0));
+    const y = Math.max(0, Math.round(group.rect.y0));
+    const w = Math.min(width - x, Math.max(1, Math.round(group.rect.x1 - group.rect.x0)));
+    const h = Math.min(height - y, Math.max(1, Math.round(group.rect.y1 - group.rect.y0)));
+    if (w <= 0 || h <= 0) continue;
+    for (const index of group.memberIndices) mergedBlobIndices.add(index);
+    regions.push({
+      key: `region-${regionIndex}`,
+      category: "SHAPE",
+      parentKey: "page",
+      bounds: { x, y, width: w, height: h },
+      confidence: 0.7,
+      semanticHints: ["reconstruction-vision:merged-gradient-cluster"],
+      // Corner-radius/ellipse detection isn't attempted on a merged multi-blob group (no single
+      // fillRatio measurement spans it cleanly); a merged gradient region is always reported as a
+      // sharp rectangle. A rounded-corner gradient shape is a known, documented limitation, not a
+      // silent approximation.
+      shape: { shapeType: "RECTANGLE", geometry: {}, gradient: group.gradient },
+    });
+    acceptedRects.push({ x0: x, y0: y, x1: x + w, y1: y + h });
+    regionIndex += 1;
+  }
+
+  for (const [blobIndex, blob] of segmentation.blobs.entries()) {
+    if (regionIndex >= maxShapeRegions) break;
+    if (mergedBlobIndices.has(blobIndex)) continue;
     if (isConsumedByText(blob)) continue;
     if (isMostlyInsideAccepted(blob)) continue;
     const x = Math.max(0, Math.round(toSourceScale(blob.minX)));
@@ -371,6 +660,9 @@ export async function buildManifestFromImage(
     const isLikelyImage = blob.colorVariance > 700;
     const isLikelyBackground = area / sourceArea > 0.55;
     const category = isLikelyBackground ? "BACKGROUND" : isLikelyImage ? "IMAGE" : "SHAPE";
+    const gradient = !isLikelyImage
+      ? await detectLinearGradient(bytes, width, height, { x0: x, y0: y, x1: x + w, y1: y + h })
+      : undefined;
     regions.push({
       key: `region-${regionIndex}`,
       category,
@@ -390,11 +682,15 @@ export async function buildManifestFromImage(
             shape: {
               ...classifyShapeGeometry(blob.fillRatio, w, h),
               geometry: {},
-              fill: {
-                r: Math.round(blob.meanColor[0]),
-                g: Math.round(blob.meanColor[1]),
-                b: Math.round(blob.meanColor[2]),
-              },
+              ...(gradient
+                ? { gradient }
+                : {
+                    fill: {
+                      r: Math.round(blob.meanColor[0]),
+                      g: Math.round(blob.meanColor[1]),
+                      b: Math.round(blob.meanColor[2]),
+                    },
+                  }),
             },
           }),
     });
