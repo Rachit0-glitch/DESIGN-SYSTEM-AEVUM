@@ -17,6 +17,8 @@
     "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@aevum/agent-core": "workspace:*",
+    "@aevum/agent-planner": "workspace:*",
     "@aevum/agent-runtime": "workspace:*",
     "@aevum/animation-core": "workspace:*",
     "@aevum/command-engine": "workspace:*",

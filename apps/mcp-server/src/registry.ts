@@ -90,6 +90,14 @@ export interface AssetBytesResolver {
   resolve(assetId: string): Promise<Uint8Array | undefined>;
 }
 
+/**
+ * Stores a newly-uploaded asset's raw bytes durably (e.g. `asset.register`). Distinct from
+ * `AssetBytesResolver`, which only resolves bytes for an asset already registered. Like
+ * `AssetBytesResolver`, this is honestly disabled (`MCP_TOOL_DISABLED`) rather than faked when no
+ * adapter is configured for a deployment.
+ */
+export type { AssetStorageAdapter } from "@aevum/assets";
+
 export interface ToolExecutionContext {
   readonly actor: McpActor;
   readonly request: McpRequestEnvelope;

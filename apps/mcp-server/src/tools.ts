@@ -1,4 +1,5 @@
 import {
+  beginTransaction,
   CURRENT_COMMAND_VERSION,
   createCommandId,
   createTransactionId,
@@ -34,8 +35,25 @@ import {
   type PoseDelta,
   type RetargetMapping,
 } from "@aevum/rigging";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { assetIdFromHash, computeSha256, registerAsset } from "@aevum/assets";
+import {
+  createAssetRegistryResolver,
+  createReconstructionEngine,
+  RECONSTRUCTION_MANIFEST_KEY,
+  type ReconstructionManifest,
+} from "@aevum/reconstruction";
+import { buildManifestFromImage } from "@aevum/reconstruction-vision";
+
+// A stable, explicit path (not tesseract.js's cwd-relative default) so the OCR trained-data file
+// downloads once per deployment instead of once per request, and never lands in the repo/cwd.
+function reconstructionVisionOcrCacheDir(): string {
+  return join(tmpdir(), "aevum-reconstruction-vision-ocr-cache");
+}
 import type {
   AssetBytesResolver,
+  AssetStorageAdapter,
   BlenderToolAdapter,
   McpServerRuntimeConfig,
   McpToolDefinition,
@@ -251,7 +269,11 @@ function definition(
 export function registerInitialTools(
   registry: McpToolRegistry,
   config: McpServerRuntimeConfig,
-  adapters: { readonly blender?: BlenderToolAdapter; readonly assetBytes?: AssetBytesResolver } = {},
+  adapters: {
+    readonly blender?: BlenderToolAdapter;
+    readonly assetBytes?: AssetBytesResolver;
+    readonly assetStorage?: AssetStorageAdapter;
+  } = {},
 ): void {
   registry.registerTool(
     definition(
@@ -742,6 +764,252 @@ export function registerInitialTools(
         const asset = (await currentDocument(context)).assets[input.assetId];
         if (!asset) fail(context, "MCP_DOCUMENT_NOT_FOUND", "The requested asset does not exist.");
         return { data: asset };
+      },
+      config,
+    ),
+  );
+
+  registry.registerTool(
+    definition(
+      "asset.register",
+      "Upload and register a new IMAGE asset, storing its bytes and adding it to the canonical document.",
+      ["document.write", "asset.write"],
+      "WRITE",
+      async (raw, context) => {
+        const input = TOOL_SCHEMAS["asset.register"].input.parse(raw);
+        if (!adapters.assetStorage) {
+          fail(context, "MCP_TOOL_DISABLED", "No asset storage adapter is configured for this deployment.");
+        }
+        const document = await currentDocument(context);
+        if (document.documentVersion !== input.expectedDocumentVersion) {
+          fail(context, "MCP_DOCUMENT_VERSION_CONFLICT", "The requested document version is stale.");
+        }
+        let bytes: Uint8Array;
+        try {
+          bytes = new Uint8Array(Buffer.from(input.bytesBase64, "base64"));
+        } catch {
+          fail(context, "MCP_INPUT_INVALID", "bytesBase64 is not valid base64.");
+        }
+        if (bytes.byteLength === 0) fail(context, "MCP_INPUT_INVALID", "Decoded asset bytes are empty.");
+
+        // Real, local pixel analysis (no paid vision/OCR API involved) — skipped on a dry run
+        // since it costs real CPU time for a result that would be discarded, and the caller
+        // requested it, not the platform, so a dry run cannot silently make it free.
+        let reconstructionManifest: ReconstructionManifest | undefined;
+        let reconstructionAnalysis: { regionCount: number; textRegionCount: number; diagnostics: string[] } | undefined;
+        if (input.analyzeForReconstruction && !context.request.dryRun) {
+          const built = await buildManifestFromImage(bytes, { ocrCacheDir: reconstructionVisionOcrCacheDir() });
+          reconstructionManifest = built.manifest;
+          reconstructionAnalysis = {
+            regionCount: built.manifest.regions.length,
+            textRegionCount: built.manifest.regions.filter((region) => region.category === "TEXT").length,
+            diagnostics: [...built.diagnostics],
+          };
+        }
+
+        const contentHash = computeSha256(bytes);
+
+        // Duplicate content is detected purely from already-canonical data, before any storage
+        // write is attempted — this keeps a dry run free of side effects and avoids a redundant
+        // upload on a real commit when the bytes are already registered.
+        const existingDuplicate = Object.values(document.assets).find(
+          (candidate) => candidate.hash.toLowerCase() === contentHash.toLowerCase(),
+        );
+        if (existingDuplicate) {
+          return {
+            data: {
+              dryRun: context.request.dryRun,
+              baseVersion: document.documentVersion,
+              resultVersion: document.documentVersion,
+              commandIds: [],
+              outcome: "DUPLICATE",
+              assetId: existingDuplicate.id,
+              assetHash: existingDuplicate.hash,
+            },
+          };
+        }
+
+        // A dry run must not persist bytes: use a placeholder uri and skip the real upload so the
+        // outcome can still be predicted (and validated against the same schemas) without a side
+        // effect. Only a real commit calls the storage adapter.
+        const sourceUri = context.request.dryRun
+          ? `pending:${contentHash}`
+          : (
+              await adapters.assetStorage.storeOriginal({
+                asset: {
+                  id: assetIdFromHash(contentHash),
+                  type: "IMAGE",
+                  name: input.displayName ?? input.originalFilename,
+                  hash: contentHash,
+                  source: { kind: "UPLOAD", uri: `pending:${contentHash}` },
+                  mimeType: input.mimeType,
+                  byteSize: bytes.byteLength,
+                  dimensions: { width: input.width, height: input.height },
+                  metadata: {},
+                },
+                bytes,
+                expectedHash: contentHash,
+              })
+            ).uri;
+
+        const importer = actorForCommand(context);
+        const registration = registerAsset(document.assets, {
+          bytes,
+          kind: "IMAGE",
+          originalFilename: input.originalFilename,
+          ...(input.displayName ? { displayName: input.displayName } : {}),
+          mimeType: input.mimeType,
+          sourceUri,
+          createdAt: context.timestamp,
+          registeredAt: context.timestamp,
+          status: "REGISTERED",
+          provenance: {
+            origin: { kind: "UPLOAD" },
+            importer,
+            processingChain: [],
+            parentAssetIds: [],
+          },
+          dimensions: { width: input.width, height: input.height },
+          details: { kind: "IMAGE", alpha: input.alpha, exif: {} },
+          extensions: reconstructionManifest ? { [RECONSTRUCTION_MANIFEST_KEY]: reconstructionManifest } : {},
+          security: { status: "PASSED", inspectedAt: context.timestamp, inspector: "NONE", issues: [] },
+        });
+
+        if (registration.kind !== "REGISTERED") {
+          fail(context, "MCP_INTERNAL_ERROR", "Asset registration was unexpectedly quarantined or duplicate.");
+        }
+
+        const asset = registration.asset;
+        const command: Command = { ...commandBase(context, document), type: "asset.register", payload: { asset } };
+        const commit = context.request.dryRun ? dryRunCommand(document, command) : executeCommand(document, command);
+        return {
+          data: {
+            dryRun: context.request.dryRun,
+            baseVersion: document.documentVersion,
+            resultVersion: context.request.dryRun ? document.documentVersion : commit.newDocument.documentVersion,
+            ...(context.request.dryRun ? { predictedDocumentVersion: commit.newDocument.documentVersion } : {}),
+            transactionId: command.transactionId,
+            commandIds: [command.id],
+            outcome: "REGISTERED",
+            assetId: asset.id,
+            assetHash: asset.hash,
+            ...(reconstructionAnalysis ? { reconstructionAnalysis } : {}),
+          },
+          mutation: { commit, sourceDocument: document },
+        };
+      },
+      config,
+    ),
+  );
+
+  registry.registerTool(
+    definition(
+      "reconstruction.import_reference",
+      "Import an analyzed reference image into the canonical document as real, individually-editable layers.",
+      ["document.write", "asset.read"],
+      "WRITE",
+      async (raw, context) => {
+        const input = TOOL_SCHEMAS["reconstruction.import_reference"].input.parse(raw);
+        const document = await currentDocument(context);
+        if (document.documentVersion !== input.expectedDocumentVersion) {
+          fail(context, "MCP_DOCUMENT_VERSION_CONFLICT", "The requested document version is stale.");
+        }
+        const sourceAsset = document.assets[input.sourceAssetId];
+        if (!sourceAsset) fail(context, "MCP_INPUT_INVALID", "The source asset does not exist in this document.");
+        if (!sourceAsset.dimensions) {
+          fail(context, "MCP_INPUT_INVALID", "The source asset has no recorded dimensions.");
+        }
+
+        const { projectId } = requireScope(context);
+        const engine = createReconstructionEngine({ assetResolver: createAssetRegistryResolver(document.assets) });
+        const task = engine.createTask({
+          projectId,
+          sourceAssetId: input.sourceAssetId,
+          targetDocumentId: document.metadata.id,
+          expectedDocumentVersion: document.documentVersion,
+          ...(input.requestedPageName ? { requestedPageName: input.requestedPageName } : {}),
+          qualityMode: input.qualityMode,
+          targetViewport: {
+            width: sourceAsset.dimensions.width,
+            height: sourceAsset.dimensions.height,
+            deviceScaleFactor: 1,
+            category: "CUSTOM",
+            orientation: sourceAsset.dimensions.width >= sourceAsset.dimensions.height ? "LANDSCAPE" : "PORTRAIT",
+          },
+          preserveEditability: true,
+          allowRasterFallbacks: true,
+          requestedCapabilities: [
+            "REGION_DETECTION",
+            "TEXT_DETECTION",
+            "ASSET_LINKING",
+            "SHAPE_INFERENCE",
+            "LAYOUT_INFERENCE",
+          ],
+          deterministicSeed: 0,
+          createdAt: context.timestamp,
+          createdBy: actorForCommand(context),
+        });
+
+        const analysisResult = engine.analyze(task);
+        if (!analysisResult.success) {
+          fail(context, "MCP_COMMAND_FAILED", analysisResult.diagnostics[0]?.message ?? "Reference analysis failed.");
+        }
+        const proposalResult = engine.createProposal(task, analysisResult.analysis, document);
+        if (!proposalResult.success) {
+          fail(
+            context,
+            "MCP_COMMAND_FAILED",
+            proposalResult.diagnostics[0]?.message ?? "Reconstruction proposal failed.",
+          );
+        }
+        const proposal = proposalResult.proposal;
+        const textNodeCount = proposal.proposedNodes.filter((entry) => entry.node.type === "TEXT").length;
+
+        if (context.request.dryRun) {
+          const predicted = engine.dryRun(proposal, document);
+          if (!predicted.success) {
+            fail(context, "MCP_DRY_RUN_FAILED", predicted.diagnostics[0]?.message ?? "Reconstruction dry run failed.");
+          }
+          return {
+            data: {
+              dryRun: true,
+              baseVersion: document.documentVersion,
+              resultVersion: document.documentVersion,
+              predictedDocumentVersion: predicted.resultingDocument?.documentVersion ?? document.documentVersion,
+              transactionId: proposal.commandPlan.transactionId,
+              commandIds: proposal.commandPlan.commands.map((command) => command.id),
+              createdNodeCount: proposal.proposedNodes.length,
+              textNodeCount,
+              referenceId: proposal.proposedDocumentMetadata.reference.id,
+            },
+          };
+        }
+
+        const transaction = beginTransaction(document, { transactionId: proposal.commandPlan.transactionId });
+        try {
+          for (const command of proposal.commandPlan.commands) transaction.execute(command);
+        } catch (error) {
+          if (transaction.state !== "COMMITTED") transaction.rollback();
+          fail(
+            context,
+            "MCP_TRANSACTION_FAILED",
+            error instanceof Error ? error.message : "Reconstruction transaction failed.",
+          );
+        }
+        const commit = transaction.commit();
+        return {
+          data: {
+            dryRun: false,
+            baseVersion: document.documentVersion,
+            resultVersion: commit.newDocument.documentVersion,
+            transactionId: commit.auditRecord.transactionId,
+            commandIds: commit.commands.map((command) => command.id),
+            createdNodeCount: proposal.proposedNodes.length,
+            textNodeCount,
+            referenceId: proposal.proposedDocumentMetadata.reference.id,
+          },
+          mutation: { commit, sourceDocument: document },
+        };
       },
       config,
     ),

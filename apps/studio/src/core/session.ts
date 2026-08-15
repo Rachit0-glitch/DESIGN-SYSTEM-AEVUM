@@ -37,6 +37,20 @@ export interface StudioSession {
   subscribe(listener: () => void): () => void;
   setViewport(viewportId: string, animationTime?: number, reducedMotion?: boolean): void;
   updateNode(nodeId: string, changes: Record<string, unknown>, options?: StudioMutationOptions): void | Promise<void>;
+  /**
+   * Reflects a node.update that an external gateway (e.g. the AI panel's agent gateway) has
+   * already committed through its own MCP round trip into the local canonical document, without
+   * issuing a second remote write. Without this, agent-driven edits are invisible in the
+   * canvas/layers/properties panels until an unrelated action forces a rebuild.
+   */
+  acknowledgeAgentNodeUpdate(nodeId: string, changes: Record<string, unknown>, options?: StudioMutationOptions): void;
+  /**
+   * Replaces the local canonical document with one already fetched fresh from MCP (e.g. after a
+   * multi-command server-side transaction such as reconstruction.import_reference, whose exact
+   * command list isn't returned to the caller for a local replay). Trusts the given document as-is
+   * — callers must have obtained it from a real document.get, not derived it themselves.
+   */
+  resyncDocument(document: CanonicalDesignDocument): void;
   moveNode(nodeId: string, index: number, options?: StudioMutationOptions): void;
   duplicateNode(nodeId: string, options?: StudioMutationOptions): string;
   deleteNode(nodeId: string, options?: StudioMutationOptions): void | Promise<void>;
@@ -124,7 +138,7 @@ export function createStudioSession(input: {
 }): StudioSession {
   const stored = input.restoreFromPersistence === false ? null : input.persistence.load(input.project.id);
   const initial = stored ? deserialize(stored) : input.document;
-  const store = createProjectStore({
+  let store = createProjectStore({
     project: input.project,
     document: initial,
     openedAt: input.openedAt ?? new Date().toISOString(),
@@ -248,6 +262,19 @@ export function createStudioSession(input: {
         remoteRedo.length = 0;
         notify();
       });
+    },
+    acknowledgeAgentNodeUpdate(nodeId: string, changes: Record<string, unknown>, options: StudioMutationOptions = {}) {
+      const document = store.getDocument();
+      execute({ ...commandBase(document, options), type: "node.update", payload: { nodeId, changes } });
+    },
+    resyncDocument(document: CanonicalDesignDocument) {
+      store = createProjectStore({ project: input.project, document, openedAt: new Date().toISOString() });
+      remoteUndo.length = 0;
+      remoteRedo.length = 0;
+      saveState = "SAVED";
+      lastError = undefined;
+      persist();
+      notify();
     },
     moveNode(nodeId: string, index: number, options: StudioMutationOptions = {}) {
       if (input.commandGateway) throw new Error("Remote layer reordering is not exposed by the current MCP contract.");

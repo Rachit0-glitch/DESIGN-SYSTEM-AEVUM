@@ -441,13 +441,7 @@ svg {
   border-radius: 50%;
   background: #6d7774;
 }
-.status-understanding .status-pulse,
-.status-inspecting .status-pulse,
-.status-planning .status-pulse,
-.status-dry_run .status-pulse,
-.status-applying .status-pulse,
-.status-rendering .status-pulse,
-.status-verifying .status-pulse {
+.status-running .status-pulse {
   background: #e9a15e;
   box-shadow: 0 0 0 3px #e9a15e22;
 }

@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { createAgentGoal, createAgentSession } from "@aevum/agent-core";
+import { createDeterministicReasoningProvider } from "@aevum/agent-planner";
 import {
-  createDeterministicStudioAgentGateway,
+  createAgentEngine,
+  createDeterministicApprovalAdapter,
+  createInMemoryAgentPersistence,
+} from "@aevum/agent-runtime";
+import {
+  createDeterministicStudioAgentContext,
   createMemoryPersistence,
   createStudioProjectFixture,
   createStudioSession,
@@ -59,40 +66,62 @@ describe("AEVUM Studio canonical session", () => {
     expect(targets).toEqual([0, 40, 124]);
   });
 
-  it("routes deterministic AI edits through typed MCP dry-run and Command Engine persistence", async () => {
+  it("routes deterministic AI edits through the real Agent Planner and Command Engine persistence", async () => {
     const fixture = createStudioProjectFixture();
     const persistence = createMemoryPersistence();
     const session = createStudioSession({ ...fixture, persistence });
-    const gateway = createDeterministicStudioAgentGateway({
+    const agentContext = createDeterministicStudioAgentContext({
       session,
-      workspaceId: fixture.workspaceId,
-      projectId: fixture.projectId,
-      documentId: fixture.document.id,
+      workspaceId: fixture.project.workspaceId,
+      projectId: fixture.project.id,
+      documentId: fixture.document.metadata.id,
+      actorId: "test-agent",
     });
 
-    const result = await gateway.updateNode({
-      nodeId: studioFixtureIds.heading,
-      changes: { name: "Agent-reviewed heading" },
-      expectedDocumentVersion: 1,
-      correlationId: "studio-agent-test",
-    });
+    const runTurn = async (changes: Record<string, unknown>, correlationId: string) => {
+      const goal = createAgentGoal({
+        category: "EDIT",
+        request: "test edit",
+        targetProjectId: agentContext.projectId,
+        targetDocumentId: agentContext.documentId,
+        targetNodeIds: [studioFixtureIds.heading],
+        parameters: { changes },
+      });
+      const agentSession = createAgentSession({
+        actorId: agentContext.actorId,
+        workspaceId: agentContext.workspaceId,
+        projectId: agentContext.projectId,
+        documentId: agentContext.documentId,
+        goal,
+        createdAt: new Date().toISOString(),
+      });
+      const engine = createAgentEngine({
+        reasoningProvider: createDeterministicReasoningProvider(),
+        mcpClient: agentContext.createMcpClient(correlationId),
+        approvalAdapter: createDeterministicApprovalAdapter(),
+        persistence: createInMemoryAgentPersistence(),
+      });
+      return engine.execute({
+        session: agentSession,
+        contextRecords: [],
+        actorPermissions: agentContext.actorPermissions,
+      });
+    };
 
-    expect(result.dryRunRequestId).not.toBe(result.applyRequestId);
-    expect(result.resultVersion).toBe(2);
+    const result = await runTurn({ name: "Agent-reviewed heading" }, "studio-agent-test");
+
+    expect(result.run.status).toBe("SUCCEEDED");
     expect(session.getSnapshot().document.nodes[studioFixtureIds.heading]?.name).toBe("Agent-reviewed heading");
     expect(session.getSnapshot().history.entries[0]?.auditRecord.actor.type).toBe("MCP_AGENT");
     expect(
       createStudioSession({ ...fixture, persistence }).getSnapshot().document.nodes[studioFixtureIds.heading]?.name,
     ).toBe("Agent-reviewed heading");
 
-    await expect(
-      gateway.updateNode({
-        nodeId: studioFixtureIds.heading,
-        changes: { name: "Stale agent edit" },
-        expectedDocumentVersion: 1,
-        correlationId: "studio-agent-stale-test",
-      }),
-    ).rejects.toThrow(/version/i);
+    // nodeUpdatePlan binds expectedDocumentVersion dynamically from its own document.get read, so
+    // a second real turn naturally targets whatever version the first turn left behind.
+    const second = await runTurn({ name: "Second AI edit" }, "studio-agent-second");
+    expect(second.run.status).toBe("SUCCEEDED");
+    expect(session.getSnapshot().document.nodes[studioFixtureIds.heading]?.name).toBe("Second AI edit");
   });
 
   it("keeps production edits remote-first and performs auditable undo and redo writes", async () => {
@@ -120,5 +149,41 @@ describe("AEVUM Studio canonical session", () => {
     expect(session.getSnapshot().document.nodes[studioFixtureIds.heading]?.name).toBe("Production heading");
     expect(commands).toEqual(["node.update@1", "node.update@2", "node.update@3"]);
     expect(() => session.duplicateNode(studioFixtureIds.heading)).toThrow(/MCP contract/);
+  });
+
+  it("reflects an already-committed agent MCP write locally without a second remote round trip", () => {
+    const fixture = createStudioProjectFixture();
+    const commands: string[] = [];
+    const session = createStudioSession({
+      ...fixture,
+      persistence: createMemoryPersistence(),
+      restoreFromPersistence: false,
+      commandGateway: {
+        async execute(command) {
+          commands.push(command.type);
+        },
+      },
+    });
+
+    // Simulates the AI panel's agentGateway.updateNode(), which commits through its own MCP
+    // round trip and never calls session.commandGateway.execute directly.
+    session.acknowledgeAgentNodeUpdate(
+      studioFixtureIds.heading,
+      { name: "Agent-reviewed heading" },
+      { expectedDocumentVersion: 1, actor: { id: "studio-ai", type: "MCP_AGENT", displayName: "AEVUM AI" } },
+    );
+
+    expect(commands).toEqual([]);
+    expect(session.getSnapshot().document.nodes[studioFixtureIds.heading]?.name).toBe("Agent-reviewed heading");
+    expect(session.getSnapshot().document.documentVersion).toBe(2);
+    expect(session.getSnapshot().history.entries[0]?.auditRecord.actor.type).toBe("MCP_AGENT");
+
+    expect(() =>
+      session.acknowledgeAgentNodeUpdate(
+        studioFixtureIds.heading,
+        { name: "Stale agent edit" },
+        { expectedDocumentVersion: 1 },
+      ),
+    ).toThrow(/version/i);
   });
 });

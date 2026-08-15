@@ -3980,7 +3980,53 @@ external MCP handoff, and deployed Studio/API/MCP integration.
 
 ---
 
-## 58. Final Roadmap Statement
+## 58. Studio ↔ MCP ↔ Agent Integration Stabilization Block (2026-08-15)
+
+This is an integration/stabilization block, not a new numbered phase — it hardens and connects
+existing Phase 19B–24 work rather than adding new roadmap scope, per explicit instruction not to
+give it a phase number. Full detail, including every known limitation, lives in
+`STABILIZATION_KNOWN_LIMITATIONS.md`; this entry is the roadmap-level summary.
+
+- **Status: partially complete. Not marked VALIDATED** — its own acceptance test (a real-world
+  reference poster) only partially passed, and that is reported honestly rather than rounded up.
+- Fixed: Studio's MCP command gateway was a hardcoded `node.update`/`node.delete`-only allowlist;
+  it now checks the actor's real, server-computed capability set (`system.get_capabilities`)
+  before forwarding any of 4 verified command-type mappings.
+- Fixed: the Studio AI panel was fully fake (hardcoded staged delays, `prompt.includes("center")`
+  string matching with no real effect path); it now drives the real `@aevum/agent-runtime`
+  `createAgentEngine()` (the same engine `packages/agent-planner`/`packages/agent-context` already
+  implemented) through honest keyword-to-structured-parameter mapping — no natural-language
+  understanding exists anywhere in this codebase, and prompts it can't map are reported as such.
+- Fixed: two confirmed canonical-state-sync bugs — a background Supabase token refresh was
+  rebuilding Studio's entire session (the real cause of the reported multi-second tab-return
+  delay), and agent-driven/reconstruction-driven writes were not reflected in the locally rendered
+  document.
+- Added: `@aevum/reconstruction-vision`, a new package implementing real, local, free computer
+  vision (color-cluster region segmentation, connected components, non-max suppression, two-pass
+  tesseract.js OCR) — explicitly **no paid external vision/OCR API**, per instruction. MCP tool
+  version bumped `1.11.0` → `1.12.0` for two new tools, `asset.register` and
+  `reconstruction.import_reference` (Section 99 of `08_MCP_SPECIFICATION.md`), which together let
+  Studio turn an uploaded reference image into real, individually-editable canonical nodes through
+  `packages/reconstruction`'s existing, unmodified analyze → proposal → command-plan pipeline.
+- Real, honest limitations carried forward (see `STABILIZATION_KNOWN_LIMITATIONS.md` for detail):
+  heavily stylized display typography (e.g. large poster headlines) is not detected as text by the
+  local OCR pipeline; IMAGE-category reconstructed nodes reference a crop of the original source
+  asset rather than an independently extracted image; the new Supabase asset-storage adapter is
+  untested against a real bucket (only an in-memory test double); no fidelity report is ever
+  computed anywhere in this codebase, so the Fidelity workspace will honestly read "Not evaluated"
+  for any real document until a validation pipeline is built; the AI panel's approval adapter fails
+  closed with no real approval UI if a future capability ever requires one.
+- Tests and gates: 399/399 repository tests passed across 58 files; full workspace typecheck
+  (90/90), build (64/64), lint, and format all passed. MCP tool count 73 (was 72).
+- No Google-Antigravity-specific backend exists anywhere — the new tools are on the same canonical
+  MCP surface every other client uses (verified: no antigravity-specific code in any touched file).
+- Next action: none required automatically. Closing the sushi-poster acceptance gap (stylized
+  headline typography detection) would need a dedicated text-region-detection front end, which is
+  new engineering beyond this block's scope, not a tuning fix.
+
+---
+
+## 59. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.
 

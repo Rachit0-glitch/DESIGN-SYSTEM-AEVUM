@@ -12,9 +12,11 @@ import {
   createToolRegistry,
   registerInitialTools,
   type AssetBytesResolver,
+  type AssetStorageAdapter,
   type BlenderToolAdapter,
   type McpServerRuntimeConfig,
 } from "@aevum/mcp-server";
+import type { StoreAssetRequest, StoredAssetObject } from "@aevum/assets";
 import { createLogger } from "@aevum/shared";
 
 export const MCP_TEST_TIME = "2026-08-02T12:00:00.000Z";
@@ -49,6 +51,36 @@ export function createInMemoryAssetBytesResolver(
   };
 }
 
+export function createInMemoryAssetStorage(): AssetStorageAdapter & { readonly objects: Map<string, Uint8Array> } {
+  const objects = new Map<string, Uint8Array>();
+  async function store(request: StoreAssetRequest, namespace: string): Promise<StoredAssetObject> {
+    const path = `${namespace}/${request.expectedHash}`;
+    objects.set(path, request.bytes);
+    return {
+      assetId: request.asset.id,
+      uri: `memory:${path}`,
+      contentHash: request.expectedHash,
+      byteSize: request.bytes.byteLength,
+      immutable: true,
+    };
+  }
+  return {
+    id: "in-memory-test-storage",
+    kind: "LOCAL_FILESYSTEM",
+    objects,
+    storeOriginal: (request) => store(request, "originals"),
+    storeDerivative: (request) => store(request, "derivatives"),
+    async read(asset) {
+      const bytes = objects.get(asset.source.uri.replace("memory:", ""));
+      if (!bytes) throw new Error(`Asset ${asset.id} not found in in-memory test storage.`);
+      return bytes;
+    },
+    async exists(asset) {
+      return objects.has(asset.source.uri.replace("memory:", ""));
+    },
+  };
+}
+
 export function createMcpTestFixture(
   options: {
     readonly role?: "OWNER" | "ADMIN" | "EDITOR" | "VIEWER" | "AGENT" | "SERVICE";
@@ -58,6 +90,7 @@ export function createMcpTestFixture(
     readonly toolTimeoutMs?: number;
     readonly blenderAdapter?: BlenderToolAdapter;
     readonly assetBytesAdapter?: AssetBytesResolver;
+    readonly assetStorageAdapter?: AssetStorageAdapter;
   } = {},
 ) {
   const document = options.document ?? fixtures.assetDemo();
@@ -114,6 +147,7 @@ export function createMcpTestFixture(
   registerInitialTools(registry, config, {
     ...(options.blenderAdapter ? { blender: options.blenderAdapter } : {}),
     ...(options.assetBytesAdapter ? { assetBytes: options.assetBytesAdapter } : {}),
+    ...(options.assetStorageAdapter ? { assetStorage: options.assetStorageAdapter } : {}),
   });
   const executor = createMcpExecutor({
     config,

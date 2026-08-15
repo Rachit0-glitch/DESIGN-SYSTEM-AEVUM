@@ -1,6 +1,6 @@
 {
-  "name": "@aevum/project-store",
-  "version": "0.0.0",
+  "name": "@aevum/reconstruction-vision",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -16,11 +16,10 @@
     "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@aevum/assets": "workspace:*",
-    "@aevum/command-engine": "workspace:*",
-    "@aevum/document-model": "workspace:*",
+    "@aevum/reconstruction": "workspace:*",
     "@aevum/shared": "workspace:*",
-    "@supabase/supabase-js": "2.111.0",
+    "sharp": "0.34.4",
+    "tesseract.js": "6.0.1",
     "zod": "4.4.3"
   }
 }

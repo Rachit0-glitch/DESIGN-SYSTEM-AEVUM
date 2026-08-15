@@ -28,7 +28,7 @@ import { z } from "zod";
 import { McpPermissionSchema } from "./permissions.js";
 import { MCP_PROTOCOL_VERSION } from "./version.js";
 
-export const MCP_TOOL_VERSION = "1.11.0" as const;
+export const MCP_TOOL_VERSION = "1.12.0" as const;
 export const McpAuthModeSchema = z.enum(["development", "supabase", "disabled"]);
 export const McpToolNameSchema = z.enum([
   "system.get_capabilities",
@@ -38,6 +38,8 @@ export const McpToolNameSchema = z.enum([
   "document.list_versions",
   "document.inspect_hierarchy",
   "asset.get",
+  "asset.register",
+  "reconstruction.import_reference",
   "timeline.get",
   "three.inspect_asset",
   "three.inspect_scene",
@@ -228,6 +230,69 @@ export const DocumentInspectHierarchyOutputSchema = z.strictObject({
 
 export const AssetGetInputSchema = z.strictObject({ assetId: EntityIdSchema });
 export const AssetGetOutputSchema = AssetSchema;
+
+// v1 only supports IMAGE assets — the only kind Studio's reference/reconstruction flows currently
+// need. Other AssetSchema kinds (VIDEO, FONT, GLB, ...) are intentionally not exposed here yet
+// rather than modeling all eight kinds' detail unions at the MCP boundary speculatively.
+export const AssetRegisterInputSchema = z.strictObject({
+  expectedDocumentVersion: z.number().int().positive(),
+  kind: z.literal("IMAGE"),
+  bytesBase64: z.string().min(1),
+  originalFilename: z.string().min(1).max(255),
+  displayName: z.string().min(1).max(255).optional(),
+  mimeType: z.string().regex(/^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i),
+  width: z.number().int().positive(),
+  height: z.number().int().positive(),
+  alpha: z.boolean().default(false),
+  // Real, local, synchronous pixel analysis (background/foreground region segmentation plus
+  // tesseract.js OCR) attached to the asset at registration time so packages/reconstruction's
+  // existing analyzeReference() can consume it later as a genuine (not hand-authored) manifest.
+  // Off by default: it costs real CPU time and is only useful for images meant as reconstruction
+  // references, not every uploaded image.
+  analyzeForReconstruction: z.boolean().default(false),
+});
+export const AssetRegisterOutputSchema = z.strictObject({
+  dryRun: z.boolean(),
+  baseVersion: z.number().int().positive(),
+  resultVersion: z.number().int().positive(),
+  predictedDocumentVersion: z.number().int().positive().optional(),
+  transactionId: z.string().min(1).max(128).optional(),
+  commandIds: z.array(z.string().min(1).max(128)),
+  outcome: z.enum(["REGISTERED", "DUPLICATE"]),
+  assetId: EntityIdSchema,
+  assetHash: z.string().regex(/^sha256:[0-9a-f]{64}$/i),
+  reconstructionAnalysis: z
+    .strictObject({
+      regionCount: z.number().int().nonnegative(),
+      textRegionCount: z.number().int().nonnegative(),
+      diagnostics: z.array(z.string()),
+    })
+    .optional(),
+});
+
+// Turns an already-registered, already-analyzed IMAGE asset (see asset.register's
+// analyzeForReconstruction) into real, individually-editable canonical nodes — background,
+// typography, shapes, images — by running packages/reconstruction's existing, unmodified
+// analyze -> proposal -> command-plan pipeline against the real manifest attached at registration.
+// This never embeds the reference image as "the reconstruction": every region becomes its own
+// TEXT/IMAGE/SHAPE/GROUP node, added to the current document rather than replacing it.
+export const ReconstructionImportReferenceInputSchema = z.strictObject({
+  expectedDocumentVersion: z.number().int().positive(),
+  sourceAssetId: EntityIdSchema,
+  requestedPageName: z.string().trim().min(1).max(255).optional(),
+  qualityMode: z.enum(["DRAFT", "HIGH_QUALITY", "MAXIMUM_FIDELITY"]).default("DRAFT"),
+});
+export const ReconstructionImportReferenceOutputSchema = z.strictObject({
+  dryRun: z.boolean(),
+  baseVersion: z.number().int().positive(),
+  resultVersion: z.number().int().positive(),
+  predictedDocumentVersion: z.number().int().positive().optional(),
+  transactionId: z.string().min(1).max(128),
+  commandIds: z.array(z.string().min(1).max(128)),
+  createdNodeCount: z.number().int().nonnegative(),
+  textNodeCount: z.number().int().nonnegative(),
+  referenceId: EntityIdSchema,
+});
 export const TimelineGetInputSchema = z.strictObject({ timelineId: EntityIdSchema });
 export const TimelineGetOutputSchema = TimelineSchema;
 
@@ -967,6 +1032,11 @@ export const TOOL_SCHEMAS = Object.freeze({
     output: DocumentInspectHierarchyOutputSchema,
   },
   "asset.get": { input: AssetGetInputSchema, output: AssetGetOutputSchema },
+  "asset.register": { input: AssetRegisterInputSchema, output: AssetRegisterOutputSchema },
+  "reconstruction.import_reference": {
+    input: ReconstructionImportReferenceInputSchema,
+    output: ReconstructionImportReferenceOutputSchema,
+  },
   "timeline.get": { input: TimelineGetInputSchema, output: TimelineGetOutputSchema },
   "three.inspect_asset": { input: ThreeInspectAssetInputSchema, output: ThreeInspectAssetOutputSchema },
   "three.inspect_scene": { input: ThreeInspectSceneInputSchema, output: ThreeInspectSceneOutputSchema },

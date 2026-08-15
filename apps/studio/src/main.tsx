@@ -49,10 +49,17 @@ import React, {
 } from "react";
 import { createRoot } from "react-dom/client";
 import type { Session, SupabaseClient } from "@supabase/supabase-js";
-import type { DesignNode } from "@aevum/document-model";
+import { CanonicalDesignDocumentSchema, type DesignNode } from "@aevum/document-model";
 import type { RenderGraphNode, RenderPaint } from "@aevum/renderer-2d";
+import { createAgentGoal, createAgentSession } from "@aevum/agent-core";
+import { createDeterministicReasoningProvider } from "@aevum/agent-planner";
+import {
+  createAgentEngine,
+  createDeterministicApprovalAdapter,
+  createInMemoryAgentPersistence,
+} from "@aevum/agent-runtime";
 import { createStudioProjectFixture, studioFixtureIds } from "./core/fixture.js";
-import { createDeterministicStudioAgentGateway, type StudioAgentGateway } from "./core/agent.js";
+import { createDeterministicStudioAgentContext, type StudioAgentContext } from "./core/agent.js";
 import {
   createStudioAuthClient,
   loadProductionStudioProject,
@@ -82,7 +89,7 @@ const storage = {
   },
 };
 let session: StudioSession;
-let agentGateway: StudioAgentGateway;
+let agentContext: StudioAgentContext;
 const ThreeViewport = lazy(() => import("./workspaces/ThreeViewport.js"));
 
 function useStudioSnapshot(source: StudioSession): StudioSessionSnapshot {
@@ -333,7 +340,7 @@ function LeftPanel({
         </>
       ) : null}
       {panel === "ASSETS" ? <AssetPanel snapshot={snapshot} /> : null}
-      {panel === "REFERENCES" ? <ReferencesPanel /> : null}
+      {panel === "REFERENCES" ? <ReferencesPanel snapshot={snapshot} /> : null}
       {panel === "AI" ? <AiPanel snapshot={snapshot} selected={selected} onSelect={onSelect} /> : null}
     </aside>
   );
@@ -366,46 +373,250 @@ function AssetPanel({ snapshot }: { snapshot: StudioSessionSnapshot }) {
   );
 }
 
-function ReferencesPanel() {
+function averageScore(scores: Record<string, number>): number | undefined {
+  const values = Object.values(scores);
+  if (values.length === 0) return undefined;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function encodeBase64(bytes: Uint8Array): string {
+  const chunkSize = 0x8000;
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  return btoa(binary);
+}
+
+async function readImageDimensions(file: File): Promise<{ width: number; height: number }> {
+  const bitmap = await createImageBitmap(file);
+  const dimensions = { width: bitmap.width, height: bitmap.height };
+  bitmap.close();
+  return dimensions;
+}
+
+type ReferenceImportStage = "IDLE" | "UPLOADING" | "ANALYZING" | "IMPORTING" | "DONE" | "FAILED";
+
+function ReferencesPanel({ snapshot }: { snapshot: StudioSessionSnapshot }) {
+  const [importStage, setImportStage] = useState<ReferenceImportStage>("IDLE");
+  const [importMessage, setImportMessage] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const importReference = async (file: File) => {
+    setImportStage("UPLOADING");
+    setImportMessage("");
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const dimensions = await readImageDimensions(file);
+      const correlationId = `studio_import_${crypto.randomUUID()}`;
+      const client = agentContext.createMcpClient(correlationId);
+
+      const registered = await client.invoke(
+        "asset.register",
+        {
+          expectedDocumentVersion: snapshot.document.documentVersion,
+          kind: "IMAGE",
+          bytesBase64: encodeBase64(bytes),
+          originalFilename: file.name,
+          mimeType: file.type || "image/png",
+          width: dimensions.width,
+          height: dimensions.height,
+          analyzeForReconstruction: true,
+        },
+        { idempotencyKey: `${correlationId}-register` },
+      );
+      if (!registered.success || registered.data === undefined) {
+        throw new Error(registered.errors[0]?.message ?? "Reference upload failed.");
+      }
+      const registeredData = registered.data as { assetId: string; resultVersion: number };
+      setImportStage("ANALYZING");
+
+      const imported = await client.invoke(
+        "reconstruction.import_reference",
+        { expectedDocumentVersion: registeredData.resultVersion, sourceAssetId: registeredData.assetId },
+        { idempotencyKey: `${correlationId}-import` },
+      );
+      if (!imported.success || imported.data === undefined) {
+        throw new Error(imported.errors[0]?.message ?? "Reference import failed.");
+      }
+      setImportStage("IMPORTING");
+
+      const read = await client.invoke("document.get", { projection: "full" });
+      if (!read.success || read.data === undefined) {
+        throw new Error(read.errors[0]?.message ?? "Could not reload the document after import.");
+      }
+      session.resyncDocument(CanonicalDesignDocumentSchema.parse(read.data));
+
+      const importedData = imported.data as { createdNodeCount: number; textNodeCount: number };
+      setImportMessage(
+        `Imported ${importedData.createdNodeCount} layer${importedData.createdNodeCount === 1 ? "" : "s"}, ${importedData.textNodeCount} with recognized text.`,
+      );
+      setImportStage("DONE");
+    } catch (error) {
+      setImportStage("FAILED");
+      setImportMessage(error instanceof Error ? error.message : "Reference import failed.");
+    }
+  };
+
+  const importControl = (
+    <div className="reference-import">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        style={{ display: "none" }}
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          if (file) void importReference(file);
+        }}
+      />
+      <button
+        type="button"
+        className="secondary-command"
+        disabled={importStage === "UPLOADING" || importStage === "ANALYZING" || importStage === "IMPORTING"}
+        onClick={() => fileInputRef.current?.click()}
+      >
+        Import reference
+      </button>
+      {importStage !== "IDLE" ? (
+        <span className={`reference-import-status status-${importStage.toLowerCase()}`} aria-live="polite">
+          {importStage === "UPLOADING"
+            ? "Uploading…"
+            : importStage === "ANALYZING"
+              ? "Analyzing pixels (region detection + OCR)…"
+              : importStage === "IMPORTING"
+                ? "Creating editable layers…"
+                : importMessage}
+        </span>
+      ) : null}
+    </div>
+  );
+
+  const references = Object.values(snapshot.document.references);
+  if (references.length === 0) {
+    return (
+      <div className="reference-panel empty">
+        <p>No reference has been imported for this document yet.</p>
+        {importControl}
+      </div>
+    );
+  }
   return (
     <div className="reference-panel">
-      <div className="reference-thumb">
-        <div className="reference-art">
-          <span>94.8</span>
-        </div>
-      </div>
-      <strong>Launch reference</strong>
-      <span>1440 × 900 · SRGB</span>
-      <button type="button" className="secondary-command">
-        Replace reference
-      </button>
+      {importControl}
+      {references.map((reference) => {
+        const asset = snapshot.document.assets[reference.assetId];
+        const validation = Object.values(snapshot.document.validations)
+          .filter((record) => record.referenceIds.includes(reference.id))
+          .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))[0];
+        const overallScore = validation ? averageScore(validation.scores) : undefined;
+        return (
+          <div className="reference-entry" key={reference.id}>
+            <div className="reference-thumb">
+              <div className="reference-art">
+                <span>{overallScore === undefined ? "—" : Math.round(overallScore * 100)}</span>
+              </div>
+            </div>
+            <strong>{asset?.name ?? reference.id}</strong>
+            <span>
+              {asset?.dimensions
+                ? `${asset.dimensions.width} × ${asset.dimensions.height}`
+                : "Dimensions not available"}
+              {asset?.mimeType ? ` · ${asset.mimeType}` : ""}
+            </span>
+            <span className="reference-status">
+              {validation ? `Last evaluated ${validation.createdAt}` : "Not evaluated"}
+            </span>
+            <button type="button" className="secondary-command">
+              Replace reference
+            </button>
+          </div>
+        );
+      })}
     </div>
   );
 }
 
-type AiStage =
-  | "IDLE"
-  | "UNDERSTANDING"
-  | "INSPECTING"
-  | "PLANNING"
-  | "DRY_RUN"
-  | "APPLYING"
-  | "RENDERING"
-  | "VERIFYING"
-  | "COMPLETE"
-  | "FAILED";
+type AiStage = "IDLE" | "RUNNING" | "COMPLETE" | "FAILED";
 const aiLabels: Record<AiStage, string> = {
   IDLE: "Ready",
-  UNDERSTANDING: "Understanding request",
-  INSPECTING: "Inspecting selection",
-  PLANNING: "Planning changes",
-  DRY_RUN: "Dry-running",
-  APPLYING: "Applying changes",
-  RENDERING: "Rendering",
-  VERIFYING: "Verifying",
+  RUNNING: "Running",
   COMPLETE: "Complete",
   FAILED: "Failed",
 };
+
+/**
+ * No natural-language understanding exists anywhere in this codebase (confirmed: agent-planner's
+ * deterministic plans dispatch on structured parameters, not text). This is deliberately simple
+ * keyword matching, not a claim of real language understanding — prompts it can't map return
+ * undefined so the panel reports honestly instead of guessing at an edit.
+ */
+function deriveChangesFromPrompt(
+  prompt: string,
+  node: DesignNode,
+  viewportWidth: number,
+): { readonly changes: Record<string, unknown>; readonly summary: string } | undefined {
+  const text = prompt.toLowerCase();
+  const renameMatch = prompt.match(/rename(?: it| this)? to ["']?([^"'.]+)["']?/i);
+  if (renameMatch?.[1]?.trim()) {
+    const name = renameMatch[1].trim();
+    return { changes: { name }, summary: `Rename "${node.name}" → "${name}"` };
+  }
+  if (text.includes("center")) {
+    const width = node.dimensions?.width.value ?? 0;
+    const x = Math.round((viewportWidth - width) / 2);
+    return {
+      changes: { transform: { ...node.transform, position: { ...node.transform.position, x } } },
+      summary: `Center "${node.name}" horizontally (x → ${x})`,
+    };
+  }
+  if (node.dimensions && /\b(bigger|larger|grow)\b/.test(text)) {
+    const width = Math.round(node.dimensions.width.value * 1.2);
+    const height = Math.round(node.dimensions.height.value * 1.2);
+    return {
+      changes: {
+        dimensions: {
+          ...node.dimensions,
+          width: { ...node.dimensions.width, value: width },
+          height: { ...node.dimensions.height, value: height },
+        },
+      },
+      summary: `Resize "${node.name}" to ${width} × ${height}`,
+    };
+  }
+  if (node.dimensions && /\b(smaller|shrink)\b/.test(text)) {
+    const width = Math.round(node.dimensions.width.value * 0.8);
+    const height = Math.round(node.dimensions.height.value * 0.8);
+    return {
+      changes: {
+        dimensions: {
+          ...node.dimensions,
+          width: { ...node.dimensions.width, value: width },
+          height: { ...node.dimensions.height, value: height },
+        },
+      },
+      summary: `Resize "${node.name}" to ${width} × ${height}`,
+    };
+  }
+  const directions: Record<string, { axis: "x" | "y"; sign: 1 | -1 }> = {
+    right: { axis: "x", sign: 1 },
+    left: { axis: "x", sign: -1 },
+    down: { axis: "y", sign: 1 },
+    up: { axis: "y", sign: -1 },
+  };
+  for (const [word, { axis, sign }] of Object.entries(directions)) {
+    if (!text.includes(word)) continue;
+    const distanceMatch = text.match(/(\d+)\s*px/);
+    const distance = (distanceMatch?.[1] ? Number(distanceMatch[1]) : 20) * sign;
+    const nextValue = node.transform.position[axis] + distance;
+    return {
+      changes: { transform: { ...node.transform, position: { ...node.transform.position, [axis]: nextValue } } },
+      summary: `Move "${node.name}" ${word} by ${Math.abs(distance)}px`,
+    };
+  }
+  return undefined;
+}
 
 function AiPanel({
   snapshot,
@@ -428,30 +639,72 @@ function AiPanel({
       return;
     }
     onSelect(nodeId, false);
-    for (const next of ["UNDERSTANDING", "INSPECTING", "PLANNING", "DRY_RUN", "APPLYING"] as AiStage[]) {
-      setStage(next);
-      await new Promise((resolve) => setTimeout(resolve, 90));
-    }
-    try {
-      const oldX = node.transform.position.x;
-      const nextX = prompt.toLowerCase().includes("center")
-        ? Math.round((1440 - (node.dimensions?.width.value ?? 400)) / 2)
-        : oldX + 20;
-      const correlationId = `studio_ai_${crypto.randomUUID()}`;
-      await agentGateway.updateNode({
-        nodeId,
-        changes: { transform: { ...node.transform, position: { ...node.transform.position, x: nextX } } },
-        expectedDocumentVersion: snapshot.document.documentVersion,
-        correlationId,
-      });
+    const viewport = snapshot.document.settings.viewports[snapshot.viewportId];
+    const derived = deriveChangesFromPrompt(prompt, node, viewport?.width ?? 1440);
+    if (!derived) {
+      setStage("FAILED");
       setActions([
-        `Changed ${node.name}: X ${oldX} → ${nextX}`,
-        `Canonical document advanced to v${snapshot.document.documentVersion + 1}`,
+        `Could not map "${prompt}" to a supported edit. Try things like "center it", "make it bigger", "move right 40px", or "rename to New name".`,
       ]);
-      setStage("RENDERING");
-      await new Promise((resolve) => setTimeout(resolve, 90));
-      setStage("VERIFYING");
-      await new Promise((resolve) => setTimeout(resolve, 90));
+      return;
+    }
+    setStage("RUNNING");
+    setActions([]);
+    const correlationId = `studio_ai_${crypto.randomUUID()}`;
+    try {
+      const goal = createAgentGoal({
+        category: "EDIT",
+        request: prompt,
+        targetProjectId: agentContext.projectId,
+        targetDocumentId: agentContext.documentId,
+        targetNodeIds: [nodeId],
+        parameters: { changes: derived.changes },
+      });
+      const agentSession = createAgentSession({
+        actorId: agentContext.actorId,
+        workspaceId: agentContext.workspaceId,
+        projectId: agentContext.projectId,
+        documentId: agentContext.documentId,
+        goal,
+        createdAt: new Date().toISOString(),
+      });
+      const engine = createAgentEngine({
+        reasoningProvider: createDeterministicReasoningProvider(),
+        mcpClient: agentContext.createMcpClient(correlationId),
+        approvalAdapter: createDeterministicApprovalAdapter(),
+        persistence: createInMemoryAgentPersistence(),
+      });
+      const result = await engine.execute({
+        session: agentSession,
+        contextRecords: [],
+        actorPermissions: agentContext.actorPermissions,
+      });
+      if (result.run.status !== "SUCCEEDED") {
+        setStage("FAILED");
+        setActions([
+          result.run.outcome?.summary ?? `Agent run ended with status ${result.run.status}.`,
+          ...(result.run.outcome?.diagnostics.map((entry) => entry.message) ?? []),
+        ]);
+        return;
+      }
+      // The real engine writes through its own MCP client, independent of session's local
+      // ProjectStore. In REMOTE (production) mode that client never touches session, so reflect
+      // the now-committed change locally (see STEP 10's canonical-sync fix). In LOCAL (dev-fixture)
+      // mode the in-process transport already applied it via session.updateNode as part of
+      // simulating the tool call, so doing it again here would double-apply the edit.
+      if (session.mode === "REMOTE") {
+        session.acknowledgeAgentNodeUpdate(nodeId, derived.changes, {
+          expectedDocumentVersion: snapshot.document.documentVersion,
+          actor: { id: agentContext.actorId, type: "MCP_AGENT", displayName: "AEVUM AI" },
+          correlationId,
+        });
+      }
+      const toolSteps = result.audits.filter((entry) => entry.tool && entry.tool !== "system.get_capabilities");
+      setActions([
+        derived.summary,
+        ...toolSteps.map((entry) => `${entry.tool} — ${entry.toolResult.toLowerCase()}`),
+        `Canonical document advanced to v${result.run.outcome?.finalDocumentVersion ?? snapshot.document.documentVersion + 1}`,
+      ]);
       setStage("COMPLETE");
       setPrompt("");
     } catch (error) {
@@ -1050,18 +1303,18 @@ function Timeline({
   );
 }
 
-function FidelityWorkspace({ onSelect }: { onSelect: (id: string, additive: boolean) => void }) {
-  const issues = [
-    { domain: "Typography", message: "Heading width +8 px", score: 0.92, nodeId: studioFixtureIds.heading },
-    { domain: "Layout", message: "Card X offset +12 px", score: 0.96, nodeId: studioFixtureIds.card },
-    { domain: "Effects", message: "Shadow blur unsupported", score: 0.86, nodeId: studioFixtureIds.card },
-  ];
+function FidelityWorkspace({ snapshot }: { snapshot: StudioSessionSnapshot }) {
+  const viewport = snapshot.document.settings.viewports[snapshot.viewportId];
+  const validation = Object.values(snapshot.document.validations).sort((a, b) =>
+    a.createdAt < b.createdAt ? 1 : -1,
+  )[0];
+  const averageOf = averageScore(validation?.scores ?? {});
   return (
     <main className="fidelity-workspace">
       <header>
         <div>
           <strong>Maximum Fidelity</strong>
-          <span>Acceptance reference · 1440 × 900</span>
+          <span>{viewport ? `${viewport.width} × ${viewport.height}` : "No active viewport"}</span>
         </div>
         <div className="comparison-tabs">
           <button type="button">Reference</button>
@@ -1072,63 +1325,47 @@ function FidelityWorkspace({ onSelect }: { onSelect: (id: string, additive: bool
         </div>
       </header>
       <div className="fidelity-body">
-        <section className="comparison-view">
-          <div className="comparison-reference">
-            <span>REFERENCE</span>
-            <div className="mini-layout">
-              <b>
-                Form follows
-                <br />
-                intelligence.
-              </b>
-              <i />
-            </div>
-          </div>
-          <div className="comparison-current">
-            <span>CURRENT · 62%</span>
-            <div className="mini-layout">
-              <b>
-                Form follows
-                <br />
-                intelligence.
-              </b>
-              <i />
-            </div>
-          </div>
-          <div className="heat-patch one" />
-          <div className="heat-patch two" />
-        </section>
-        <aside className="score-panel">
-          <div className="score-ring">
-            <strong>94.8</strong>
-            <span>Overall</span>
-          </div>
-          <div className="score-meta">
-            <span>
-              Coverage <b>98%</b>
-            </span>
-            <span>
-              Confidence <b>96%</b>
-            </span>
-          </div>
-          <div className="domain-bars">
-            {issues.map((issue) => (
-              <button type="button" key={issue.domain} onClick={() => onSelect(issue.nodeId, false)}>
+        {validation ? (
+          <>
+            <section className="comparison-view">
+              <p>
+                Comparison rendering for report {validation.id} is not implemented in this view yet. Domain scores below
+                reflect the stored Maximum Fidelity report.
+              </p>
+            </section>
+            <aside className="score-panel">
+              <div className="score-ring">
+                <strong>{averageOf === undefined ? "—" : Math.round(averageOf * 100)}</strong>
+                <span>Average of {Object.keys(validation.scores).length} domain score(s)</span>
+              </div>
+              <div className="score-meta">
                 <span>
-                  <b>{issue.domain}</b>
-                  <small>{issue.message}</small>
+                  Status <b>{validation.status}</b>
                 </span>
-                <strong>{Math.round(issue.score * 100)}</strong>
-                <i>
-                  <em style={{ width: `${issue.score * 100}%` }} />
-                </i>
-              </button>
-            ))}
+                <span>
+                  Evaluated <b>{validation.createdAt}</b>
+                </span>
+              </div>
+              <div className="domain-bars">
+                {Object.entries(validation.scores).map(([domain, score]) => (
+                  <div key={domain} className="domain-bar">
+                    <span>
+                      <b>{domain}</b>
+                    </span>
+                    <strong>{Math.round(score * 100)}</strong>
+                    <i>
+                      <em style={{ width: `${score * 100}%` }} />
+                    </i>
+                  </div>
+                ))}
+              </div>
+            </aside>
+          </>
+        ) : (
+          <div className="fidelity-empty">
+            <p>Not evaluated. No Maximum Fidelity report has been generated for this document yet.</p>
           </div>
-          <button type="button" className="correction-button">
-            <WandSparkles /> Review 2 corrections
-          </button>
-        </aside>
+        )}
       </div>
     </main>
   );
@@ -1293,7 +1530,7 @@ function App({
             <ThreeViewport snapshot={snapshot} selected={selected} onSelect={select} />
           </Suspense>
         ) : workspace === "FIDELITY" ? (
-          <FidelityWorkspace onSelect={select} />
+          <FidelityWorkspace snapshot={snapshot} />
         ) : (
           <DesignCanvas
             snapshot={snapshot}
@@ -1395,18 +1632,29 @@ function SignIn({ client }: { client: SupabaseClient }) {
 function ProductionBootstrap({ configuration }: { configuration: StudioBrowserConfiguration }) {
   const [client] = useState(() => createStudioAuthClient(configuration));
   const [authSession, setAuthSession] = useState<Session | null>(null);
+  const sessionRef = useRef<Session | null>(null);
   const [loaded, setLoaded] = useState<Awaited<ReturnType<typeof loadProductionStudioProject>> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [online, setOnline] = useState(navigator.onLine);
   useEffect(() => {
     void client.auth.getSession().then(({ data }) => {
+      sessionRef.current = data.session;
       setAuthSession(data.session);
       setLoading(false);
     });
+    // Supabase emits a new Session object (and a TOKEN_REFRESHED event) whenever a background
+    // token refresh runs, e.g. right after the tab regains focus. sessionRef always tracks the
+    // latest token for outgoing MCP calls, but authSession (and the project reload it triggers)
+    // only changes when the signed-in identity actually changes, so a routine refresh no longer
+    // tears down and re-fetches the whole canonical project.
     const { data } = client.auth.onAuthStateChange((_event, next) => {
-      setAuthSession(next);
-      if (!next) setLoaded(null);
+      const previousUserId = sessionRef.current?.user.id;
+      sessionRef.current = next;
+      if (next?.user.id !== previousUserId) {
+        setAuthSession(next);
+        if (!next) setLoaded(null);
+      }
     });
     return () => data.subscription.unsubscribe();
   }, [client]);
@@ -1423,7 +1671,7 @@ function ProductionBootstrap({ configuration }: { configuration: StudioBrowserCo
     if (!authSession) return;
     setLoading(true);
     setError("");
-    void loadProductionStudioProject(configuration, authSession)
+    void loadProductionStudioProject(configuration, authSession, () => sessionRef.current?.access_token ?? "")
       .then((project) => {
         session = createStudioSession({
           project: project.project,
@@ -1432,7 +1680,7 @@ function ProductionBootstrap({ configuration }: { configuration: StudioBrowserCo
           commandGateway: project.commandGateway,
           restoreFromPersistence: false,
         });
-        agentGateway = project.agentGateway;
+        agentContext = project.agentContext;
         setLoaded(project);
       })
       .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Studio startup failed."))
@@ -1492,11 +1740,12 @@ function StudioRoot() {
     if (import.meta.env.DEV) {
       const fixture = createStudioProjectFixture();
       session = createStudioSession({ ...fixture, persistence: storage });
-      agentGateway = createDeterministicStudioAgentGateway({
+      agentContext = createDeterministicStudioAgentContext({
         session,
         workspaceId: fixture.project.workspaceId,
         projectId: fixture.project.id,
         documentId: fixture.document.metadata.id,
+        actorId: "studio-dev-actor",
       });
       return <App />;
     }

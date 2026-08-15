@@ -53,6 +53,7 @@
     "@aevum/lighting": "workspace:*",
     "@aevum/project-store": "workspace:*",
     "@aevum/reconstruction": "workspace:*",
+    "@aevum/reconstruction-vision": "workspace:*",
     "@aevum/reconstruction-worker": "workspace:*",
     "@aevum/renderer-2d": "workspace:*",
     "@aevum/renderer-3d": "workspace:*",
@@ -67,6 +68,7 @@
     "@biomejs/biome": "2.5.6",
     "@playwright/test": "1.62.1",
     "@types/node": "26.1.2",
+    "sharp": "0.34.4",
     "turbo": "2.10.8",
     "typescript": "7.0.2",
     "vitest": "4.1.10"

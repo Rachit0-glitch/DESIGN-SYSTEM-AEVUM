@@ -2207,3 +2207,30 @@ MCP tool version `1.11.0` adds `fidelity.inspect`, `fidelity.validate_report`, a
 idempotency, audit, lock enforcement, and optional expected-before state. It compiles the existing `node.update`
 command and never mutates canonical state directly. Production MCP remains on its previously deployed generation
 until a separate deployment is authorized; repository tools are not claimed as production-live.
+
+## 99. Studio Stabilization Tool Surface (asset ingestion and 2D reconstruction)
+
+MCP tool version `1.12.0` adds `asset.register` and `reconstruction.import_reference`, both WRITE tools, as part
+of the Studio↔MCP↔Agent stabilization block (see `STABILIZATION_KNOWN_LIMITATIONS.md`; this is an integration
+milestone, not a new numbered phase).
+
+- `asset.register` — `document.write`, `asset.write`. Registers a new IMAGE asset (base64 bytes, decoded and
+  stored through an injectable `AssetStorageAdapter`; honestly `MCP_TOOL_DISABLED` when none is configured) via
+  the existing `packages/assets` `registerAsset()` primitive and the existing `asset.register` Command Engine
+  command. An optional `analyzeForReconstruction` flag runs real, local, free pixel analysis
+  (`@aevum/reconstruction-vision`: color-cluster region segmentation plus two-pass tesseract.js OCR — no paid
+  vision/OCR API) and attaches the resulting manifest to the asset's metadata, exactly where
+  `packages/reconstruction`'s existing `analyzeReference()` already expects to find one.
+- `reconstruction.import_reference` — `document.write`, `asset.read`. Runs `packages/reconstruction`'s existing,
+  unmodified analyze → proposal → command-plan pipeline against an already-registered, already-analyzed source
+  asset and commits the resulting multi-command transaction (`beginTransaction` + the proposal's command list)
+  against the caller's current document. Produces real, individually-editable canonical nodes (background,
+  shape, image, and text layers with real recognized content where OCR succeeded) — never an embedded copy of
+  the reference image standing in for reconstruction.
+
+Both writes follow the same conventions as every other WRITE tool: expected document version, dry run,
+idempotency, audit, workspace authorization, bounded payloads. Region/text detection accuracy is real but
+bounded — see `STABILIZATION_KNOWN_LIMITATIONS.md` for concrete, tested gaps (most notably: heavily stylized
+display typography is not detected as text at all, and IMAGE-category nodes reference a crop of the original
+source asset rather than an independently extracted image). Production MCP remains on its previously deployed
+generation until a separate deployment is authorized; repository tools are not claimed as production-live.

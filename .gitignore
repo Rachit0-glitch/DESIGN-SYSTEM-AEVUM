@@ -17,6 +17,8 @@ test-results/
 Thumbs.db
 .DS_Store
 .vercel/
+.tesseract-cache/
+*.traineddata
 
 .env*
 __pycache__/

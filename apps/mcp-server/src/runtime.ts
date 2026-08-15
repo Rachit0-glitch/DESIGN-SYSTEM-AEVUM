@@ -1,4 +1,4 @@
-import { createSupabaseProjectRepository } from "@aevum/project-store";
+import { createSupabaseAssetStorage, createSupabaseProjectRepository } from "@aevum/project-store";
 import { env, type AevumEnvironment, type AevumLogger, createLogger } from "@aevum/shared";
 import {
   createDevelopmentAuthVerifier,
@@ -64,7 +64,16 @@ export function createProductionMcpRuntime(environment: AevumEnvironment = env, 
     fetch: timeoutFetch(environment.mcp.databaseTimeoutMs),
   });
   const registry = createToolRegistry();
-  registerInitialTools(registry, config);
+  const assetStorage =
+    environment.storage.provider === "SUPABASE" && environment.storage.bucket
+      ? createSupabaseAssetStorage({
+          url: required(environment.supabase.url, "SUPABASE_URL"),
+          serviceRoleKey: required(environment.supabase.serviceRoleKey, "SUPABASE_SERVICE_ROLE_KEY"),
+          bucket: environment.storage.bucket,
+          fetch: timeoutFetch(environment.mcp.databaseTimeoutMs),
+        })
+      : undefined;
+  registerInitialTools(registry, config, { ...(assetStorage ? { assetStorage } : {}) });
   return createMcpExecutor({
     config,
     authVerifier: authVerifier(environment),

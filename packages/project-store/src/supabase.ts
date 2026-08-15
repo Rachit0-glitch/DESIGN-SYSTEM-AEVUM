@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { CanonicalDesignDocumentSchema } from "@aevum/document-model";
+import { CanonicalDesignDocumentSchema, type AssetRecord } from "@aevum/document-model";
+import type { AssetStorageAdapter, StoreAssetRequest, StoredAssetObject } from "@aevum/assets";
 import {
   PersistedIdempotencyRecordSchema,
   ProjectRepositoryError,
@@ -276,5 +277,80 @@ export function createSupabaseProjectRepository(options: SupabaseProjectReposito
       };
     },
     async close() {},
+  };
+}
+
+export interface SupabaseAssetStorageOptions {
+  readonly url: string;
+  readonly serviceRoleKey: string;
+  readonly bucket: string;
+  readonly fetch?: typeof fetch;
+}
+
+const SUPABASE_STORAGE_URI_PREFIX = "supabase-storage:";
+
+function hashToStoragePath(hash: string): string {
+  return hash.replace(/^sha256:/i, "");
+}
+
+function assetStoragePath(asset: AssetRecord): string {
+  if (!asset.source.uri.startsWith(SUPABASE_STORAGE_URI_PREFIX)) {
+    throw new ProjectRepositoryError(
+      "PERSISTENCE_ERROR",
+      `Asset ${asset.id} is not stored in Supabase Storage (uri: ${asset.source.uri}).`,
+    );
+  }
+  return asset.source.uri.slice(SUPABASE_STORAGE_URI_PREFIX.length);
+}
+
+/**
+ * Real Supabase Storage-backed AssetStorageAdapter. Content-addressed by hash so repeated
+ * uploads of identical bytes are idempotent (`upsert: true` on the same path); originals and
+ * derivatives are kept in separate namespaces within the bucket.
+ */
+export function createSupabaseAssetStorage(options: SupabaseAssetStorageOptions): AssetStorageAdapter {
+  const client: SupabaseClient = createClient(options.url, options.serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+    global: options.fetch ? { fetch: options.fetch } : {},
+  });
+
+  async function store(request: StoreAssetRequest, namespace: "originals" | "derivatives"): Promise<StoredAssetObject> {
+    if (request.asset.hash !== request.expectedHash) {
+      throw new ProjectRepositoryError("PERSISTENCE_ERROR", "Asset content hash does not match the expected hash.");
+    }
+    const path = `${namespace}/${hashToStoragePath(request.expectedHash)}`;
+    const { error } = await client.storage
+      .from(options.bucket)
+      .upload(path, request.bytes, { contentType: request.asset.mimeType, upsert: true });
+    if (error) persistenceError("Asset storage upload failed", error);
+    return {
+      assetId: request.asset.id,
+      uri: `${SUPABASE_STORAGE_URI_PREFIX}${path}`,
+      contentHash: request.expectedHash,
+      byteSize: request.bytes.byteLength,
+      immutable: true,
+    };
+  }
+
+  return {
+    id: "supabase-storage",
+    kind: "SUPABASE",
+    storeOriginal: (request) => store(request, "originals"),
+    storeDerivative: (request) => store(request, "derivatives"),
+    async read(asset) {
+      const path = assetStoragePath(asset);
+      const { data, error } = await client.storage.from(options.bucket).download(path);
+      if (error || !data) persistenceError(`Asset ${asset.id} download failed`, error ?? undefined);
+      return new Uint8Array(await data.arrayBuffer());
+    },
+    async exists(asset) {
+      const path = assetStoragePath(asset);
+      const lastSlash = path.lastIndexOf("/");
+      const directory = lastSlash === -1 ? "" : path.slice(0, lastSlash);
+      const filename = lastSlash === -1 ? path : path.slice(lastSlash + 1);
+      const { data, error } = await client.storage.from(options.bucket).list(directory, { search: filename });
+      if (error) persistenceError(`Asset ${asset.id} existence check failed`, error);
+      return (data ?? []).some((entry) => entry.name === filename);
+    },
   };
 }

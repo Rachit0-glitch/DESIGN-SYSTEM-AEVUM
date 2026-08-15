@@ -1,0 +1,293 @@
+import sharp from "sharp";
+import {
+  ReconstructionManifestSchema,
+  type ReconstructionManifest,
+  type ReconstructionManifestRegionSchema,
+} from "@aevum/reconstruction";
+import type { z } from "zod";
+import { segmentForeground, type Blob } from "./segmentation.js";
+import { createOcrSession, type OcrTextRegion } from "./ocr.js";
+
+type ManifestRegionInput = z.input<typeof ReconstructionManifestRegionSchema>;
+
+export interface BuildManifestOptions {
+  readonly referenceType?: "WEBSITE_SCREENSHOT" | "UI_SCREENSHOT" | "LANDING_PAGE" | "POSTER" | "STATIC_2D";
+  /** Real local OCR via tesseract.js. Defaults on; disable for a pure-shapes pass. */
+  readonly enableOcr?: boolean;
+  readonly ocrCacheDir?: string;
+  /** Segmentation runs on a downsampled copy for speed; bounds are scaled back to source pixels. */
+  readonly workingMaxEdge?: number;
+}
+
+export interface BuildManifestResult {
+  readonly manifest: ReconstructionManifest;
+  /** Honest notes about what happened (e.g. OCR skipped or failed) — never silently swallowed. */
+  readonly diagnostics: readonly string[];
+}
+
+interface Rect {
+  readonly x0: number;
+  readonly y0: number;
+  readonly x1: number;
+  readonly y1: number;
+}
+
+function rectOf(bbox: OcrTextRegion["bbox"]): Rect {
+  return { x0: bbox.x0, y0: bbox.y0, x1: bbox.x1, y1: bbox.y1 };
+}
+
+function rectArea(rect: Rect): number {
+  return Math.max(0, rect.x1 - rect.x0) * Math.max(0, rect.y1 - rect.y0);
+}
+
+/**
+ * Two-pass local OCR: a whole-image, line-level pass gives rough candidate locations (tesseract
+ * reading a busy scene end-to-end is noisy), then each candidate is cropped from the full-
+ * resolution source and re-recognized in isolation, which is dramatically more accurate — a
+ * standard localize-then-recognize technique, not a shortcut.
+ */
+async function detectTextRegions(
+  bytes: Uint8Array,
+  sourceWidth: number,
+  sourceHeight: number,
+  cacheDir: string | undefined,
+  diagnostics: string[],
+): Promise<readonly OcrTextRegion[]> {
+  const session = await createOcrSession(cacheDir ? { cacheDir } : {});
+  try {
+    const roughLines = await session.recognizeLines(bytes);
+    const candidates = roughLines
+      .map((line) => rectOf(line.bbox))
+      .filter((rect) => {
+        const area = rectArea(rect);
+        const w = rect.x1 - rect.x0;
+        const h = rect.y1 - rect.y0;
+        // A real line of text — even a huge poster headline — is wide relative to its own
+        // height, and doesn't span almost the whole canvas in both directions at once. A box
+        // that's tall AND wide relative to the source is almost always a garbled whole-image
+        // misread on a busy photo, not one real line, so it's discarded rather than kept.
+        const spansMostOfWidth = w > sourceWidth * 0.92;
+        const spansMostOfHeight = h > sourceHeight * 0.4;
+        return area > 0 && w >= 6 && h >= 6 && !(spansMostOfWidth && spansMostOfHeight);
+      })
+      // Cap how many crops we re-OCR — a noisy photo can produce dozens of spurious line guesses.
+      .slice(0, 24);
+
+    const resolved: OcrTextRegion[] = [];
+    for (const rect of candidates) {
+      const paddingX = Math.max(4, Math.round((rect.x1 - rect.x0) * 0.08));
+      const paddingY = Math.max(4, Math.round((rect.y1 - rect.y0) * 0.3));
+      const left = Math.max(0, Math.round(rect.x0 - paddingX));
+      const top = Math.max(0, Math.round(rect.y0 - paddingY));
+      const width = Math.min(sourceWidth - left, Math.round(rect.x1 - rect.x0 + paddingX * 2));
+      const height = Math.min(sourceHeight - top, Math.round(rect.y1 - rect.y0 + paddingY * 2));
+      if (width < 4 || height < 4) continue;
+      const crop = await sharp(Buffer.from(bytes))
+        .extract({ left, top, width, height })
+        .resize(width * 2, height * 2, { kernel: "cubic" })
+        .grayscale()
+        .normalize()
+        .png()
+        .toBuffer();
+      const reread = await session.recognize(crop);
+      const best = [...reread].sort((a, b) => b.confidence - a.confidence)[0];
+      if (best && best.text.length > 0 && best.confidence >= 35) {
+        resolved.push({ text: best.text, confidence: best.confidence, bbox: rect });
+      }
+    }
+    if (roughLines.length > 0 && resolved.length === 0) {
+      diagnostics.push("OCR located possible text regions but could not confidently read any of them.");
+    }
+    return resolved;
+  } finally {
+    await session.close();
+  }
+}
+
+export async function buildManifestFromImage(
+  bytes: Uint8Array,
+  options: BuildManifestOptions = {},
+): Promise<BuildManifestResult> {
+  const source = sharp(Buffer.from(bytes));
+  const metadata = await source.metadata();
+  const width = metadata.width;
+  const height = metadata.height;
+  if (!width || !height) throw new Error("Could not determine source image dimensions.");
+
+  const workingMaxEdge = options.workingMaxEdge ?? 480;
+  const scale = Math.min(1, workingMaxEdge / Math.max(width, height));
+  const workingWidth = Math.max(1, Math.round(width * scale));
+  const workingHeight = Math.max(1, Math.round(height * scale));
+  const { data } = await source
+    .clone()
+    .resize(workingWidth, workingHeight, { fit: "fill" })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const segmentation = segmentForeground({
+    data: new Uint8ClampedArray(data.buffer, data.byteOffset, data.byteLength),
+    width: workingWidth,
+    height: workingHeight,
+  });
+
+  const diagnostics: string[] = [];
+  let ocrRegions: readonly OcrTextRegion[] = [];
+  if (options.enableOcr ?? true) {
+    try {
+      ocrRegions = await detectTextRegions(bytes, width, height, options.ocrCacheDir, diagnostics);
+    } catch (error) {
+      diagnostics.push(
+        `OCR failed, continuing without recognized text: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  } else {
+    diagnostics.push("OCR disabled by caller; no text regions were produced.");
+  }
+
+  const toSourceScale = (value: number): number => value / scale;
+  const regions: ManifestRegionInput[] = [
+    {
+      key: "page",
+      category: "PAGE",
+      bounds: { x: 0, y: 0, width, height },
+      confidence: 1,
+      semanticHints: ["reconstruction-vision:page-root"],
+      layout: { type: "ABSOLUTE", confidence: 0.5 },
+    },
+  ];
+
+  const textRects: Rect[] = [];
+  ocrRegions.forEach((region, index) => {
+    const rect = rectOf(region.bbox);
+    const x = Math.max(0, Math.round(rect.x0));
+    const y = Math.max(0, Math.round(rect.y0));
+    const w = Math.min(width - x, Math.max(1, Math.round(rect.x1 - rect.x0)));
+    const h = Math.min(height - y, Math.max(1, Math.round(rect.y1 - rect.y0)));
+    if (w <= 0 || h <= 0) return;
+    textRects.push(rect);
+    regions.push({
+      key: `text-${index}`,
+      category: "TEXT",
+      parentKey: "page",
+      bounds: { x, y, width: w, height: h },
+      confidence: Math.min(1, Math.max(0, region.confidence / 100)),
+      semanticHints: ["reconstruction-vision:ocr"],
+      text: {
+        content: region.text,
+        fontFamily: "AEVUM Unknown",
+        fontSize: Math.max(8, Math.round(h * 0.7)),
+        fontWeight: 400,
+        alignment: "LEFT",
+        direction: "AUTO",
+      },
+    });
+  });
+
+  // A blob is "consumed" by text only when a text region actually accounts for most of that
+  // blob's own area — a text line merely sitting on top of a large background/shape blob must
+  // not cause the whole blob to be dropped.
+  const isConsumedByText = (blob: Blob): boolean => {
+    const bx0 = toSourceScale(blob.minX);
+    const by0 = toSourceScale(blob.minY);
+    const bx1 = toSourceScale(blob.maxX);
+    const by1 = toSourceScale(blob.maxY);
+    const blobArea = Math.max(1, (bx1 - bx0) * (by1 - by0));
+    let coveredArea = 0;
+    for (const rect of textRects) {
+      const overlapX = Math.max(0, Math.min(bx1, rect.x1) - Math.max(bx0, rect.x0));
+      const overlapY = Math.max(0, Math.min(by1, rect.y1) - Math.max(by0, rect.y0));
+      coveredArea += overlapX * overlapY;
+    }
+    return coveredArea / blobArea > 0.6;
+  };
+
+  const sourceArea = width * height;
+  // Non-max suppression by area: a busy photograph's color quantization can still fragment one
+  // real visual zone into many overlapping blobs of different clusters. Once a large blob is
+  // accepted, a smaller blob mostly contained inside it is almost always a sub-fragment of the
+  // same zone (a highlight, a shadow edge) rather than its own distinct design element, so it's
+  // dropped rather than kept as one more redundant region.
+  const acceptedRects: Rect[] = [];
+  const isMostlyInsideAccepted = (blob: Blob): boolean => {
+    const bx0 = toSourceScale(blob.minX);
+    const by0 = toSourceScale(blob.minY);
+    const bx1 = toSourceScale(blob.maxX);
+    const by1 = toSourceScale(blob.maxY);
+    const blobArea = Math.max(1, (bx1 - bx0) * (by1 - by0));
+    for (const rect of acceptedRects) {
+      const overlapX = Math.max(0, Math.min(bx1, rect.x1) - Math.max(bx0, rect.x0));
+      const overlapY = Math.max(0, Math.min(by1, rect.y1) - Math.max(by0, rect.y0));
+      if ((overlapX * overlapY) / blobArea > 0.65) return true;
+    }
+    return false;
+  };
+
+  let regionIndex = 0;
+  // Cap total shape/image regions — only the most significant color-cluster zones survive; small
+  // fragments are dropped as noise rather than kept as spurious extra layers.
+  const maxShapeRegions = 16;
+  for (const blob of segmentation.blobs) {
+    if (regionIndex >= maxShapeRegions) break;
+    if (isConsumedByText(blob)) continue;
+    if (isMostlyInsideAccepted(blob)) continue;
+    const x = Math.max(0, Math.round(toSourceScale(blob.minX)));
+    const y = Math.max(0, Math.round(toSourceScale(blob.minY)));
+    const w = Math.min(width - x, Math.max(1, Math.round(toSourceScale(blob.maxX - blob.minX))));
+    const h = Math.min(height - y, Math.max(1, Math.round(toSourceScale(blob.maxY - blob.minY))));
+    if (w <= 0 || h <= 0) continue;
+    const area = w * h;
+    // Real, measured signals (not guessed): a blob whose interior color varies a lot is more
+    // likely a photo/illustration; one covering most of the canvas is more likely a background;
+    // otherwise a fairly uniform, bounded blob reads as a flat shape.
+    const isLikelyImage = blob.colorVariance > 700;
+    const isLikelyBackground = area / sourceArea > 0.55;
+    const category = isLikelyBackground ? "BACKGROUND" : isLikelyImage ? "IMAGE" : "SHAPE";
+    regions.push({
+      key: `region-${regionIndex}`,
+      category,
+      parentKey: "page",
+      bounds: { x, y, width: w, height: h },
+      confidence: Math.min(0.8, 0.3 + blob.fillRatio * 0.5),
+      semanticHints: [
+        isLikelyBackground
+          ? "reconstruction-vision:background-cluster"
+          : isLikelyImage
+            ? "reconstruction-vision:high-variance-cluster"
+            : "reconstruction-vision:solid-cluster",
+      ],
+      ...(isLikelyImage
+        ? { image: { fit: "COVER" as const, extracted: false } }
+        : {
+            shape: {
+              shapeType: "RECTANGLE" as const,
+              geometry: {},
+              fill: {
+                r: Math.round(blob.meanColor[0]),
+                g: Math.round(blob.meanColor[1]),
+                b: Math.round(blob.meanColor[2]),
+              },
+            },
+          }),
+    });
+    // A BACKGROUND blob's own bounding box typically spans nearly the whole canvas even though
+    // its actual pixels have a hole where foreground elements sit — so it must never suppress
+    // smaller blobs nested inside that bounding box, or every real foreground element behind a
+    // colored background would be wrongly dropped as "contained" in it.
+    if (category !== "BACKGROUND") acceptedRects.push({ x0: x, y0: y, x1: x + w, y1: y + h });
+    regionIndex += 1;
+  }
+
+  if (regionIndex === 0 && ocrRegions.length === 0) {
+    diagnostics.push(
+      "No foreground regions were detected beyond the page background; this image may be nearly uniform or its color palette may not separate cleanly.",
+    );
+  }
+
+  const manifest = ReconstructionManifestSchema.parse({
+    manifestVersion: "1.0.0",
+    referenceType: options.referenceType ?? "STATIC_2D",
+    regions,
+  });
+  return { manifest, diagnostics };
+}
