@@ -1,4 +1,5 @@
 import { createAgentMcpClient, createHttpMcpTransport } from "@aevum/agent-runtime/client";
+import { AgentApprovalPolicySchema } from "@aevum/agent-core";
 import { CanonicalDesignDocumentSchema, type CanonicalDesignDocument } from "@aevum/document-model";
 import { DocumentReadOutputSchema, WriteToolOutputSchema } from "@aevum/mcp-protocol";
 import type { ProjectMetadata } from "@aevum/project-store";
@@ -14,6 +15,11 @@ const BrowserConfigurationSchema = z.strictObject({
   supabaseAnonKey: z.string().min(20),
   apiUrl: z.url().startsWith("https://"),
   mcpUrl: z.url().startsWith("https://"),
+  // Wires AGENT_APPROVAL_POLICY into the live engine (Block D5) — previously parsed server-side
+  // (packages/shared/src/env.ts) but never read by the production entrypoint, so the engine always
+  // silently defaulted regardless of what this said. Same 4 policy values, same default
+  // (AUTO_SAFE_WRITE) as the server-side schema.
+  agentApprovalPolicy: AgentApprovalPolicySchema.default("AUTO_SAFE_WRITE"),
 });
 
 const BootstrapSchema = z.strictObject({
@@ -61,6 +67,7 @@ export function readStudioBrowserConfiguration(): StudioBrowserConfiguration {
     supabaseAnonKey: import.meta.env.VITE_SUPABASE_ANON_KEY,
     apiUrl: import.meta.env.VITE_AEVUM_API_URL,
     mcpUrl: import.meta.env.VITE_AEVUM_MCP_URL,
+    agentApprovalPolicy: import.meta.env.VITE_AGENT_APPROVAL_POLICY,
   });
 }
 
@@ -198,6 +205,7 @@ export async function loadProductionStudioProject(
     projectId: record.id,
     documentId: record.currentDocumentId,
     actorId: bootstrap.actor.subject,
+    approvalPolicy: configuration.agentApprovalPolicy,
   });
   return {
     project: {

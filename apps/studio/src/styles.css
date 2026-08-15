@@ -451,6 +451,57 @@ svg {
 .status-failed .status-pulse {
   background: #e2665e;
 }
+.ai-approval {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid #e9a15e55;
+  border-radius: 4px;
+  background: #1a1d20;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.ai-approval strong {
+  color: #e9a15e;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.ai-approval code {
+  color: #c7ccca;
+  font-size: 10px;
+}
+.approval-classification {
+  font-size: 10px;
+  color: #9aa19e;
+}
+.approval-classification.classification-destructive_write {
+  color: #e2665e;
+}
+.approval-buttons {
+  display: flex;
+  gap: 8px;
+}
+.approval-approve,
+.approval-reject {
+  flex: 1;
+  padding: 7px 0;
+  border: 1px solid #44494d;
+  border-radius: 4px;
+  font-size: 10px;
+  cursor: pointer;
+}
+.approval-approve {
+  background: #67be8a;
+  color: #12140f;
+  border-color: #67be8a;
+}
+.approval-reject {
+  background: #1a1d20;
+  color: #e2665e;
+  border-color: #e2665e55;
+}
 .ai-actions {
   flex: 1;
   overflow: auto;

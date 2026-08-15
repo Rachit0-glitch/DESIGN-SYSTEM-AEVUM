@@ -1,4 +1,5 @@
 import { createAgentMcpClient, createInProcessMcpTransport, type AgentMcpClient } from "@aevum/agent-runtime/client";
+import type { AgentApprovalPolicy } from "@aevum/agent-core";
 import { CURRENT_COMMAND_VERSION } from "@aevum/command-engine";
 import { CURRENT_SCHEMA_VERSION, type CanonicalDesignDocument, type DesignNode } from "@aevum/document-model";
 import {
@@ -28,6 +29,9 @@ export interface StudioAgentContext {
   readonly projectId: string;
   readonly documentId: string;
   readonly actorId: string;
+  /** Wired from AGENT_APPROVAL_POLICY (Block D5) — real deployment configuration, not invented
+   * client-side. Defaults to AUTO_SAFE_WRITE, the same default the server-side schema uses. */
+  readonly approvalPolicy: AgentApprovalPolicy;
 }
 
 function subtreeNodes(document: CanonicalDesignDocument, rootId: string): DesignNode[] {
@@ -91,6 +95,7 @@ export function createDeterministicStudioAgentContext(input: {
   readonly projectId: string;
   readonly documentId: string;
   readonly actorId: string;
+  readonly approvalPolicy?: AgentApprovalPolicy;
 }): StudioAgentContext {
   const capabilities: McpToolDescriptor[] = [
     toolDescriptor("system.get_capabilities", ["mcp.tool.execute"], "READ"),
@@ -216,5 +221,6 @@ export function createDeterministicStudioAgentContext(input: {
     projectId: input.projectId,
     documentId: input.documentId,
     actorId: input.actorId,
+    approvalPolicy: input.approvalPolicy ?? "AUTO_SAFE_WRITE",
   });
 }

@@ -52,11 +52,8 @@ import { CanonicalDesignDocumentSchema, type DesignNode } from "@aevum/document-
 import type { RenderGraphNode, RenderPaint } from "@aevum/renderer-2d";
 import { createAgentGoal, createAgentSession } from "@aevum/agent-core";
 import { createDeterministicReasoningProvider } from "@aevum/agent-planner";
-import {
-  createAgentEngine,
-  createDeterministicApprovalAdapter,
-  createInMemoryAgentPersistence,
-} from "@aevum/agent-runtime";
+import { createAgentEngine, createInMemoryAgentPersistence } from "@aevum/agent-runtime";
+import { createInteractiveApprovalAdapter, type StudioPendingApproval } from "./core/approval.js";
 import { createStudioProjectFixture, studioFixtureIds } from "./core/fixture.js";
 import { createDeterministicStudioAgentContext, type StudioAgentContext } from "./core/agent.js";
 import {
@@ -560,75 +557,29 @@ const aiLabels: Record<AiStage, string> = {
 };
 
 /**
- * No natural-language understanding exists anywhere in this codebase (confirmed: agent-planner's
- * deterministic plans dispatch on structured parameters, not text). This is deliberately simple
- * keyword matching, not a claim of real language understanding — prompts it can't map return
- * undefined so the panel reports honestly instead of guessing at an edit.
+ * Describes what actually changed by comparing the node's state before and after a real agent run
+ * — computed from real, applied results (Block D4), not a pre-flight guess made before the write
+ * ever happened. Returns a generic fallback only when no tracked field actually differs (e.g. the
+ * edit affected a property this summary doesn't track), never a fabricated description.
  */
-function deriveChangesFromPrompt(
-  prompt: string,
-  node: DesignNode,
-  viewportWidth: number,
-): { readonly changes: Record<string, unknown>; readonly summary: string } | undefined {
-  const text = prompt.toLowerCase();
-  const renameMatch = prompt.match(/rename(?: it| this)? to ["']?([^"'.]+)["']?/i);
-  if (renameMatch?.[1]?.trim()) {
-    const name = renameMatch[1].trim();
-    return { changes: { name }, summary: `Rename "${node.name}" → "${name}"` };
+function summarizeNodeChange(before: DesignNode, after: DesignNode | undefined): string {
+  if (!after) return `Edited "${before.name}"`;
+  if (before.name !== after.name) return `Rename "${before.name}" → "${after.name}"`;
+  const beforePos = before.transform.position;
+  const afterPos = after.transform.position;
+  if (beforePos.x !== afterPos.x || beforePos.y !== afterPos.y) {
+    return `Move "${after.name}" to (${Math.round(afterPos.x)}, ${Math.round(afterPos.y)})`;
   }
-  if (text.includes("center")) {
-    const width = node.dimensions?.width.value ?? 0;
-    const x = Math.round((viewportWidth - width) / 2);
-    return {
-      changes: { transform: { ...node.transform, position: { ...node.transform.position, x } } },
-      summary: `Center "${node.name}" horizontally (x → ${x})`,
-    };
+  const beforeDim = before.dimensions;
+  const afterDim = after.dimensions;
+  if (
+    beforeDim &&
+    afterDim &&
+    (beforeDim.width.value !== afterDim.width.value || beforeDim.height.value !== afterDim.height.value)
+  ) {
+    return `Resize "${after.name}" to ${Math.round(afterDim.width.value)} × ${Math.round(afterDim.height.value)}`;
   }
-  if (node.dimensions && /\b(bigger|larger|grow)\b/.test(text)) {
-    const width = Math.round(node.dimensions.width.value * 1.2);
-    const height = Math.round(node.dimensions.height.value * 1.2);
-    return {
-      changes: {
-        dimensions: {
-          ...node.dimensions,
-          width: { ...node.dimensions.width, value: width },
-          height: { ...node.dimensions.height, value: height },
-        },
-      },
-      summary: `Resize "${node.name}" to ${width} × ${height}`,
-    };
-  }
-  if (node.dimensions && /\b(smaller|shrink)\b/.test(text)) {
-    const width = Math.round(node.dimensions.width.value * 0.8);
-    const height = Math.round(node.dimensions.height.value * 0.8);
-    return {
-      changes: {
-        dimensions: {
-          ...node.dimensions,
-          width: { ...node.dimensions.width, value: width },
-          height: { ...node.dimensions.height, value: height },
-        },
-      },
-      summary: `Resize "${node.name}" to ${width} × ${height}`,
-    };
-  }
-  const directions: Record<string, { axis: "x" | "y"; sign: 1 | -1 }> = {
-    right: { axis: "x", sign: 1 },
-    left: { axis: "x", sign: -1 },
-    down: { axis: "y", sign: 1 },
-    up: { axis: "y", sign: -1 },
-  };
-  for (const [word, { axis, sign }] of Object.entries(directions)) {
-    if (!text.includes(word)) continue;
-    const distanceMatch = text.match(/(\d+)\s*px/);
-    const distance = (distanceMatch?.[1] ? Number(distanceMatch[1]) : 20) * sign;
-    const nextValue = node.transform.position[axis] + distance;
-    return {
-      changes: { transform: { ...node.transform, position: { ...node.transform.position, [axis]: nextValue } } },
-      summary: `Move "${node.name}" ${word} by ${Math.abs(distance)}px`,
-    };
-  }
-  return undefined;
+  return `Edited "${after.name}"`;
 }
 
 function AiPanel({
@@ -643,6 +594,8 @@ function AiPanel({
   const [prompt, setPrompt] = useState("");
   const [stage, setStage] = useState<AiStage>("IDLE");
   const [actions, setActions] = useState<string[]>([]);
+  const [pendingApproval, setPendingApproval] = useState<StudioPendingApproval | undefined>(undefined);
+  const approvalControllerRef = useRef<ReturnType<typeof createInteractiveApprovalAdapter> | undefined>(undefined);
   const run = async () => {
     const nodeId = selected[0] ?? snapshot.document.rootNodeIds[0] ?? "";
     const node = snapshot.document.nodes[nodeId];
@@ -653,25 +606,21 @@ function AiPanel({
     }
     onSelect(nodeId, false);
     const viewport = snapshot.document.settings.viewports[snapshot.viewportId];
-    const derived = deriveChangesFromPrompt(prompt, node, viewport?.width ?? 1440);
-    if (!derived) {
-      setStage("FAILED");
-      setActions([
-        `Could not map "${prompt}" to a supported edit. Try things like "center it", "make it bigger", "move right 40px", or "rename to New name".`,
-      ]);
-      return;
-    }
     setStage("RUNNING");
     setActions([]);
     const correlationId = `studio_ai_${crypto.randomUUID()}`;
     try {
+      // The raw prompt is handed to the real Agent Planner (Block D4) — it interprets the request
+      // itself, at plan-execution time, after reading the node's real current state, rather than
+      // Studio guessing client-side before any real read happens. An unrecognized prompt now fails
+      // as a real plan-execution error (caught below) instead of a pre-flight UI guess.
       const goal = createAgentGoal({
         category: "EDIT",
         request: prompt,
         targetProjectId: agentContext.projectId,
         targetDocumentId: agentContext.documentId,
         targetNodeIds: [nodeId],
-        parameters: { changes: derived.changes },
+        parameters: { prompt, viewportWidth: viewport?.width ?? 1440 },
       });
       const agentSession = createAgentSession({
         actorId: agentContext.actorId,
@@ -681,17 +630,36 @@ function AiPanel({
         goal,
         createdAt: new Date().toISOString(),
       });
+      // A real, human-in-the-loop approval adapter (Block D5) — decide() genuinely suspends until
+      // the user clicks Approve/Reject in the UI below, rather than the previous
+      // createDeterministicApprovalAdapter() with no arguments, which auto-rejected every
+      // approval-gated step since its approvedStepIds/approvedTools sets were always empty. The
+      // real AGENT_APPROVAL_POLICY-derived policy (agentContext.approvalPolicy) decides whether
+      // this specific edit needs approval at all — a safe write under the default AUTO_SAFE_WRITE
+      // policy proceeds automatically, same as before.
+      const approvalController = createInteractiveApprovalAdapter();
+      approvalControllerRef.current = approvalController;
+      const unsubscribeApproval = approvalController.subscribe(() =>
+        setPendingApproval(approvalController.getPending()),
+      );
       const engine = createAgentEngine({
-        reasoningProvider: createDeterministicReasoningProvider(),
+        reasoningProvider: createDeterministicReasoningProvider({ approvalPolicy: agentContext.approvalPolicy }),
         mcpClient: agentContext.createMcpClient(correlationId),
-        approvalAdapter: createDeterministicApprovalAdapter(),
+        approvalAdapter: approvalController.adapter,
         persistence: createInMemoryAgentPersistence(),
       });
-      const result = await engine.execute({
-        session: agentSession,
-        contextRecords: [],
-        actorPermissions: agentContext.actorPermissions,
-      });
+      let result: Awaited<ReturnType<typeof engine.execute>>;
+      try {
+        result = await engine.execute({
+          session: agentSession,
+          contextRecords: [],
+          actorPermissions: agentContext.actorPermissions,
+        });
+      } finally {
+        unsubscribeApproval();
+        approvalControllerRef.current = undefined;
+        setPendingApproval(undefined);
+      }
       if (result.run.status !== "SUCCEEDED") {
         setStage("FAILED");
         setActions([
@@ -701,20 +669,23 @@ function AiPanel({
         return;
       }
       // The real engine writes through its own MCP client, independent of session's local
-      // ProjectStore. In REMOTE (production) mode that client never touches session, so reflect
-      // the now-committed change locally (see STEP 10's canonical-sync fix). In LOCAL (dev-fixture)
-      // mode the in-process transport already applied it via session.updateNode as part of
-      // simulating the tool call, so doing it again here would double-apply the edit.
+      // ProjectStore. In REMOTE (production) mode that client never touches session, so resync
+      // from a real document.get read — the server's actual result, not a locally re-derived
+      // guess (Block D4: the interpreted changes are no longer known to Studio at all, since the
+      // real planner computed them server-side). In LOCAL (dev-fixture) mode the in-process
+      // transport already applied it via session.updateNode as part of simulating the tool call.
+      let afterNode = session.getSnapshot().document.nodes[nodeId];
       if (session.mode === "REMOTE") {
-        session.acknowledgeAgentNodeUpdate(nodeId, derived.changes, {
-          expectedDocumentVersion: snapshot.document.documentVersion,
-          actor: { id: agentContext.actorId, type: "MCP_AGENT", displayName: "AEVUM AI" },
-          correlationId,
-        });
+        const read = await agentContext.createMcpClient(correlationId).invoke("document.get", { projection: "full" });
+        if (read.success && read.data !== undefined) {
+          const document = CanonicalDesignDocumentSchema.parse(read.data);
+          session.resyncDocument(document);
+          afterNode = document.nodes[nodeId];
+        }
       }
       const toolSteps = result.audits.filter((entry) => entry.tool && entry.tool !== "system.get_capabilities");
       setActions([
-        derived.summary,
+        summarizeNodeChange(node, afterNode),
         ...toolSteps.map((entry) => `${entry.tool} — ${entry.toolResult.toLowerCase()}`),
         `Canonical document advanced to v${result.run.outcome?.finalDocumentVersion ?? snapshot.document.documentVersion + 1}`,
       ]);
@@ -744,6 +715,34 @@ function AiPanel({
         <span className="status-pulse" />
         <strong>{aiLabels[stage]}</strong>
       </div>
+      {pendingApproval ? (
+        <div className="ai-approval" role="alertdialog" aria-label="Action awaiting approval">
+          <strong>Approval required</strong>
+          <p>
+            The agent wants to run <code>{pendingApproval.request.tool}</code> on{" "}
+            {selected[0] ? (snapshot.document.nodes[selected[0]]?.name ?? "the target layer") : "the target layer"}.
+          </p>
+          <p
+            className={`approval-classification classification-${pendingApproval.request.classification.toLowerCase()}`}
+          >
+            {pendingApproval.request.classification === "DESTRUCTIVE_WRITE"
+              ? "This is a destructive action and cannot be undone through this flow."
+              : "This is a safe, reversible write."}
+          </p>
+          <div className="approval-buttons">
+            <button type="button" className="approval-approve" onClick={() => approvalControllerRef.current?.approve()}>
+              Approve
+            </button>
+            <button
+              type="button"
+              className="approval-reject"
+              onClick={() => approvalControllerRef.current?.reject("Rejected by user in Studio.")}
+            >
+              Reject
+            </button>
+          </div>
+        </div>
+      ) : null}
       <div className="ai-actions" aria-live="polite">
         {actions.length ? (
           actions.map((action) => (

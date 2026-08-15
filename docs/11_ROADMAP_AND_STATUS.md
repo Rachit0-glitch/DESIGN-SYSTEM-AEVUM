@@ -4512,7 +4512,84 @@ Two real gaps closed. **Status: implemented and tested.**
 
 ---
 
-## 70. Final Roadmap Statement
+## 71. Block D4: Real Planner Reasoning From a Raw Prompt (2026-08-15)
+
+Removed the only client-side natural-language layer in the codebase and relocated it into the real
+Agent Planner, at plan-execution time. **Status: implemented and tested.**
+
+- `apps/studio/src/main.tsx`'s `deriveChangesFromPrompt()` — keyword/regex matching run in the
+  browser *before* any real document read, blind to the node's actual current state — is deleted.
+  `AiPanel` now hands the raw prompt text straight to a real `AgentGoal`
+  (`parameters: { prompt, viewportWidth }`); an unrecognized prompt is no longer a pre-flight UI
+  guess, it's a real plan-execution failure with a real diagnostic.
+- The interpretation itself moved to `packages/agent-runtime/src/engine.ts`'s existing `analyzeStep`
+  mechanism — a real, already-established extension point (`NODE_OFFSET_Y`/`THREE_OFFSET_X` already
+  lived there) that runs *after* the plan's READ step, so the new `INTERPRET_NODE_EDIT_PROMPT`
+  operation sees the node's real current position/dimensions/name, not a client-side guess made
+  before any read happened. Same rule set as before (center, bigger/smaller, move by direction+px,
+  rename) — a relocation, not an invented rewrite — still fully deterministic, still zero network
+  calls, still no LLM of any kind.
+- `packages/agent-planner/src/deterministic.ts`'s `nodeUpdatePlan()` selects this operation whenever
+  `intent.parameters.prompt` is a non-empty string, falling back to the pre-existing `NODE_CHANGES`/
+  `NODE_OFFSET_Y` operations otherwise — the direct-`changes` capability programmatic callers
+  already relied on is untouched.
+- Since Studio no longer knows the interpreted changes client-side (the real planner computes them
+  server-side now), the post-run UI summary is computed honestly, after the fact, by diffing the
+  node's state before and after a real `document.get` resync (`summarizeNodeChange`) — describing
+  what actually happened, not re-stating a pre-flight guess.
+- New tests in `tests/unit/studio.test.ts`: five real end-to-end runs through the actual engine —
+  "center it", "move right 40px", "make it bigger", "rename to Launch Title" each produce the
+  correct final node state computed from the node's real starting values (not hardcoded
+  expectations); a genuinely unrecognized prompt fails with a real diagnostic and leaves the
+  document completely untouched.
+- `pnpm validate` (docs, dependency rules, format, lint, typecheck, tests, build across all 65
+  packages) passed clean — see the combined D4+D5 validation run recorded in §72 below (both
+  landed together in one gate run since a session interruption prevented committing D4 before D5
+  began; the code changes themselves are cleanly separable by file, see the commit history).
+- Next action: Block D5 (approval system).
+
+---
+
+## 72. Block D5: Real Human-in-the-Loop Approval System (2026-08-15)
+
+Replaced the auto-reject approval wiring with a genuine, working human-in-the-loop flow.
+**Status: implemented and tested.**
+
+- **Root cause fixed**: production wiring called `createDeterministicApprovalAdapter()` with no
+  arguments — a *fixture* adapter whose `approvedStepIds`/`approvedTools` sets were always empty,
+  so every approval-gated step was auto-rejected in the live app, silently, with no UI ever shown.
+- New `apps/studio/src/core/approval.ts`: `createInteractiveApprovalAdapter()` — `decide()`
+  genuinely suspends (returns a Promise that does not resolve until `approve()`/`reject()` is
+  called from outside), exposes `getPending()`/`subscribe()` for a UI to render the real pending
+  request reactively. Not a fixture — a real adapter a real user drives.
+- **`AGENT_APPROVAL_POLICY` wired into production** (previously parsed server-side but never read
+  by any live entrypoint — confirmed dead configuration by the D-block audit): a new
+  `VITE_AGENT_APPROVAL_POLICY` browser env var (documented in `.env.example`), threaded through
+  `StudioBrowserConfiguration` → `StudioAgentContext.approvalPolicy` → the reasoning provider's
+  `approvalPolicy` option, for both the production (`loadProductionStudioProject`) and dev-fixture
+  (`createDeterministicStudioAgentContext`) paths. Defaults to `AUTO_SAFE_WRITE`, matching the
+  server-side schema's own default — safe writes still proceed automatically with no prompt unless
+  a deployment explicitly configures a stricter policy.
+- `AiPanel` (`apps/studio/src/main.tsx`) now renders a real approval UI (`.ai-approval` block) when
+  a request is genuinely pending: shows the real MCP tool name, the target node, and whether the
+  action is destructive, with real Approve/Reject buttons wired to the controller.
+- New `tests/unit/studio-approval.test.ts` (6 tests): the adapter genuinely suspends `decide()` and
+  only resolves on `approve()`/`reject()`, with correct `source`/`reason`; subscriber notifications
+  fire exactly on pending-start and pending-resolved. End-to-end through the real engine: a normal
+  safe-write edit under `REQUIRE_ALL_WRITE_APPROVAL` genuinely pauses execution (polled via real
+  microtask ticks, not a fixed timeout) with the document provably untouched until `approve()`,
+  commits correctly once approved; rejecting leaves the document untouched and produces a real
+  `AGENT_APPROVAL_REJECTED` diagnostic; a safe write under the default `AUTO_SAFE_WRITE` policy
+  proceeds automatically with `decide()` never even called — confirming safe actions still work
+  without unnecessary approval.
+- `pnpm validate` (docs, dependency rules, format, lint, typecheck, 450/450 tests, build across all
+  65 packages) passed clean — see combined D4+D5 validation run.
+- **Block D (Studio/MCP completeness) is now complete: D1 through D5 all implemented, tested, and
+  pushed.**
+
+---
+
+## 73. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.
 
