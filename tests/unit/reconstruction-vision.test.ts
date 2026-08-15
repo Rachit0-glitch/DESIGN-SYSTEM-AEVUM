@@ -109,4 +109,31 @@ describe("reconstruction-vision real local OCR (tesseract.js — no paid API)", 
     const textRegion = manifest.regions.find((region) => region.category === "TEXT");
     expect(textRegion?.text?.content?.toUpperCase()).toContain("HELLO");
   }, 60_000);
+
+  it("estimates a higher font weight for real bold-rendered text than the same text rendered regular", async () => {
+    const svgFor = (weight: number) => `
+        <svg width="400" height="150" xmlns="http://www.w3.org/2000/svg">
+          <rect width="400" height="150" fill="#ffffff" />
+          <text x="20" y="90" font-family="Arial" font-size="48" font-weight="${weight}" fill="#000000">HELLO</text>
+        </svg>
+      `;
+    const regularImage = await sharp(Buffer.from(svgFor(400)))
+      .png()
+      .toBuffer();
+    const boldImage = await sharp(Buffer.from(svgFor(900)))
+      .png()
+      .toBuffer();
+
+    const regularResult = await buildManifestFromImage(regularImage, { ocrCacheDir: OCR_CACHE_DIR });
+    const boldResult = await buildManifestFromImage(boldImage, { ocrCacheDir: OCR_CACHE_DIR });
+
+    const regularWeight = regularResult.manifest.regions.find((region) => region.category === "TEXT")?.text?.fontWeight;
+    const boldWeight = boldResult.manifest.regions.find((region) => region.category === "TEXT")?.text?.fontWeight;
+
+    expect(regularWeight, JSON.stringify(regularResult.manifest.regions)).toBeDefined();
+    expect(boldWeight, JSON.stringify(boldResult.manifest.regions)).toBeDefined();
+    // A real, measured signal, not a fabricated constant: the two must actually differ, and the
+    // bold rendering must measure heavier, not merely non-equal in some arbitrary direction.
+    expect(boldWeight as number).toBeGreaterThan(regularWeight as number);
+  }, 90_000);
 });

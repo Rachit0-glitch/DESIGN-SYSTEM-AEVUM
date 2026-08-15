@@ -113,12 +113,30 @@ async function detectTextRegions(
  * When the split is close to even (no clear minority), that is genuinely ambiguous, so no color is
  * returned rather than a fabricated one.
  */
+/**
+ * Estimates a coarse OpenType weight class from real ink coverage (the minority-cluster fraction
+ * computed alongside ink color below): bold glyph strokes measurably cover more of their bounding
+ * box than regular-weight strokes of the same text at the same size. Thresholds are calibrated
+ * against real measured output of this environment's font rendering stack, sampled over a *tight*
+ * bounding box matching what real OCR text detection actually returns (not a generously padded
+ * canvas — that produces very different, much lower fractions and was an earlier miscalibration
+ * caught by this package's own weight-ordering test). A `node -e` probe cropping "HELLO" tightly
+ * at font-weight 300..900 showed only ~3 distinguishable clusters (~0.33, ~0.43, ~0.47), reflecting
+ * real font-substitution behavior, not a universal 9-step weight scale — this is a best-effort
+ * bucketed estimate, not a precise measurement.
+ */
+function estimateFontWeight(inkAreaFraction: number): number {
+  if (inkAreaFraction >= 0.447) return 800;
+  if (inkAreaFraction >= 0.38) return 600;
+  return 400;
+}
+
 async function sampleTextInkColor(
   sourceBytes: Uint8Array,
   sourceWidth: number,
   sourceHeight: number,
   rect: Rect,
-): Promise<readonly [number, number, number] | undefined> {
+): Promise<{ readonly color: readonly [number, number, number]; readonly inkAreaFraction: number } | undefined> {
   const left = Math.max(0, Math.min(sourceWidth - 1, Math.round(rect.x0)));
   const top = Math.max(0, Math.min(sourceHeight - 1, Math.round(rect.y0)));
   const width = Math.max(1, Math.min(sourceWidth - left, Math.round(rect.x1 - rect.x0)));
@@ -170,9 +188,12 @@ async function sampleTextInkColor(
     }
   }
   if (belowCount === 0 || aboveCount === 0) return undefined;
-  return belowCount <= aboveCount
+  const minorityIsBelow = belowCount <= aboveCount;
+  const minorityCount = minorityIsBelow ? belowCount : aboveCount;
+  const color: [number, number, number] = minorityIsBelow
     ? [belowR / belowCount, belowG / belowCount, belowB / belowCount]
     : [aboveR / aboveCount, aboveG / aboveCount, aboveB / aboveCount];
+  return { color, inkAreaFraction: minorityCount / pixelCount };
 }
 
 export async function buildManifestFromImage(
@@ -250,10 +271,12 @@ export async function buildManifestFromImage(
         content: region.text,
         fontFamily: "AEVUM Unknown",
         fontSize: Math.max(8, Math.round(h * 0.7)),
-        fontWeight: 400,
+        fontWeight: ink ? estimateFontWeight(ink.inkAreaFraction) : 400,
         alignment: "LEFT",
         direction: "AUTO",
-        ...(ink ? { color: { r: Math.round(ink[0]), g: Math.round(ink[1]), b: Math.round(ink[2]) } } : {}),
+        ...(ink
+          ? { color: { r: Math.round(ink.color[0]), g: Math.round(ink.color[1]), b: Math.round(ink.color[2]) } }
+          : {}),
       },
     });
   }
