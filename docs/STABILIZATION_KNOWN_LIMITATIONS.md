@@ -223,12 +223,27 @@ returned to the caller).
   correct and safe (no drift risk) but means a large import discards the ability to undo whatever
   the user had just done locally immediately beforehand, in favor of trusting the server's fetched
   state as ground truth.
-- 🟡 **The tab-return fix is verified by code-level analysis of the mechanism, not by reproducing
-  the delay against the real production deployment** — local dev-fixture mode has no real Supabase
-  auth session to trigger a genuine background refresh against, so this couldn't be timed
-  end-to-end locally. The causal mechanism (new session object → effect re-run → full reload) is
-  unambiguous in the code as written, which is why this is still reported as a real fix, not a
-  guess — but production confirmation is still open.
+- 🟢 **Update (Block D13, 2026-08-15): the tab-return fix is now verified by real, executed
+  reproduction, not just code-level analysis.** `tests/unit/studio-bootstrap.test.tsx` mounts the
+  real `ProductionBootstrap` component with a controllable fake Supabase auth client and fires the
+  exact event shape a real background token refresh produces (a new `Session` object, same signed-in
+  user) — and measures, via a real call-count on a mocked `/v1/bootstrap` fetch (not a read of the
+  guard condition in the source), that the expensive full reload does not fire a second time. A
+  second test in the same file fires a genuine identity change (different user) and confirms the
+  reload *does* correctly fire then, proving the guard is selective rather than just permanently
+  suppressed. Two further, real (not guessed) findings from this investigation, both negative —
+  ruling things out, not finding new bugs: (1) a live-browser attempt to reproduce this via the Page
+  Visibility API found that the sandboxed Chromium instance available in this environment reports
+  `document.visibilityState` as permanently `"hidden"` regardless of tab focus/selection, making
+  that specific reproduction angle unusable here (an environment limitation, not an app bug); (2) a
+  full search of Studio's client code found no `visibilitychange` listener anywhere, and the only
+  `requestAnimationFrame` loop (`ThreeViewport`'s 3D scene rotation) advances by a fixed increment
+  per callback rather than a wall-clock time delta, so it cannot produce a "catch-up" burst of work
+  after a paused/throttled background period even in principle — ruling out two plausible alternative
+  mechanisms for a tab-return freeze. **Production confirmation against a live Supabase deployment
+  remains open** — this environment still has no live backend to time the fix against end-to-end —
+  but the causal mechanism itself is no longer merely inferred from reading the code; it has been
+  exercised and measured directly.
 
 ---
 

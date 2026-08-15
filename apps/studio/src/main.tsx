@@ -1765,7 +1765,7 @@ function SignIn({ client }: { client: SupabaseClient }) {
   );
 }
 
-function ProductionBootstrap({ configuration }: { configuration: StudioBrowserConfiguration }) {
+export function ProductionBootstrap({ configuration }: { configuration: StudioBrowserConfiguration }) {
   const [client] = useState(() => createStudioAuthClient(configuration));
   const [authSession, setAuthSession] = useState<Session | null>(null);
   const sessionRef = useRef<Session | null>(null);

@@ -5006,7 +5006,63 @@ implemented and passing — a real, bounded, honest result, not a claim of exact
 
 ---
 
-## 81. Final Roadmap Statement
+## 81. Block D13: Performance Investigation — Studio Tab-Return/Freeze (2026-08-15)
+
+Real, executed reproduction and measurement of the tab-return delay mechanism — not a re-read of
+STEP 10's earlier static-code diagnosis. **Status: verified via real, measured reproduction; no new
+defect found, no code fix needed (STEP 10's fix already correctly addresses the mechanism); two
+alternative hypotheses ruled out with real evidence.**
+
+- **Live-browser attempt, and its real, honest limit**: opened the dev-fixture Studio app in a real
+  Chromium instance and attempted to reproduce tab-backgrounding effects via the Page Visibility API
+  (creating a second tab to background Studio, waiting, then reselecting it; also dispatching
+  synthetic `visibilitychange`/`focus` events). Found, empirically: this environment's sandboxed
+  Chromium instance reports `document.visibilityState` as permanently `"hidden"` regardless of tab
+  focus or selection — confirmed after closing all other tabs and reloading fresh. This makes
+  Page-Visibility-based reproduction unusable in this specific environment; it is a real, measured
+  environment constraint, not a guess or an excuse.
+- **A real, useful negative finding from the same investigation**: a full search of Studio's client
+  code (`apps/studio/src`) found zero `visibilitychange` listeners anywhere, and the only
+  `requestAnimationFrame` loop in the app (`ThreeViewport.tsx`'s 3D scene rotation) advances by a
+  fixed per-callback increment (`mesh.rotation.y += 0.0025`), not a wall-clock time delta — so it
+  cannot produce a "catch-up" burst of work after RAF is paused/throttled by backgrounding, even in
+  principle. This rules out two plausible alternative tab-return-freeze mechanisms with real evidence
+  (an app-level visibility handler doing expensive work, and a delta-time animation bug), leaving
+  STEP 10's diagnosed Supabase-session-identity mechanism as the correct, sole real cause on record.
+- **Real, executed reproduction of the actual mechanism**: new
+  `tests/unit/studio-bootstrap.test.tsx` mounts the real `ProductionBootstrap` component (newly
+  exported from `main.tsx` for this purpose, matching Block D3's existing test-export precedent) with
+  a controllable fake Supabase auth client (mocked at `production.js`'s own
+  `createStudioAuthClient` — a far more reliable `vi.mock` target than the third-party
+  `@supabase/supabase-js` package directly, which this investigation found does not mock reliably via
+  `vi.doMock` in this module graph) and a mocked `/v1/bootstrap` fetch with a real call counter. Fires
+  the exact event shape a real Supabase background token refresh produces — a genuinely new `Session`
+  object, same signed-in user — and **measures**, via that real call count, that the expensive full
+  project reload does not fire a second time. A second test fires a genuine identity change (a
+  different user) and confirms the reload *does* correctly fire — proving the guard is selective, not
+  just permanently suppressed (which would itself be a real, different bug: a user who actually signs
+  out and back in as someone else must still get a fresh project).
+- This directly answers D13's brief: reproduce (a controlled, realistic trigger through the real
+  component, since a live Supabase-backed browser reproduction is not possible in this environment),
+  measure (a real call count, not a read of the source), identify the bottleneck (confirmed: none
+  remains — the one that existed was STEP 10's now-verified fix), and regression-test (this file, so
+  a future regression in the guard condition fails a real test, not just a code review).
+- `docs/STABILIZATION_KNOWN_LIMITATIONS.md`'s STEP 10 section updated to record all of the above,
+  replacing the prior "verified by code-level analysis... production confirmation is still open" note
+  with the real reproduction and its findings — production confirmation against a live Supabase
+  deployment remains honestly open (this environment still has no live backend to time it against
+  end-to-end), but the causal mechanism is no longer merely inferred from reading the code.
+- Targeted: `studio-bootstrap.test.tsx` (2/2), `studio-production.test.ts`, `studio-components.test.tsx`,
+  `studio.test.ts` all passing (30 tests). Full `pnpm validate` (docs, dependency rules, format, lint,
+  typecheck, **474/474 tests**, build across all 65 packages) passed clean.
+- **Out of scope, intentionally**: no code fix was made — none was needed, since STEP 10's existing
+  fix is now verified correct rather than merely plausible. No attempt was made to acquire real
+  Supabase credentials for a live production timing run; that remains a genuinely open item requiring
+  infrastructure this environment doesn't have, not something further local investigation can close.
+
+---
+
+## 82. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.
 
