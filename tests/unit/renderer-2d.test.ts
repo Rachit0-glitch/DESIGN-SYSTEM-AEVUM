@@ -141,6 +141,7 @@ function createVisualFixture(): CanonicalDesignDocument {
   if (text.type !== "TEXT" || !text.runs[0]) throw new Error("Text fixture is missing.");
   text.runs[0].style.variableAxes = { wght: 720, wdth: 95 };
   text.runs[0].style.openTypeFeatures = { liga: true, tnum: 1 };
+  text.runs[0].style.fillTokenId = fillTokenId;
   return document;
 }
 
@@ -309,6 +310,20 @@ describe("Hybrid 2D Renderer", () => {
     expect(shape?.resolvedReferences.tokens).toHaveLength(1);
     expect(shape?.resolvedReferences.tokens[0]).toMatchObject({ resolved: true, value: { type: "COLOR" } });
     expect(projection.dependencyGraph.edges.some((edge) => edge.type === "USES_TOKEN")).toBe(true);
+  });
+
+  it("resolves a TEXT node's runs[0].style.fillTokenId into a real paint on its PAINT operation", () => {
+    const document = createVisualFixture();
+    const projection = project(document);
+    const graph = buildRenderGraph(projection);
+    const textRuntimeNode = [...projection.nodes.values()].find((node) => node.type === "TEXT");
+    if (!textRuntimeNode) throw new Error("Text runtime node is missing.");
+    const paintOperations = operationsOf(graph, "PAINT");
+    const textPaint = paintOperations.find((operation) => operation.runtimeNodeId === textRuntimeNode.id);
+
+    expect(textPaint).toBeDefined();
+    expect(textPaint?.style.fills).toHaveLength(1);
+    expect(textPaint?.style.fills[0]).toMatchObject({ type: "SOLID", color: { r: 0.9, g: 0.1, b: 0.2 } });
   });
 
   it("renders nested groups in stable parent-before-child order", () => {

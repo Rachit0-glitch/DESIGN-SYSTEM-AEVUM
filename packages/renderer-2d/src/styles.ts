@@ -34,7 +34,15 @@ export function resolveStyle(node: RuntimeNode): StyleResolution {
   const metadata = resolveRendererMetadata(node);
   const diagnostics = [...metadata.diagnostics];
   const source = node.resolvedNode;
-  const fillTokenId = source.type === "SHAPE" ? source.fillTokenId : undefined;
+  // Text color is per-run in the canonical model, but this render style is one value per node —
+  // the first run is used as the representative style, the same simplification the Studio canvas
+  // already makes for font family/size/weight/line-height.
+  const fillTokenId =
+    source.type === "SHAPE"
+      ? source.fillTokenId
+      : source.type === "TEXT"
+        ? source.runs[0]?.style.fillTokenId
+        : undefined;
   const strokeTokenId = source.type === "SHAPE" ? source.strokeTokenId : undefined;
   const fill = tokenPaint(node, fillTokenId);
   const stroke = tokenPaint(node, strokeTokenId);

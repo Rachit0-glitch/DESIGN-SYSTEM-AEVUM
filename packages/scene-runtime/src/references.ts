@@ -63,7 +63,10 @@ export function resolveNodeReferences(
       if (node.fallbackAssetId) assetIds.push(node.fallbackAssetId);
       break;
     case "TEXT":
-      for (const run of node.runs) if (run.style.fontAssetId) fontIds.push(run.style.fontAssetId);
+      for (const run of node.runs) {
+        if (run.style.fontAssetId) fontIds.push(run.style.fontAssetId);
+        if (run.style.fillTokenId) tokenIds.push(run.style.fillTokenId);
+      }
       break;
     case "SHAPE":
       if (node.fillTokenId) tokenIds.push(node.fillTokenId);
