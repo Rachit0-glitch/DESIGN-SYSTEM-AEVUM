@@ -4962,7 +4962,51 @@ Removed the remaining fabricated status/metric values named across earlier block
 
 ---
 
-## 80. Final Roadmap Statement
+## 80. Block D11: Full End-to-End Capstone (2026-08-15)
+
+The final Block D acceptance gate: the real reference-image workflow, end to end, against the
+actual sushi poster, exercising every real system Block D built in one continuous run. **Status:
+implemented and passing — a real, bounded, honest result, not a claim of exact reconstruction.**
+
+- New `tests/integration/sushi-poster-capstone.test.ts` runs, in a single test, against one shared
+  document/registry/repository state:
+  1. **Real asset registration + local/free vision analysis** (STEP 5/6) — the actual
+     `fixtures/sushi poster.jpg` registered via `asset.register` with `analyzeForReconstruction: true`.
+  2. **Real editable reconstruction** (STEP 7 / D6) — `reconstruction.import_reference`, then diffs
+     `document.nodes` before/after to identify the genuinely reconstructed nodes (not the pre-existing
+     fixture demo content).
+  3. **Real rendering** (D6) — the reconstructed document projected and rendered through the
+     unmodified Scene Runtime + Renderer 2D pipeline, asserted to produce real, non-empty operations.
+  4. **A real, approval-gated AI edit against the reconstructed content itself** (D5 / D cleanup) —
+     new here, and the reason this is a capstone rather than a repeat of D6: a
+     `REQUIRE_ALL_WRITE_APPROVAL` edit through the real `createAgentEngine`, bridged to the same
+     in-process MCP executor the reconstruction steps used (a small `AgentMcpTransport` adapter
+     wrapping `fixture.executor.execute`), targeting one of the just-reconstructed TEXT nodes.
+     Genuinely suspends for real approval (polled with real timers, not just microtasks, since this
+     path — unlike the dev-fixture's synchronous in-process transport — goes through the real MCP
+     executor and a real `AgentMcpClient` timeout controller), then commits once approved, and the
+     edited reconstructed node's new name is verified in the persisted document. This is the first
+     test anywhere in this codebase to edit genuinely reconstructed (not fixture-authored) content
+     through the real approval-gated agent path.
+  5. **A real measured fidelity score against the actual reference** (D8) — `fidelity.measure` run
+     with the real sushi poster as the reference asset, producing a real `ValidationRecord` persisted
+     into `document.validations`. Deliberately asserts only that the score is a real, bounded number
+     (`0 <= score <= 1`) and a valid status — never a specific high threshold, since D6/STEP 11 already
+     documented this pipeline's real, disclosed limitations (the stylized headline is never detected
+     as text; some OCR is garbled) and this capstone must not fabricate a pass that hides them.
+- Confirms, with real measured evidence, exactly what D6 already found and no more: the pipeline
+  produces genuinely editable, renderable, approval-respecting reconstructed content from a real,
+  hard, non-synthetic image — not a claim that the reconstruction is visually exact.
+- Targeted: the capstone test passes in ~16s. Full `pnpm validate` (docs, dependency rules, format,
+  lint, typecheck, **472/472 tests**, build across all 65 packages) passed clean.
+- **Out of scope, intentionally**: no changes to any of the systems this test exercises — D11 is
+  verification, not new capability. No auto-correction loop was exercised (the fidelity measurement
+  uses no `FidelityCorrectionAdapter`, matching D8's scope). Block D13 (performance investigation)
+  remains a separate, not-yet-started item — it is not part of this acceptance gate.
+
+---
+
+## 81. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.
 
