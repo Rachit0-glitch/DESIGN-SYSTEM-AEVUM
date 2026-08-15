@@ -259,6 +259,20 @@ returned to the caller).
 This is documented as a real, partial result — not marked VALIDATED — per the explicit instruction
 to never claim validation before acceptance tests actually pass.
 
+**Update (Block D6, 2026-08-15):** this result is now backed by a real, runnable, checked-in
+regression test — `tests/integration/sushi-poster-acceptance.test.ts` — instead of only a one-off
+manual run. It re-verifies the "genuinely works" list above (real page/frame/multiple-node
+decomposition, the two reliably-OCR'd text lines, ≥2 independently editable IMAGE regions, every
+node editable) end to end through the real, unmodified pipeline, plus a rendering step: the
+reconstructed document is projected through the real Scene Runtime and Renderer 2D pipeline
+(`projectScene` → `buildRenderGraph`/`render`) and asserted to produce real paint/text render
+operations without throwing. It deliberately does not assert the "does not work" items above (the
+undetected SUSHI headline, garbled price/phone OCR) as passing — asserting those would either fail
+honestly or require weakening the test to hide a known, disclosed limitation, neither of which this
+test does. No genuine new defect was found while building this test: the reconstructed node
+positions/dimensions are sane (within the 736×920 frame, no NaN/zero-size), and rendering succeeds
+cleanly.
+
 ---
 
 ## BLOCK C addendum (2026-08-15) — the Paint model gap, found and then closed for solid color

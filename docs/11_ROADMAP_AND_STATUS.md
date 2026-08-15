@@ -4698,7 +4698,52 @@ for it today.
 
 ---
 
-## 75. Final Roadmap Statement
+## 75. Block D6: Real Sushi-Poster Acceptance Test (2026-08-15)
+
+Turned STEP 11's one-off manual "sushi poster acceptance" run into a real, runnable, checked-in
+regression test. **Status: implemented and tested — result remains a documented partial pass, not
+a claim of full reconstruction.**
+
+- New `tests/integration/sushi-poster-acceptance.test.ts`: loads the real
+  `fixtures/sushi poster.jpg` (736×920 JPEG), registers it via `asset.register` with
+  `analyzeForReconstruction: true` and no `visionAdapter` override — exercising the real local/free
+  tesseract + color-histogram pipeline (`@aevum/reconstruction-vision`), never a paid vision API —
+  then imports it via `reconstruction.import_reference` against the real, unmodified MCP tool
+  pipeline (no mocks, no synthetic substitute image).
+- Asserts what STEP 11 already documented as genuinely, reliably working: a real PAGE/FRAME/
+  multiple-node decomposition (not one embedded reference image), the two text lines OCR reads
+  essentially correctly ("PEGA PELO DELIVERY", "...DESIGNER PREMIUM...") via substring match against
+  the real reconstructed content, at least two independently editable IMAGE regions, and every node
+  unlocked with a real name.
+- Adds a **rendering** verification D6 explicitly asked for and STEP 11 never checked: the
+  reconstructed document is projected through the real, unmodified Scene Runtime and Renderer 2D
+  pipeline (`projectScene` → `buildRenderGraph`/`render`) and asserted to produce real, non-empty
+  paint and text render operations without throwing — proving the reconstructed nodes aren't just
+  valid canonical data but actually render.
+- Deliberately does **not** assert the parts STEP 5/STEP 11 already documented as unreliable (the
+  stylized "SUSHI" headline is never detected as text at all — a text-region-detection gap flagged
+  as new engineering, not a tunable threshold; the price/phone OCR is sometimes garbled) — asserting
+  those as passing would either fail honestly or require weakening the test to hide a disclosed
+  limitation.
+- **No new genuine defect was found or needed fixing.** A full node-by-node dump of the
+  reconstructed document (positions, dimensions, content) was inspected while building this test:
+  every node's transform and dimensions are sane (inside the 736×920 frame bounds, no NaN or
+  zero-size), and the render step completes cleanly. STEP 11's prior manual finding holds up under
+  a real, repeatable automated run.
+- `docs/STABILIZATION_KNOWN_LIMITATIONS.md`'s STEP 11 section updated with a note pointing to this
+  test, without altering its existing, honest "partial pass" limitations record.
+- Targeted: the new test passes in ~8s (tesseract's OCR trained-data cache was already warm from
+  STEP 11's earlier manual run in this environment; a cold cache pays a one-time download).
+  Full `pnpm validate` (docs, dependency rules, format, lint, typecheck, tests, build across all 65
+  packages) passed clean.
+- **Out of scope, intentionally**: no changes to the vision/OCR pipeline itself. Detecting stylized
+  display typography (the "SUSHI" headline) would require a dedicated text-region-detection front
+  end (EAST/CRAFT-style) — genuinely new engineering per STEP 5's own assessment, not a fix
+  reachable from this test.
+
+---
+
+## 76. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.
 
