@@ -261,6 +261,41 @@ to never claim validation before acceptance tests actually pass.
 
 ---
 
+## BLOCK C addendum (2026-08-15) — the real root blocker for typography color and gradients/strokes
+
+While implementing Block C (reconstruction quality), auditing why reconstructed SHAPE/TEXT fill
+colors were never visible surfaced a real, pre-existing architectural gap that is the actual root
+cause behind two separate roadmap items (typography color, and gradients/strokes) rather than two
+unrelated missing features:
+
+- 🔴 **The canonical schema has no typed Paint model.** `SHAPE` nodes reference color only through
+  `fillTokenId`/`strokeTokenId` — a pointer to a plain COLOR `Token`, nothing else. `TEXT`'s
+  `TextStyle` has no color field at all (not even a token reference). There is no gradient type, no
+  inline paint value, anywhere in the schema. This is not new — the reconstruction code already
+  carried a `migrationTarget: "Canonical Paint, Stroke, Radius, and Effect model schema migration"`
+  marker in proposed-node metadata before this block; it was just never surfaced anywhere a human
+  would read it.
+- 🔴 **Studio's 2D canvas has no shape-painting layer at all.** `apps/studio/src/main.tsx`'s canvas
+  node component renders `TEXT` nodes as a styled `<textarea>` (font family/size/weight/line-height
+  only — no color) and every other node type as a bare, unstyled `<div>` with a CSS class. No fill,
+  stroke, corner radius, or gradient is painted for any node, reconstructed or hand-authored. This
+  is a foundational Studio rendering gap, not specific to reconstruction.
+- 🟡 **Fixed within Block C's actual scope:** real sampled fill/stroke/cornerRadius data was
+  previously computed by the vision pipeline and then silently discarded (captured only into inert
+  node metadata, `metadata.customData[...].styleCandidates`). It is now also merged into the
+  SHAPE node's own `geometry` JSON (`packages/reconstruction/src/proposal.ts`), so the real data is
+  at least retained and addressable — verified end to end by
+  `tests/integration/mcp-image-extraction.test.ts`'s SHAPE-geometry assertion. This does **not**
+  make the color render anywhere; it only stops the data from being thrown away.
+- 🔴 **Not attempted in this block:** the canonical Paint-model schema migration itself (adding a
+  typed `Paint`/`fillTokenId`-equivalent to `TextStyle`, a `CURRENT_SCHEMA_VERSION` bump, and a
+  document migration), and a real Studio 2D shape/text painter that would actually render any of
+  it. Both are real, bounded, buildable — but each is a project on the scale of the work already
+  done in this block, not a small addition to it, and neither was requested or sized before being
+  started. This is reported honestly rather than attempted partially and represented as done.
+
+---
+
 ## Is the annotated poster image editable?
 
 **No — the annotated PNG sent in this conversation is a static diagnostic visualization only.**

@@ -597,6 +597,11 @@ export function createReconstructionProposal(
             ...(shape.cornerRadius !== undefined ? { cornerRadius: shape.cornerRadius } : {}),
           }
         : undefined;
+      // The canonical schema has no typed Paint model yet (no gradient/stroke token type, and
+      // SHAPE's fillTokenId/strokeTokenId reference plain COLOR tokens the reconstruction pipeline
+      // never creates) — real sampled fill/stroke/cornerRadius data is kept in the free-form
+      // `geometry` JSON so it is not silently discarded, rather than being applied as if a real
+      // Paint reference existed. No 2D renderer currently reads these geometry keys for painting.
       node = DesignNodeSchema.parse({
         ...baseNode(
           id,
@@ -611,9 +616,12 @@ export function createReconstructionProposal(
         ),
         type: "SHAPE",
         shapeType: shape?.shapeType ?? "RECTANGLE",
-        geometry: shape?.geometry ?? { inferredRole: region.category.toLowerCase() },
+        geometry: shape ? { ...shape.geometry, ...styleCandidates } : { inferredRole: region.category.toLowerCase() },
       });
-      if (styleCandidates) unsupportedFeatureNotes.push("Paint candidates await the canonical Paint Model migration.");
+      if (styleCandidates)
+        unsupportedFeatureNotes.push(
+          "Fill/stroke/cornerRadius are captured in geometry as real sampled data, but not yet applied as a canonical Paint (fillTokenId/strokeTokenId) — the canonical schema has no typed Paint/gradient model yet, and no 2D renderer paints geometry.fill/stroke/cornerRadius.",
+        );
     } else if (region.category === "SECTION" || region.category === "FRAME") {
       node = DesignNodeSchema.parse({
         ...baseNode(id, "FRAME", regionName(region), parentId, region, parentRegion, referenceId, "NATIVE"),

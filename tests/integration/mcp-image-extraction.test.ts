@@ -165,10 +165,37 @@ describe("asset.register independent image extraction (Block C)", () => {
     );
     expect(registered.success, JSON.stringify(registered.errors)).toBe(true);
     const data = registered.data as {
+      assetId: string;
       extractedImageCount?: number;
       reconstructionAnalysis?: { extractedImageCount: number };
     };
     expect(data.reconstructionAnalysis?.extractedImageCount).toBe(0);
     expect(storage.objects.size).toBe(1);
+
+    // The SHAPE region's real sampled fill color must survive into the resulting node's geometry
+    // (not just get discarded as metadata) — packages/reconstruction has no typed Paint model yet
+    // (no fillTokenId is set), but the real sampled color data must not be silently dropped either.
+    const afterRegister = await fixture.repository.getCurrentDocument(fixture.workspaceId, fixture.projectId);
+    if (!afterRegister) throw new Error("Document was not persisted after registration.");
+    const imported = await fixture.execute(
+      "reconstruction.import_reference",
+      {
+        expectedDocumentVersion: afterRegister.documentVersion,
+        sourceAssetId: data.assetId,
+        qualityMode: "DRAFT",
+      },
+      { idempotencyKey: "import-shape-geometry" },
+    );
+    expect(imported.success, JSON.stringify(imported.errors)).toBe(true);
+    const stored = await fixture.repository.getCurrentDocument(fixture.workspaceId, fixture.projectId);
+    if (!stored) throw new Error("Document was not persisted.");
+    const shapeFills = Object.values(stored.nodes)
+      .filter((candidateNode) => candidateNode.type === "SHAPE")
+      .map((candidateNode) => (candidateNode.geometry as { fill?: { r: number; g: number; b: number } }).fill)
+      .filter((fill): fill is { r: number; g: number; b: number } => fill !== undefined);
+    const blueFill = shapeFills.find(
+      (fill) => fill.r >= 20 && fill.r <= 50 && fill.g >= 70 && fill.g <= 100 && fill.b >= 155 && fill.b <= 185,
+    );
+    expect(blueFill, JSON.stringify(shapeFills)).toBeDefined();
   }, 60_000);
 });
