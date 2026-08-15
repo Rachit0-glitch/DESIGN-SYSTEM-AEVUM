@@ -8,3 +8,4 @@ import "./commands/page.js";
 import "./commands/reference.js";
 import "./commands/scene3d.js";
 import "./commands/timeline.js";
+import "./commands/token.js";

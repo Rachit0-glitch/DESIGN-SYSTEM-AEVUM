@@ -104,6 +104,77 @@ async function detectTextRegions(
   }
 }
 
+/**
+ * Estimates real text glyph ("ink") color from a text region's raw pixels. A text bounding box is
+ * mostly background with glyph strokes covering a minority of the area, so a plain mean color would
+ * just blend the two. Instead this splits pixels into two clusters by luminance (a simplified
+ * two-means/Otsu-style split — a real, if simple, per-pixel signal, not a canned assumption) and
+ * takes the mean color of whichever cluster covers less area, since ink is normally the minority.
+ * When the split is close to even (no clear minority), that is genuinely ambiguous, so no color is
+ * returned rather than a fabricated one.
+ */
+async function sampleTextInkColor(
+  sourceBytes: Uint8Array,
+  sourceWidth: number,
+  sourceHeight: number,
+  rect: Rect,
+): Promise<readonly [number, number, number] | undefined> {
+  const left = Math.max(0, Math.min(sourceWidth - 1, Math.round(rect.x0)));
+  const top = Math.max(0, Math.min(sourceHeight - 1, Math.round(rect.y0)));
+  const width = Math.max(1, Math.min(sourceWidth - left, Math.round(rect.x1 - rect.x0)));
+  const height = Math.max(1, Math.min(sourceHeight - top, Math.round(rect.y1 - rect.y0)));
+  let data: Buffer;
+  try {
+    ({ data } = await sharp(Buffer.from(sourceBytes))
+      .extract({ left, top, width, height })
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true }));
+  } catch {
+    return undefined;
+  }
+  const pixelCount = data.length / 4;
+  if (pixelCount === 0) return undefined;
+  let sumLuminance = 0;
+  const luminances = new Float64Array(pixelCount);
+  for (let pixel = 0; pixel < pixelCount; pixel += 1) {
+    const index = pixel * 4;
+    const luminance = 0.2126 * (data[index] ?? 0) + 0.7152 * (data[index + 1] ?? 0) + 0.0722 * (data[index + 2] ?? 0);
+    luminances[pixel] = luminance;
+    sumLuminance += luminance;
+  }
+  const meanLuminance = sumLuminance / pixelCount;
+  let belowCount = 0;
+  let belowR = 0;
+  let belowG = 0;
+  let belowB = 0;
+  let aboveCount = 0;
+  let aboveR = 0;
+  let aboveG = 0;
+  let aboveB = 0;
+  for (let pixel = 0; pixel < pixelCount; pixel += 1) {
+    const index = pixel * 4;
+    const r = data[index] ?? 0;
+    const g = data[index + 1] ?? 0;
+    const b = data[index + 2] ?? 0;
+    if ((luminances[pixel] ?? 0) < meanLuminance) {
+      belowCount += 1;
+      belowR += r;
+      belowG += g;
+      belowB += b;
+    } else {
+      aboveCount += 1;
+      aboveR += r;
+      aboveG += g;
+      aboveB += b;
+    }
+  }
+  if (belowCount === 0 || aboveCount === 0) return undefined;
+  return belowCount <= aboveCount
+    ? [belowR / belowCount, belowG / belowCount, belowB / belowCount]
+    : [aboveR / aboveCount, aboveG / aboveCount, aboveB / aboveCount];
+}
+
 export async function buildManifestFromImage(
   bytes: Uint8Array,
   options: BuildManifestOptions = {},
@@ -158,14 +229,16 @@ export async function buildManifestFromImage(
   ];
 
   const textRects: Rect[] = [];
-  ocrRegions.forEach((region, index) => {
+  for (const [index, region] of ocrRegions.entries()) {
     const rect = rectOf(region.bbox);
     const x = Math.max(0, Math.round(rect.x0));
     const y = Math.max(0, Math.round(rect.y0));
     const w = Math.min(width - x, Math.max(1, Math.round(rect.x1 - rect.x0)));
     const h = Math.min(height - y, Math.max(1, Math.round(rect.y1 - rect.y0)));
-    if (w <= 0 || h <= 0) return;
+    if (w <= 0 || h <= 0) continue;
     textRects.push(rect);
+    const ink = await sampleTextInkColor(bytes, width, height, rect);
+    if (!ink) diagnostics.push(`Could not sample ink color for text region text-${index}; no fill color was set.`);
     regions.push({
       key: `text-${index}`,
       category: "TEXT",
@@ -180,9 +253,10 @@ export async function buildManifestFromImage(
         fontWeight: 400,
         alignment: "LEFT",
         direction: "AUTO",
+        ...(ink ? { color: { r: Math.round(ink[0]), g: Math.round(ink[1]), b: Math.round(ink[2]) } } : {}),
       },
     });
-  });
+  }
 
   // A blob is "consumed" by text only when a text region actually accounts for most of that
   // blob's own area — a text line merely sitting on top of a large background/shape blob must

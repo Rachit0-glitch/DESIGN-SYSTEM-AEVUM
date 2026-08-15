@@ -21,6 +21,7 @@ export type CommandEventType =
   | "RigCreated"
   | "AssetRegistered"
   | "AssetRemoved"
+  | "TokenRegistered"
   | "ReferenceRegistered"
   | "TimelineCreated"
   | "TimelineUpdated"

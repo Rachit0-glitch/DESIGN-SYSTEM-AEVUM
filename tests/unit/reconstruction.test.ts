@@ -109,7 +109,13 @@ describe("Phase 6 reconstruction contracts", () => {
     expect(analysis.componentCandidates).toHaveLength(1);
     expect(analysis.tokenCandidates).toHaveLength(1);
     expect(proposal.proposedComponents.every((entry) => !entry.applied)).toBe(true);
-    expect(proposal.proposedTokens.every((entry) => !entry.applied)).toBe(true);
+    // Suggested repeated-value tokens (keyed by analysis.tokenCandidates) stay unapplied — distinct
+    // from the real, applied per-node color tokens the proposal builder now also creates from
+    // sampled SHAPE fill/TEXT ink color, which are intentionally applied: true.
+    const suggestedCandidateIds = new Set(analysis.tokenCandidates.map((candidate) => candidate.id));
+    const suggestedTokens = proposal.proposedTokens.filter((entry) => suggestedCandidateIds.has(entry.candidateId));
+    expect(suggestedTokens).toHaveLength(analysis.tokenCandidates.length);
+    expect(suggestedTokens.every((entry) => !entry.applied)).toBe(true);
   });
 
   it("aggregates confidence using canonical boundaries", () => {

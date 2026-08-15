@@ -271,7 +271,9 @@ describe("@aevum/vision manifest conversion", () => {
     expect(textRegion?.text?.content).toBe("PRICE");
     const backgroundRegion = manifest.regions.find((region) => region.category === "BACKGROUND");
     expect(backgroundRegion).toBeDefined();
-    expect(diagnostics).toEqual([]);
+    // The fixture image is a uniform flat color, so real ink-color sampling honestly finds no
+    // minority cluster to sample a text fill from — a genuine diagnostic, not a fabricated color.
+    expect(diagnostics).toEqual(["Could not sample ink color for text region text-0; no fill color was set."]);
   });
 
   it("skips an object region that a text region already accounts for most of", async () => {

@@ -26,6 +26,10 @@ export interface CommandPlanDraft {
   readonly viewport: ReconstructionProposal["proposedDocumentMetadata"]["viewport"];
   readonly proposedNodes: ReconstructionProposal["proposedNodes"];
   readonly proposedAssets: ReconstructionProposal["proposedAssets"];
+  // Only real, applied tokens (e.g. sampled color tokens referenced by a node's fillTokenId) are
+  // registered here — merely suggested tokens (applied: false) stay advisory and are never
+  // committed, so a node can never end up referencing a token that doesn't exist in the document.
+  readonly proposedTokens: ReconstructionProposal["proposedTokens"];
   readonly reference: ReconstructionProposal["proposedDocumentMetadata"]["reference"];
   readonly existingDocument?: CanonicalDesignDocument;
 }
@@ -124,6 +128,13 @@ export function buildCommandPlan(draft: CommandPlanDraft): ProposedCommandPlan {
       commandDrafts.push({ ...base, type: "asset.register", payload: { asset: proposed.asset } });
     }
   }
+  for (const proposed of draft.proposedTokens) {
+    if (!proposed.applied) continue;
+    const alreadyRegistered = draft.existingDocument?.tokens[proposed.token.id];
+    if (!alreadyRegistered) {
+      commandDrafts.push({ ...base, type: "token.register", payload: { token: proposed.token } });
+    }
+  }
   if (!draft.existingDocument?.references[draft.reference.id]) {
     commandDrafts.push({ ...base, type: "reference.register", payload: { reference: draft.reference } } as Omit<
       Command,
@@ -176,6 +187,9 @@ export function buildCommandPlan(draft: CommandPlanDraft): ProposedCommandPlan {
         ...draft.proposedAssets
           .filter((entry) => !draft.existingDocument?.assets[entry.asset.id])
           .map((entry) => entry.asset.id),
+        ...draft.proposedTokens
+          .filter((entry) => entry.applied && !draft.existingDocument?.tokens[entry.token.id])
+          .map((entry) => entry.token.id),
         ...(!draft.existingDocument?.references[draft.reference.id] ? [draft.reference.id] : []),
         ...draft.proposedNodes.map((entry) => entry.node.id),
       ],

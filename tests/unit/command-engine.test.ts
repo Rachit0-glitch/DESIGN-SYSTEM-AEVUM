@@ -77,6 +77,7 @@ describe("Command Engine", () => {
       "timeline.create",
       "timeline.delete",
       "timeline.update",
+      "token.register",
     ]);
   });
 

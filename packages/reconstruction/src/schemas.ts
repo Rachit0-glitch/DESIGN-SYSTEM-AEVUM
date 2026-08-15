@@ -239,6 +239,10 @@ export const TextCandidateSchema = z.strictObject({
   content: z.string().optional(),
   unresolved: z.boolean(),
   style: TextStyleSchema,
+  // Real sampled glyph ("ink") color, kept separate from `style` because TextStyleSchema only
+  // references color through a Token id (fillTokenId) — the proposal builder resolves this raw
+  // sample into a real, deduplicated COLOR Token and sets style.fillTokenId from it.
+  sampledColor: JsonObjectSchema.optional(),
   alignment: z.enum(["LEFT", "CENTER", "RIGHT", "JUSTIFY"]),
   direction: z.enum(["LTR", "RTL", "AUTO"]),
   confidence: ConfidenceValueSchema,

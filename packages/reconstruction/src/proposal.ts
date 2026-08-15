@@ -31,6 +31,61 @@ export type ReconstructionProposalResult =
 
 const px = (value: number) => ({ value, unit: "PX" as const, mode: "FIXED" as const });
 
+interface SampledColor {
+  readonly r: number;
+  readonly g: number;
+  readonly b: number;
+}
+
+function isSampledColor(value: unknown): value is SampledColor {
+  const candidate = value as Partial<SampledColor> | undefined;
+  return (
+    typeof candidate?.r === "number" &&
+    typeof candidate?.g === "number" &&
+    typeof candidate?.b === "number" &&
+    Number.isFinite(candidate.r) &&
+    Number.isFinite(candidate.g) &&
+    Number.isFinite(candidate.b)
+  );
+}
+
+/**
+ * Resolves real sampled fill/ink colors into a single shared, deduplicated COLOR Token per
+ * distinct color — the actual missing link between "reconstruction sampled a real color" and
+ * "a node references a real Paint": before this, sampled colors were only ever captured into inert
+ * metadata (see the SHAPE branch below) or discarded outright (TEXT had nowhere to put them at
+ * all, until TextStyle gained fillTokenId in CDD 1.8.0).
+ */
+class ColorTokenResolver {
+  readonly #tokens = new Map<string, { readonly id: string; readonly token: ReturnType<typeof TokenSchema.parse> }>();
+
+  public constructor(private readonly taskId: string) {}
+
+  public resolve(color: SampledColor): string {
+    const r = Math.max(0, Math.min(255, Math.round(color.r)));
+    const g = Math.max(0, Math.min(255, Math.round(color.g)));
+    const b = Math.max(0, Math.min(255, Math.round(color.b)));
+    const key = `${r},${g},${b}`;
+    const existing = this.#tokens.get(key);
+    if (existing) return existing.id;
+    const index = this.#tokens.size;
+    const id = deterministicEntityId("token", { taskId: this.taskId, kind: "sampled-color", key });
+    const token = TokenSchema.parse({
+      id,
+      name: index === 0 ? "color.reconstructed.primary" : `color.reconstructed.variant${index + 1}`,
+      type: "COLOR",
+      value: { r: r / 255, g: g / 255, b: b / 255, a: 1, colorSpace: "SRGB" },
+      description: "Sampled from the source reference image during reconstruction.",
+    });
+    this.#tokens.set(key, { id, token });
+    return id;
+  }
+
+  public tokens(): readonly { readonly id: string; readonly token: ReturnType<typeof TokenSchema.parse> }[] {
+    return [...this.#tokens.values()];
+  }
+}
+
 function nodePrefix(category: DetectedRegion["category"]): "frame" | "group" | "text" | "image" | "shape" {
   if (category === "SECTION" || category === "FRAME") return "frame";
   if (category === "TEXT") return "text";
@@ -430,6 +485,7 @@ export function createReconstructionProposal(
   const proposedAssets = new Map<string, ReconstructionProposal["proposedAssets"][number]>([
     [source.asset.id, { asset: source.asset, role: "SOURCE_REFERENCE" }],
   ]);
+  const colorTokens = new ColorTokenResolver(task.id);
   const orderedRegions = analysis.regions
     .filter((region) => nodeIdsByRegion.has(region.id))
     .sort(
@@ -464,6 +520,8 @@ export function createReconstructionProposal(
 
     if (region.category === "TEXT" && text) {
       const content = text.content ?? "";
+      const fillTokenId = isSampledColor(text.sampledColor) ? colorTokens.resolve(text.sampledColor) : undefined;
+      const textStyle = fillTokenId ? { ...text.style, fillTokenId } : text.style;
       node = DesignNodeSchema.parse({
         ...baseNode(
           id,
@@ -477,7 +535,7 @@ export function createReconstructionProposal(
         ),
         type: "TEXT",
         content,
-        runs: content.length > 0 ? [{ start: 0, end: content.length, style: text.style }] : [],
+        runs: content.length > 0 ? [{ start: 0, end: content.length, style: textStyle }] : [],
         paragraphStyle: {
           alignment: text.alignment,
           verticalAlignment: "TOP",
@@ -490,6 +548,8 @@ export function createReconstructionProposal(
       });
       fallbackStatus = text.unresolved ? "UNRESOLVED" : "NATIVE";
       if (text.unresolved) unsupportedFeatureNotes.push("Text content was not recognized; geometry is preserved.");
+      if (!fillTokenId && !text.unresolved)
+        unsupportedFeatureNotes.push("No ink color could be sampled for this text region; it has no fill color.");
     } else if ((region.category === "IMAGE" || region.category === "ICON") && image) {
       const assetId = image.assetId ?? source.asset.id;
       const resolved = resolver.resolve(assetId);
@@ -597,11 +657,12 @@ export function createReconstructionProposal(
             ...(shape.cornerRadius !== undefined ? { cornerRadius: shape.cornerRadius } : {}),
           }
         : undefined;
-      // The canonical schema has no typed Paint model yet (no gradient/stroke token type, and
-      // SHAPE's fillTokenId/strokeTokenId reference plain COLOR tokens the reconstruction pipeline
-      // never creates) — real sampled fill/stroke/cornerRadius data is kept in the free-form
-      // `geometry` JSON so it is not silently discarded, rather than being applied as if a real
-      // Paint reference existed. No 2D renderer currently reads these geometry keys for painting.
+      const fillTokenId = isSampledColor(shape?.fill) ? colorTokens.resolve(shape.fill) : undefined;
+      // The canonical schema still has no typed Paint model for gradients or strokes (no gradient
+      // token type, no strokeTokenId source yet since stroke color is never sampled) — those stay
+      // captured only in the free-form `geometry` JSON, not silently discarded but not applied as
+      // a real Paint either. A solid fill IS now a real, applied Paint (fillTokenId), the same
+      // mechanism as text color above. No 2D renderer currently reads geometry.stroke/cornerRadius.
       node = DesignNodeSchema.parse({
         ...baseNode(
           id,
@@ -617,10 +678,11 @@ export function createReconstructionProposal(
         type: "SHAPE",
         shapeType: shape?.shapeType ?? "RECTANGLE",
         geometry: shape ? { ...shape.geometry, ...styleCandidates } : { inferredRole: region.category.toLowerCase() },
+        ...(fillTokenId ? { fillTokenId } : {}),
       });
-      if (styleCandidates)
+      if (shape?.stroke || shape?.cornerRadius !== undefined)
         unsupportedFeatureNotes.push(
-          "Fill/stroke/cornerRadius are captured in geometry as real sampled data, but not yet applied as a canonical Paint (fillTokenId/strokeTokenId) — the canonical schema has no typed Paint/gradient model yet, and no 2D renderer paints geometry.fill/stroke/cornerRadius.",
+          "Stroke and cornerRadius are captured in geometry as real sampled data, but the canonical schema has no typed Paint/gradient/stroke-token model yet, and no 2D renderer paints geometry.stroke/cornerRadius.",
         );
     } else if (region.category === "SECTION" || region.category === "FRAME") {
       node = DesignNodeSchema.parse({
@@ -669,17 +731,22 @@ export function createReconstructionProposal(
       },
     ];
   });
-  const proposedTokens = analysis.tokenCandidates.map((candidate) => ({
-    token: TokenSchema.parse({
-      id: deterministicEntityId("token", { taskId: task.id, candidateId: candidate.id }),
-      name: candidate.proposedName,
-      type: candidate.type,
-      value: candidate.value,
-      description: `Suggested by ${candidate.supportingRegionIds.length} exact supporting region value(s).`,
-    }),
-    candidateId: candidate.id,
-    applied: false,
-  }));
+  const proposedTokens = [
+    ...analysis.tokenCandidates.map((candidate) => ({
+      token: TokenSchema.parse({
+        id: deterministicEntityId("token", { taskId: task.id, candidateId: candidate.id }),
+        name: candidate.proposedName,
+        type: candidate.type,
+        value: candidate.value,
+        description: `Suggested by ${candidate.supportingRegionIds.length} exact supporting region value(s).`,
+      }),
+      candidateId: candidate.id,
+      applied: false,
+    })),
+    // Real, applied color tokens — unlike the suggestions above, these are already referenced by
+    // fillTokenId on the nodes built earlier in this function, not merely proposed for review.
+    ...colorTokens.tokens().map(({ id, token }) => ({ token, candidateId: id, applied: true })),
+  ];
   const fallbacks = proposedNodes
     .filter((entry) => entry.fallbackStatus !== "NATIVE")
     .map((entry) => ({
@@ -719,6 +786,7 @@ export function createReconstructionProposal(
     documentName,
     proposedNodes,
     proposedAssets: [...proposedAssets.values()],
+    proposedTokens,
     reference,
     ...(existing ? { existingDocument: existing } : {}),
   });

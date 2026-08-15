@@ -17,6 +17,7 @@ import {
   MaterialSchema,
   ReferenceRecordSchema,
   TimelineSchema,
+  TokenSchema,
 } from "@aevum/document-model";
 import { z } from "zod";
 
@@ -128,6 +129,11 @@ export const RemoveAssetCommandSchema = z.strictObject({
   type: z.literal("asset.remove"),
   payload: z.strictObject({ assetId: EntityIdSchema }),
 });
+export const RegisterTokenCommandSchema = z.strictObject({
+  ...BaseCommandShape,
+  type: z.literal("token.register"),
+  payload: z.strictObject({ token: TokenSchema }),
+});
 export const RegisterReferenceCommandSchema = z.strictObject({
   ...BaseCommandShape,
   type: z.literal("reference.register"),
@@ -227,6 +233,7 @@ export type DuplicateNodeCommand = z.infer<typeof DuplicateNodeCommandSchema>;
 export type UpdateNodeCommand = z.infer<typeof UpdateNodeCommandSchema>;
 export type RegisterAssetCommand = z.infer<typeof RegisterAssetCommandSchema>;
 export type RemoveAssetCommand = z.infer<typeof RemoveAssetCommandSchema>;
+export type RegisterTokenCommand = z.infer<typeof RegisterTokenCommandSchema>;
 export type RegisterReferenceCommand = z.infer<typeof RegisterReferenceCommandSchema>;
 export type CreateTimelineCommand = z.infer<typeof CreateTimelineCommandSchema>;
 export type UpdateTimelineCommand = z.infer<typeof UpdateTimelineCommandSchema>;
@@ -254,6 +261,7 @@ export type Command =
   | UpdateNodeCommand
   | RegisterAssetCommand
   | RemoveAssetCommand
+  | RegisterTokenCommand
   | RegisterReferenceCommand
   | CreateTimelineCommand
   | UpdateTimelineCommand
@@ -282,6 +290,7 @@ export const CommandSchema: z.ZodType<Command> = z.discriminatedUnion("type", [
   UpdateNodeCommandSchema,
   RegisterAssetCommandSchema,
   RemoveAssetCommandSchema,
+  RegisterTokenCommandSchema,
   RegisterReferenceCommandSchema,
   CreateTimelineCommandSchema,
   UpdateTimelineCommandSchema,

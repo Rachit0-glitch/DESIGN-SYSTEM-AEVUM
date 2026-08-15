@@ -157,6 +157,7 @@ export function createDeterministicMvpAdapters(): ReconstructionAdapters {
               ...(annotation.text.content !== undefined ? { content: annotation.text.content } : {}),
               unresolved,
               style: defaultTextStyle(annotation),
+              ...(annotation.text.color ? { sampledColor: annotation.text.color } : {}),
               alignment: annotation.text.alignment,
               direction: annotation.text.direction,
               confidence: confidence(unresolved ? Math.min(region.confidence.score, 0.3) : region.confidence.score),

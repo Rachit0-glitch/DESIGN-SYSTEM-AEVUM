@@ -84,6 +84,84 @@ async function sampleRegionColor(
   return { meanColor, variance: varianceSum / pixelCount };
 }
 
+/**
+ * Estimates real text glyph ("ink") color from a text region's raw pixels. A text bounding box is
+ * mostly background with glyph strokes covering a minority of the area, so a plain mean color would
+ * just blend the two. Instead this splits pixels into two clusters by luminance (a simplified
+ * two-means/Otsu-style split — a real, if simple, per-pixel signal, not a canned assumption) and
+ * takes the mean color of whichever cluster covers less area, since ink is normally the minority.
+ * When the split is close to even (no clear minority — e.g. a low-contrast or noisy crop), this is
+ * genuinely ambiguous, so the caller is told via a lower confidence rather than a fabricated color.
+ */
+async function sampleTextInkColor(
+  sourceBytes: Uint8Array,
+  sourceWidth: number,
+  sourceHeight: number,
+  rect: Rect,
+): Promise<{ readonly color: readonly [number, number, number]; readonly confidence: number } | undefined> {
+  const left = Math.max(0, Math.min(sourceWidth - 1, Math.round(rect.x0)));
+  const top = Math.max(0, Math.min(sourceHeight - 1, Math.round(rect.y0)));
+  const width = Math.max(1, Math.min(sourceWidth - left, Math.round(rect.x1 - rect.x0)));
+  const height = Math.max(1, Math.min(sourceHeight - top, Math.round(rect.y1 - rect.y0)));
+  let data: Buffer;
+  try {
+    ({ data } = await sharp(Buffer.from(sourceBytes))
+      .extract({ left, top, width, height })
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true }));
+  } catch {
+    return undefined;
+  }
+  const pixelCount = data.length / 4;
+  if (pixelCount === 0) return undefined;
+  const luminances = new Float64Array(pixelCount);
+  let sumLuminance = 0;
+  for (let pixel = 0; pixel < pixelCount; pixel += 1) {
+    const index = pixel * 4;
+    const luminance = 0.2126 * (data[index] ?? 0) + 0.7152 * (data[index + 1] ?? 0) + 0.0722 * (data[index + 2] ?? 0);
+    luminances[pixel] = luminance;
+    sumLuminance += luminance;
+  }
+  const meanLuminance = sumLuminance / pixelCount;
+  let belowCount = 0;
+  let belowR = 0;
+  let belowG = 0;
+  let belowB = 0;
+  let aboveCount = 0;
+  let aboveR = 0;
+  let aboveG = 0;
+  let aboveB = 0;
+  for (let pixel = 0; pixel < pixelCount; pixel += 1) {
+    const index = pixel * 4;
+    const r = data[index] ?? 0;
+    const g = data[index + 1] ?? 0;
+    const b = data[index + 2] ?? 0;
+    if ((luminances[pixel] ?? 0) < meanLuminance) {
+      belowCount += 1;
+      belowR += r;
+      belowG += g;
+      belowB += b;
+    } else {
+      aboveCount += 1;
+      aboveR += r;
+      aboveG += g;
+      aboveB += b;
+    }
+  }
+  if (belowCount === 0 || aboveCount === 0) return undefined;
+  const minorityIsBelow = belowCount <= aboveCount;
+  const minorityCount = minorityIsBelow ? belowCount : aboveCount;
+  const color: [number, number, number] = minorityIsBelow
+    ? [belowR / belowCount, belowG / belowCount, belowB / belowCount]
+    : [aboveR / aboveCount, aboveG / aboveCount, aboveB / aboveCount];
+  // A clean split (small minority cluster) is a confident ink estimate; a near-even split is
+  // ambiguous — confidence decays toward 0 as the "minority" approaches half the pixels.
+  const minorityFraction = minorityCount / pixelCount;
+  const confidence = Math.max(0, 1 - minorityFraction * 2);
+  return { color, confidence };
+}
+
 export interface VisionAnalysisToManifestOptions {
   readonly referenceType?: "WEBSITE_SCREENSHOT" | "UI_SCREENSHOT" | "LANDING_PAGE" | "POSTER" | "STATIC_2D";
   readonly maxObjectRegions?: number;
@@ -118,13 +196,15 @@ export async function visionAnalysisToManifest(
 
   const textParagraphs = collectTextBlocks(analysis.textBlocks, "PARAGRAPH");
   const textRects: Rect[] = [];
-  textParagraphs.forEach((block, index) => {
+  for (const [index, block] of textParagraphs.entries()) {
     const rect = rectFromPoints(block.boundingPoly.vertices);
-    if (!rect) return;
+    if (!rect) continue;
     const w = rect.x1 - rect.x0;
     const h = rect.y1 - rect.y0;
-    if (w < 4 || h < 4) return;
+    if (w < 4 || h < 4) continue;
     textRects.push(rect);
+    const ink = await sampleTextInkColor(sourceBytes, width, height, rect);
+    if (!ink) diagnostics.push(`Could not sample ink color for text region text-${index}; no fill color was set.`);
     regions.push({
       key: `text-${index}`,
       category: "TEXT",
@@ -139,9 +219,12 @@ export async function visionAnalysisToManifest(
         fontWeight: 400,
         alignment: "LEFT",
         direction: "AUTO",
+        ...(ink
+          ? { color: { r: Math.round(ink.color[0]), g: Math.round(ink.color[1]), b: Math.round(ink.color[2]) } }
+          : {}),
       },
     });
-  });
+  }
   if (textParagraphs.length === 0) diagnostics.push("Vision provider returned no readable text blocks.");
 
   const isConsumedByText = (rect: Rect): boolean => {
