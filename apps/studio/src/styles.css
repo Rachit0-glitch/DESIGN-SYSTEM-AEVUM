@@ -472,6 +472,33 @@ svg {
   color: #c7ccca;
   font-size: 10px;
 }
+.approval-operation {
+  color: #9aa19e;
+  font-size: 10px;
+}
+.approval-diff {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 6px;
+  border-radius: 3px;
+  background: #14161a;
+}
+.approval-diff div {
+  display: flex;
+  gap: 6px;
+  font-size: 10px;
+}
+.approval-diff dt {
+  color: #707a77;
+  font-weight: 600;
+}
+.approval-diff dd {
+  margin: 0;
+  color: #c7ccca;
+  overflow-wrap: anywhere;
+}
 .approval-classification {
   font-size: 10px;
   color: #9aa19e;

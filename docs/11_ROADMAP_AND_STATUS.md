@@ -4589,7 +4589,116 @@ Replaced the auto-reject approval wiring with a genuine, working human-in-the-lo
 
 ---
 
-## 73. Final Roadmap Statement
+## 74. Block D Cleanup: Rich Approval Context, Delete Support, node.reparent Audit (2026-08-15)
+
+Three discovered gaps fixed before starting D6+, per explicit instruction to land this cleanup as
+its own commit, separate from the remaining roadmap blocks. **Status: implemented and tested.**
+
+### Issue 1 — Rich approval context
+
+`AgentApprovalRequest` previously carried only `tool`/`classification`/`policy`/`inputFingerprint` —
+enough to gate a write, not enough for a UI to show *what* will change.
+
+- `AgentApprovalRequestSchema` (`packages/agent-core/src/schemas.ts`) gained optional `nodeId`,
+  `operation`, `before`, `after`, `summary` fields — all optional, so existing callers and the
+  schema's prior shape remain valid.
+- `packages/agent-runtime/src/engine.ts`: new `findPrecedingNodeSnapshot()` walks a write step's
+  real dependency graph to find the target node's state as read by an earlier `READ` step in the
+  *same* plan run (BFS over `step.dependencies`, transitively) — returns `undefined`, never a
+  fabricated guess, when no such read genuinely exists. New `describeApprovalChange()` derives a
+  real one-line summary (rename/move/resize/delete-specific phrasing, honest generic fallback
+  otherwise) by diffing real `before`/`after` node state. `after` is `before` shallow-merged with the
+  write's real computed `changes` — a genuine preview, not invented.
+- `AiPanel`'s approval UI (`apps/studio/src/main.tsx`) now renders the real `summary`, `operation`
+  (the step's plan label), and a `<dl className="approval-diff">` listing only the fields that
+  actually differ between `before`/`after`.
+- **Real bug found and fixed while testing this**: `findPrecedingNodeSnapshot` initially read
+  `observation.data.nodes` directly, but a tool-call observation's `data` is the *full*
+  `McpResponseEnvelope` (`{success, data, ...}`), not the tool's payload — the real path is
+  `observation.data.data.nodes`. Fixed; covered by a new test asserting real `nodeId`/`operation`/
+  `before`/`after`/`summary` values from an actual engine run.
+
+### Issue 2 — Delete support
+
+The D4 prompt interpreter (`interpretNodeEditPrompt`) had no delete operation, and Studio's AI panel
+had no way to route a delete-shaped prompt to one — even though the deterministic planner already
+had a complete, tested `deletePlan()` (READ → dry-run `node.delete` → destructive-approval-gated
+write → COMPLETE) sitting unused behind `operation === "delete"`.
+
+- `apps/studio/src/main.tsx`: new `isDeletePrompt()` classifies a raw prompt (`/\b(delete|remove)\b/i`,
+  with the same rename-takes-precedence rule `interpretNodeEditPrompt` already uses, so "rename it to
+  Delete Me" is never misread as a delete). When true, `AiPanel.run()` builds
+  `parameters: { operation: "delete" }` instead of `{ prompt, viewportWidth }`, routing into the
+  existing `deletePlan()` rather than the update interpreter. A successful delete clears selection
+  and reports "Deleted "X"" from the real observed `node.delete` tool call, not inferred from
+  `afterNode` being undefined (which could also mean a resync race).
+- `packages/agent-planner/src/intent.ts`: `initialCapabilities()`'s EDIT branch now declares
+  `["document.get", "node.delete"]` (not `node.update`) when `parameters.operation === "delete"` —
+  an honesty fix so the intent's declared capabilities match what it actually does; not required for
+  correctness (the deterministic planner's own `findDescriptor` already resolves against the actor's
+  real discovered tool set regardless of this declared list).
+- `apps/studio/src/core/agent.ts`: the dev-fixture in-process MCP transport
+  (`createDeterministicStudioAgentContext`) only implemented `node.update` — a delete-shaped prompt
+  would fail with `AGENT_TOOL_UNAVAILABLE` in local/dev mode. Added a real `node.delete` tool
+  descriptor and dispatch (`NodeDeleteInputSchema.parse` → `session.deleteNode(...)`), mirroring the
+  existing `node.update` handling exactly.
+- **Real bug found and fixed while testing this**: deleting a node that a timeline track targets
+  left a dangling `Track.targetId` (a required field) pointing at a node that no longer exists,
+  failing `CanonicalDesignDocumentSchema` validation *after* the delete had already been applied —
+  `removeNodeSubtree` (`packages/command-engine/src/immutable.ts`) cleaned up `childIds`,
+  `rootNodeIds`, and `pages` on node removal but never touched `timelines`. Fixed: removed nodes now
+  also remove any timeline track that targeted them, and prune that track's id from any clip's
+  `trackIds` — the same cascade semantics already applied to child nodes. Covered by a new
+  `command-engine.test.ts` test (track removed, its id pruned from the clip, resulting document still
+  valid) in addition to the end-to-end Studio delete tests.
+- New `tests/unit/studio-approval.test.ts` coverage (Delete support describe block, 5 tests): a) a
+  delete-shaped goal builds a plan whose write step targets `node.delete` (never `node.update`); b) a
+  destructive delete genuinely suspends for real UI approval before touching the document; c)
+  rejecting leaves the document completely untouched; d) approving actually removes the node from the
+  canonical document; plus a fifth test confirming a destructive delete is auto-denied, without ever
+  prompting, when the session forbids destructive operations — the pre-existing `DESTRUCTIVE_WRITE`
+  auto-deny path, exercised here for delete specifically.
+
+### Issue 3 — node.reparent audit
+
+Confirmed (re-verified, not just carried over from a prior-era audit): `node.reparent` has real
+Command Engine apply logic (`packages/command-engine/src/commands/node.ts`) but no MCP tool
+anywhere in `mcp-protocol`/`mcp-server`, no `reparentNode` method on `StudioSession`, and no
+cross-parent-move UI in Studio (the layers panel only reorders within a parent via `node.move`;
+canvas drag only changes a node's position, never its `parentId`). No real Studio requirement exists
+for it today.
+
+- Per explicit instruction ("do NOT expose it speculatively; document why it remains unavailable"),
+  added a `NOT_YET_AVAILABLE` entry for `node.reparent` to `STUDIO_CAPABILITIES`
+  (`apps/studio/src/core/capabilities.ts`) — the registry's single source of truth now carries the
+  real reason directly, instead of that reasoning living only in test comments.
+- This changes real, observable behavior: `apps/studio/src/core/production.ts`'s command gateway
+  already had logic to surface a capability's `unavailableReason` when one is documented, falling
+  back to a generic "no MCP tool mapping" message only for completely undocumented command types.
+  `node.reparent` now hits the specific-reason branch. `tests/unit/studio-production.test.ts` updated:
+  the "returns undefined for a command type with no documented capability at all" test now uses
+  `page.delete` (still genuinely undocumented) as its example instead of `node.reparent`; a new test
+  confirms `node.reparent` is found as a deliberate `NOT_YET_AVAILABLE` exclusion with a real,
+  non-empty reason and no `mcpTool`; the gateway-rejection test's expected message updated to match.
+- No MCP tool, capability, or command-engine change made — this remains genuinely unavailable, now
+  documented rather than silently absent.
+
+### Validation
+
+- Targeted: `tests/unit/studio-approval.test.ts` (12 tests), `tests/unit/command-engine.test.ts`
+  (12 tests), `tests/unit/studio-production.test.ts` (15 tests) all passing.
+- Full `pnpm validate` (docs, dependency rules, format, lint, typecheck, **458/458 tests**, build
+  across all 65 packages) passed clean.
+- **Out of scope, intentionally**: no changes to D6–D13. The `node.reparent` MCP tool remains
+  unbuilt (correctly — no real Studio requirement exists yet). No further cross-reference cleanup
+  (e.g. rig bone/IK-chain/camera-shot references) was added to `removeNodeSubtree` beyond timeline
+  tracks — `node.delete` already refuses to touch rig/bone/skinned-mesh state entirely
+  (`CONFLICT_ERROR`), so those reference kinds cannot dangle via this path; timeline tracks were the
+  one real, exercised gap.
+
+---
+
+## 75. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.
 

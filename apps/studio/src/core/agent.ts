@@ -7,6 +7,7 @@ import {
   MCP_TOOL_VERSION,
   McpRequestEnvelopeSchema,
   McpResponseEnvelopeSchema,
+  NodeDeleteInputSchema,
   NodeUpdateInputSchema,
   type McpPermission,
   type McpToolDescriptor,
@@ -63,7 +64,7 @@ function documentSummary(document: CanonicalDesignDocument) {
 }
 
 function toolDescriptor(
-  name: "system.get_capabilities" | "document.get" | "node.update",
+  name: "system.get_capabilities" | "document.get" | "node.update" | "node.delete",
   permissions: readonly McpPermission[],
   classification: "READ" | "WRITE",
 ): McpToolDescriptor {
@@ -85,9 +86,9 @@ function toolDescriptor(
 
 /**
  * A local, in-process StudioAgentContext for Studio's dev fixture (no production MCP server
- * available). Supports exactly the tools the deterministic node-edit plan needs
- * (system.get_capabilities, document.get, node.update) — anything else fails honestly rather than
- * being silently faked.
+ * available). Supports exactly the tools the deterministic node-edit and node-delete plans need
+ * (system.get_capabilities, document.get, node.update, node.delete) — anything else fails honestly
+ * rather than being silently faked.
  */
 export function createDeterministicStudioAgentContext(input: {
   readonly session: StudioSession;
@@ -101,6 +102,7 @@ export function createDeterministicStudioAgentContext(input: {
     toolDescriptor("system.get_capabilities", ["mcp.tool.execute"], "READ"),
     toolDescriptor("document.get", ["document.read"], "READ"),
     toolDescriptor("node.update", ["document.write"], "WRITE"),
+    toolDescriptor("node.delete", ["document.write"], "WRITE"),
   ];
   const transport = createInProcessMcpTransport(async ({ request }) => {
     const envelope = McpRequestEnvelopeSchema.parse(request);
@@ -175,19 +177,34 @@ export function createDeterministicStudioAgentContext(input: {
       });
     }
 
-    if (envelope.tool !== "node.update") {
+    if (envelope.tool !== "node.update" && envelope.tool !== "node.delete") {
       return fail("MCP_TOOL_NOT_FOUND", `Deterministic Studio provider does not expose ${envelope.tool}.`);
     }
-    const update = NodeUpdateInputSchema.parse(envelope.input);
-    if (!envelope.dryRun) {
-      input.session.updateNode(update.nodeId, update.changes, {
-        expectedDocumentVersion: update.expectedDocumentVersion,
-        actor: { id: input.actorId, type: "MCP_AGENT", displayName: "AEVUM AI" },
-        ...(envelope.correlationId === undefined ? {} : { correlationId: envelope.correlationId }),
-      });
+    const actor = { id: input.actorId, type: "MCP_AGENT" as const, displayName: "AEVUM AI" };
+    let expectedDocumentVersion: number;
+    if (envelope.tool === "node.update") {
+      const update = NodeUpdateInputSchema.parse(envelope.input);
+      expectedDocumentVersion = update.expectedDocumentVersion;
+      if (!envelope.dryRun) {
+        input.session.updateNode(update.nodeId, update.changes, {
+          expectedDocumentVersion: update.expectedDocumentVersion,
+          actor,
+          ...(envelope.correlationId === undefined ? {} : { correlationId: envelope.correlationId }),
+        });
+      }
+    } else {
+      const del = NodeDeleteInputSchema.parse(envelope.input);
+      expectedDocumentVersion = del.expectedDocumentVersion;
+      if (!envelope.dryRun) {
+        input.session.deleteNode(del.nodeId, {
+          expectedDocumentVersion: del.expectedDocumentVersion,
+          actor,
+          ...(envelope.correlationId === undefined ? {} : { correlationId: envelope.correlationId }),
+        });
+      }
     }
     const resultVersion = envelope.dryRun
-      ? update.expectedDocumentVersion + 1
+      ? expectedDocumentVersion + 1
       : input.session.getSnapshot().document.documentVersion;
     return McpResponseEnvelopeSchema.parse({
       protocolVersion: MCP_PROTOCOL_VERSION,

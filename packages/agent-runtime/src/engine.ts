@@ -96,6 +96,79 @@ function resolveInput(step: AgentPlanStep, observations: readonly AgentObservati
   return result;
 }
 
+/**
+ * Real approval context (post-D5 cleanup): finds the target node's state as read by an earlier
+ * READ step in the SAME plan run, by walking the step's real dependency graph — never fabricated,
+ * and undefined when no such read genuinely exists (e.g. a write with no preceding read, or a node
+ * the read didn't happen to return).
+ */
+function findPrecedingNodeSnapshot(
+  plan: AgentPlan,
+  step: AgentPlanStep,
+  observations: readonly AgentObservation[],
+  nodeId: string,
+): Record<string, unknown> | undefined {
+  const observationByStep = new Map(observations.map((entry) => [entry.stepId, entry]));
+  const stepById = new Map(plan.steps.map((entry) => [entry.id, entry]));
+  const visited = new Set<string>();
+  const queue: string[] = [...step.dependencies];
+  while (queue.length > 0) {
+    const id = queue.shift();
+    if (!id || visited.has(id)) continue;
+    visited.add(id);
+    const candidate = stepById.get(id);
+    const observation = observationByStep.get(id);
+    if (candidate?.type === "READ" && observation?.success) {
+      // observation.data is the full McpResponseEnvelope (see the TOOL_RESULT branch above, which
+      // stores the raw `response`) — the tool's actual payload is nested one level deeper.
+      const envelope = observation.data as { data?: { nodes?: Array<Record<string, unknown>> } } | undefined;
+      const node = envelope?.data?.nodes?.find((entry) => entry.id === nodeId);
+      if (node) return structuredClone(node);
+    }
+    if (candidate) queue.push(...candidate.dependencies);
+  }
+  return undefined;
+}
+
+/** A real, derived one-line description of an approval-gated write — never a fabricated guess. */
+function describeApprovalChange(
+  tool: string,
+  nodeId: string | undefined,
+  before: Record<string, unknown> | undefined,
+  after: Record<string, unknown> | undefined,
+): string {
+  if (!nodeId) return `Run ${tool}.`;
+  const beforeName = typeof before?.name === "string" ? before.name : undefined;
+  const afterName = typeof after?.name === "string" ? after.name : undefined;
+  const label = beforeName ?? nodeId;
+  if (tool === "node.delete") return `Delete "${label}".`;
+  if (afterName && beforeName && afterName !== beforeName) return `Rename "${beforeName}" -> "${afterName}".`;
+  if (after) {
+    type Positioned = { readonly transform?: { readonly position?: { readonly x?: number; readonly y?: number } } };
+    const beforePos = (before as Positioned | undefined)?.transform?.position;
+    const afterPos = (after as Positioned).transform?.position;
+    if (afterPos && beforePos && (afterPos.x !== beforePos.x || afterPos.y !== beforePos.y)) {
+      return `Move "${label}" to (${Math.round(afterPos.x ?? 0)}, ${Math.round(afterPos.y ?? 0)}).`;
+    }
+    type Sized = {
+      readonly dimensions?: {
+        readonly width?: { readonly value?: number };
+        readonly height?: { readonly value?: number };
+      };
+    };
+    const beforeDim = (before as Sized | undefined)?.dimensions;
+    const afterDim = (after as Sized).dimensions;
+    if (
+      afterDim &&
+      beforeDim &&
+      (afterDim.width?.value !== beforeDim.width?.value || afterDim.height?.value !== beforeDim.height?.value)
+    ) {
+      return `Resize "${label}" to ${Math.round(afterDim.width?.value ?? 0)} x ${Math.round(afterDim.height?.value ?? 0)}.`;
+    }
+  }
+  return `Edit "${label}" via ${tool}.`;
+}
+
 function diagnosticForResponse(response: McpResponseEnvelope, step: AgentPlanStep): AgentDiagnostic {
   const error = response.errors[0];
   let code: AgentDiagnostic["code"] = "AGENT_STEP_FAILED";
@@ -545,6 +618,20 @@ export function createAgentEngine(options: AgentEngineOptions) {
                 });
               } else {
                 if (step.requiresApproval && step.type === "WRITE") {
+                  // Real, derived approval context (post-D5 cleanup) — nodeId/before come from an
+                  // actual earlier READ step in this same run, never invented; after is that real
+                  // state shallow-merged with the real computed changes this write is about to
+                  // apply, a genuine preview, not a guess.
+                  const nodeId =
+                    typeof resolved.nodeId === "string"
+                      ? resolved.nodeId
+                      : typeof resolved.sourceNodeId === "string"
+                        ? resolved.sourceNodeId
+                        : undefined;
+                  const before =
+                    plan && nodeId ? findPrecedingNodeSnapshot(plan, step, observations, nodeId) : undefined;
+                  const changes = (resolved as { changes?: Record<string, unknown> }).changes;
+                  const after = before && changes ? { ...before, ...changes } : undefined;
                   const request = AgentApprovalRequestSchema.parse({
                     sessionId: session.id,
                     runId: run.id,
@@ -556,6 +643,11 @@ export function createAgentEngine(options: AgentEngineOptions) {
                         ? "REQUIRE_DESTRUCTIVE_APPROVAL"
                         : "REQUIRE_ALL_WRITE_APPROVAL",
                     inputFingerprint: fingerprint(resolved),
+                    ...(nodeId ? { nodeId } : {}),
+                    ...(step.label ? { operation: step.label } : {}),
+                    ...(before ? { before } : {}),
+                    ...(after ? { after } : {}),
+                    summary: describeApprovalChange(step.tool, nodeId, before, after),
                   });
                   const decision =
                     step.safety === "DESTRUCTIVE_WRITE" && !session.constraints.allowDestructiveOperations

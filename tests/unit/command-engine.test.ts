@@ -193,6 +193,64 @@ describe("Command Engine", () => {
     expect(document.nodes[text.id]).toBe(text);
   });
 
+  it("removes a dangling timeline track (and prunes it from clips) when its target node is deleted", () => {
+    const document = fixtures.landingPage();
+    const text = Object.values(document.nodes).find((node) => node.type === "TEXT");
+    if (!text) throw new Error("Landing fixture requires a text node.");
+    const track = {
+      id: "track_20000000-0000-4000-8000-000000000001",
+      targetId: text.id,
+      property: "OPACITY",
+      propertyPath: "transform.opacity",
+      valueType: "NUMBER",
+      muted: false,
+      locked: false,
+      layer: 0,
+      keyframes: [],
+    } as const;
+    const otherTrack = { ...track, id: "track_20000000-0000-4000-8000-000000000002", targetId: text.parentId! };
+    const timeline = {
+      id: "timeline_20000000-0000-4000-8000-000000000001",
+      version: "1.0.0",
+      name: "Fade in",
+      type: "TIME",
+      duration: 1,
+      frameRate: 60,
+      timeScale: 1,
+      loop: { enabled: false, count: null, mode: "RESTART" },
+      tracks: [track, otherTrack],
+      clips: [
+        {
+          id: "clip_20000000-0000-4000-8000-000000000001",
+          name: "Fade",
+          start: 0,
+          end: 1,
+          offset: 0,
+          playbackRate: 1,
+          trackIds: [track.id, otherTrack.id],
+        },
+      ],
+      markers: [],
+      triggers: [],
+      events: [],
+      labels: {},
+      metadata: {},
+    } as const;
+    const withTimeline: CanonicalDesignDocument = { ...document, timelines: { [timeline.id]: timeline } };
+    expect(validateDocument(withTimeline).success).toBe(true);
+
+    const result = executeCommand(withTimeline, {
+      ...base(withTimeline),
+      type: "node.delete",
+      payload: { nodeId: text.id },
+    });
+
+    expect(validateDocument(result.newDocument).success).toBe(true);
+    const resultTimeline = result.newDocument.timelines[timeline.id];
+    expect(resultTimeline?.tracks.map((entry) => entry.id)).toEqual([otherTrack.id]);
+    expect(resultTimeline?.clips[0]?.trackIds).toEqual([otherTrack.id]);
+  });
+
   it("rejects generic deletion of canonical rig state", () => {
     const document = fixtures.landingPage();
     const parentId = document.rootNodeIds[0];

@@ -548,6 +548,17 @@ export function ReferencesPanel({ snapshot }: { snapshot: StudioSessionSnapshot 
   );
 }
 
+/**
+ * Real, deterministic delete-intent classification (Block D cleanup, Issue 2) — a rename request
+ * that happens to mention "delete" in its new name (e.g. rename it to "Delete Me") is never treated
+ * as a delete, matching the same rename-takes-precedence rule interpretNodeEditPrompt already
+ * applies server-side (packages/agent-runtime/src/engine.ts).
+ */
+function isDeletePrompt(prompt: string): boolean {
+  if (/rename(?: it| this)? to ["']?[^"'.]+["']?/i.test(prompt)) return false;
+  return /\b(delete|remove)\b/i.test(prompt);
+}
+
 type AiStage = "IDLE" | "RUNNING" | "COMPLETE" | "FAILED";
 const aiLabels: Record<AiStage, string> = {
   IDLE: "Ready",
@@ -614,13 +625,17 @@ function AiPanel({
       // itself, at plan-execution time, after reading the node's real current state, rather than
       // Studio guessing client-side before any real read happens. An unrecognized prompt now fails
       // as a real plan-execution error (caught below) instead of a pre-flight UI guess.
+      // A delete-shaped prompt (Block D cleanup, Issue 2) instead routes to the planner's existing
+      // deletePlan — a destructive write that always requires real approval — rather than through
+      // the update interpreter, which has no delete operation.
+      const deleteRequested = isDeletePrompt(prompt);
       const goal = createAgentGoal({
         category: "EDIT",
         request: prompt,
         targetProjectId: agentContext.projectId,
         targetDocumentId: agentContext.documentId,
         targetNodeIds: [nodeId],
-        parameters: { prompt, viewportWidth: viewport?.width ?? 1440 },
+        parameters: deleteRequested ? { operation: "delete" } : { prompt, viewportWidth: viewport?.width ?? 1440 },
       });
       const agentSession = createAgentSession({
         actorId: agentContext.actorId,
@@ -684,8 +699,13 @@ function AiPanel({
         }
       }
       const toolSteps = result.audits.filter((entry) => entry.tool && entry.tool !== "system.get_capabilities");
+      // A delete is reported from the real, observed tool call (never inferred from afterNode being
+      // undefined, which could also mean a resync race) — and clears selection, since the selected
+      // node genuinely no longer exists.
+      const wasDelete = toolSteps.some((entry) => entry.tool === "node.delete");
+      if (wasDelete) onSelect("", false);
       setActions([
-        summarizeNodeChange(node, afterNode),
+        wasDelete ? `Deleted "${node.name}"` : summarizeNodeChange(node, afterNode),
         ...toolSteps.map((entry) => `${entry.tool} — ${entry.toolResult.toLowerCase()}`),
         `Canonical document advanced to v${result.run.outcome?.finalDocumentVersion ?? snapshot.document.documentVersion + 1}`,
       ]);
@@ -718,10 +738,33 @@ function AiPanel({
       {pendingApproval ? (
         <div className="ai-approval" role="alertdialog" aria-label="Action awaiting approval">
           <strong>Approval required</strong>
-          <p>
-            The agent wants to run <code>{pendingApproval.request.tool}</code> on{" "}
-            {selected[0] ? (snapshot.document.nodes[selected[0]]?.name ?? "the target layer") : "the target layer"}.
-          </p>
+          {/* summary/operation/nodeId/before/after are real, derived plan-execution context
+              (post-D5 cleanup) — read directly from the actual read-before-write step data, not
+              re-guessed here. Fall back to the raw tool name only if the engine genuinely couldn't
+              derive richer context (e.g. a write with no preceding read). */}
+          <p>{pendingApproval.request.summary ?? `The agent wants to run ${pendingApproval.request.tool}.`}</p>
+          {pendingApproval.request.operation ? (
+            <p className="approval-operation">{pendingApproval.request.operation}</p>
+          ) : null}
+          {pendingApproval.request.before && pendingApproval.request.after ? (
+            <dl className="approval-diff">
+              {Object.keys(pendingApproval.request.after)
+                .filter(
+                  (key) =>
+                    JSON.stringify((pendingApproval.request.before as Record<string, unknown>)[key]) !==
+                    JSON.stringify((pendingApproval.request.after as Record<string, unknown>)[key]),
+                )
+                .map((key) => (
+                  <div key={key}>
+                    <dt>{key}</dt>
+                    <dd>
+                      {JSON.stringify((pendingApproval.request.before as Record<string, unknown>)[key])} →{" "}
+                      {JSON.stringify((pendingApproval.request.after as Record<string, unknown>)[key])}
+                    </dd>
+                  </div>
+                ))}
+            </dl>
+          ) : null}
           <p
             className={`approval-classification classification-${pendingApproval.request.classification.toLowerCase()}`}
           >

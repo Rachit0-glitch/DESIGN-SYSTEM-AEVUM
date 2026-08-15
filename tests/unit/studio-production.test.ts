@@ -215,19 +215,35 @@ describe("Studio capability registry (Block D1)", () => {
   });
 
   it("returns undefined for a command type with no documented capability at all", () => {
-    // node.reparent has a real MCP command type and Command Engine apply logic but no MCP tool and
-    // no confirmed Studio UI need (no reparentNode function exists in session.ts) — genuinely
-    // undocumented, unlike node.move/node.duplicate which Block D2 added real tools for.
-    expect(findStudioCapability("node.reparent")).toBeUndefined();
+    // page.delete has a real Command Engine command type but no MCP tool, no Studio UI (no page
+    // management UI exists at all), and — unlike node.reparent below — was never even audited or
+    // considered for one: genuinely undocumented, not a deliberate NOT_YET_AVAILABLE exclusion.
+    expect(findStudioCapability("page.delete")).toBeUndefined();
+    expect(isGatewayRoutable("page.delete")).toBe(false);
+  });
+
+  it("documents node.reparent as a deliberate NOT_YET_AVAILABLE exclusion (Block D cleanup, Issue 3), not a gap", () => {
+    // node.reparent has real Command Engine apply logic but no MCP tool, and Studio has no
+    // reparentNode session method or cross-parent drag UI to call one from (the layers panel only
+    // reorders within a parent via node.move; canvas drag only changes position, never parentId).
+    // Documented here — status NOT_YET_AVAILABLE with a real reason — rather than exposed
+    // speculatively ahead of any actual Studio requirement.
+    const capability = findStudioCapability("node.reparent");
+    expect(capability?.status).toBe("NOT_YET_AVAILABLE");
+    if (capability?.status === "NOT_YET_AVAILABLE") {
+      expect(capability.unavailableReason.length).toBeGreaterThan(0);
+      expect("mcpTool" in capability).toBe(false);
+    }
     expect(isGatewayRoutable("node.reparent")).toBe(false);
   });
 
-  it("keeps the NOT_YET_AVAILABLE type path sound even when the registry currently has no such entry", () => {
+  it("keeps the NOT_YET_AVAILABLE type path structurally sound for every entry in that state", () => {
     // Every entry with that status must carry a real, non-empty reason and no mcpTool — verified as
-    // a structural invariant so this stays true if a future capability is ever added in that state,
-    // not merely asserted against today's specific (now-empty) set.
-    for (const capability of STUDIO_CAPABILITIES) {
-      if (capability.status !== "NOT_YET_AVAILABLE") continue;
+    // a structural invariant so this stays true for node.reparent today and for any future entry
+    // added in this state, not just asserted against one specific capability.
+    const notYetAvailable = STUDIO_CAPABILITIES.filter((capability) => capability.status === "NOT_YET_AVAILABLE");
+    expect(notYetAvailable.length).toBeGreaterThan(0);
+    for (const capability of notYetAvailable) {
       expect(capability.unavailableReason.length).toBeGreaterThan(0);
       expect("mcpTool" in capability).toBe(false);
     }
@@ -256,11 +272,14 @@ describe("Studio production MCP command gateway", () => {
     global.fetch = fetchMock as unknown as typeof fetch;
 
     const project = await loadProductionStudioProject(configuration, makeSession("token-1"));
-    // node.reparent has no MCP tool and no documented capability (see the Block D2 registry test),
-    // unlike node.move/node.duplicate which Block D2 gave real tool mappings.
+    // node.reparent is documented as NOT_YET_AVAILABLE (see the capability registry tests above), so
+    // the gateway now rejects it with that entry's real unavailableReason rather than the generic
+    // "no MCP tool mapping" message it used to fall back to before that entry existed.
     const command = testCommand({ type: "node.reparent", payload: { nodeId: "irrelevant", parentId: null, index: 0 } });
 
-    await expect(project.commandGateway.execute(command)).rejects.toThrow(/no MCP tool mapping/i);
+    await expect(project.commandGateway.execute(command)).rejects.toThrow(
+      /Studio cannot remotely execute "node.reparent" yet:.*not exposed as an MCP tool/i,
+    );
     expect(calls).toEqual(["document.get", "system.get_capabilities"]);
   });
 

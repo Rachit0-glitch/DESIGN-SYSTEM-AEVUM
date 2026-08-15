@@ -157,9 +157,10 @@ function initialCapabilities(session: AgentSession): string[] {
     case "INSPECT":
       return ["project.get", "document.inspect_hierarchy"];
     case "EDIT":
-      return goal.targetNodeIds.length > 0
-        ? ["document.get", "node.update"]
-        : ["project.get", "document.get_version", "document.rename", "document.get"];
+      if (goal.targetNodeIds.length === 0) {
+        return ["project.get", "document.get_version", "document.rename", "document.get"];
+      }
+      return goal.parameters.operation === "delete" ? ["document.get", "node.delete"] : ["document.get", "node.update"];
     case "CREATE":
       return ["document.get", "node.create"];
     case "RECONSTRUCT":

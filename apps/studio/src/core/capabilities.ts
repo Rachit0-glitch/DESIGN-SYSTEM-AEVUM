@@ -133,6 +133,17 @@ export const STUDIO_CAPABILITIES: readonly StudioCapability[] = [
     studioUseCase:
       "Read the canonical document: initial project load, and resyncing after a multi-command server-side transaction (e.g. reconstruction import) whose exact command list isn't returned to the caller for a local replay.",
   },
+  {
+    status: "NOT_YET_AVAILABLE",
+    commandType: "node.reparent",
+    studioUseCase: "Move a node to a different parent (e.g. drag a layer out of one frame and into another).",
+    unavailableReason:
+      "The Command Engine has real apply logic for node.reparent (packages/command-engine/src/commands/node.ts), " +
+      "but it is deliberately not exposed as an MCP tool, and Studio has no reparentNode method or drag-into-a-" +
+      "different-parent UI to call it from — the layers panel only reorders within the same parent (node.move) " +
+      "and canvas drag only changes a node's position, never its parentId. Add a real node.reparent MCP tool and " +
+      "wire it here only once Studio grows an actual cross-parent move interaction, not speculatively ahead of it.",
+  },
 ];
 
 /** Looks up the capability, if any, documented for a given Command Engine command type. */

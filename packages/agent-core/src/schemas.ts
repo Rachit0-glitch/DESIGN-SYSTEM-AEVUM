@@ -1,4 +1,4 @@
-import { JsonValueSchema } from "@aevum/document-model";
+import { EntityIdSchema, JsonValueSchema } from "@aevum/document-model";
 import { McpPermissionSchema } from "@aevum/mcp-protocol";
 import { z } from "zod";
 
@@ -221,6 +221,18 @@ export const AgentApprovalRequestSchema = z.strictObject({
   classification: AgentToolSafetySchema,
   policy: AgentApprovalPolicySchema,
   inputFingerprint: FingerprintSchema,
+  // Real, derived context for an approval UI (post-D5 cleanup) — all optional so existing callers
+  // and the schema's prior shape remain valid; only populated when the engine can genuinely derive
+  // it from real plan/document data, never fabricated when it can't.
+  nodeId: EntityIdSchema.optional(),
+  /** A real, human-readable description of the step's purpose (its plan label), not the raw tool name. */
+  operation: z.string().min(1).max(255).optional(),
+  /** The real target node's relevant fields as read moments earlier in the same plan run, before this write. */
+  before: z.record(z.string(), JsonValueSchema).optional(),
+  /** before, shallow-merged with the real computed changes this write is about to apply — a preview, not a guess. */
+  after: z.record(z.string(), JsonValueSchema).optional(),
+  /** A short, real, derived description of what will change (e.g. "Rename \"X\" -> \"Y\""). */
+  summary: z.string().min(1).max(500).optional(),
 });
 export const AgentApprovalDecisionSchema = z.strictObject({
   approved: z.boolean(),

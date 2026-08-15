@@ -53,6 +53,33 @@ export function addNode(document: CanonicalDesignDocument, node: DesignNode, ind
   return { ...document, nodes, rootNodeIds: insertAt(document.rootNodeIds, node.id, index) };
 }
 
+/**
+ * Removing a node can leave a timeline track pointing at a target that no longer exists — a track's
+ * targetId is a required field, so the track (and its references from any clip's trackIds) must be
+ * removed with the node rather than left dangling, the same cascade already applied to childIds,
+ * rootNodeIds, and pages below.
+ */
+function removeDanglingAnimationTracks(
+  timelines: CanonicalDesignDocument["timelines"],
+  removedNodeIds: ReadonlySet<string>,
+): CanonicalDesignDocument["timelines"] {
+  const result: CanonicalDesignDocument["timelines"] = { ...timelines };
+  for (const [timelineId, timeline] of Object.entries(timelines)) {
+    const keptTracks = timeline.tracks.filter((track) => !removedNodeIds.has(track.targetId));
+    if (keptTracks.length === timeline.tracks.length) continue;
+    const keptTrackIds = new Set(keptTracks.map((track) => track.id));
+    result[timelineId] = {
+      ...timeline,
+      tracks: keptTracks,
+      clips: timeline.clips.map((clip) => ({
+        ...clip,
+        trackIds: clip.trackIds.filter((trackId) => keptTrackIds.has(trackId)),
+      })),
+    };
+  }
+  return result;
+}
+
 export function removeNodeSubtree(
   document: CanonicalDesignDocument,
   nodeId: string,
@@ -71,6 +98,7 @@ export function removeNodeSubtree(
       nodes,
       rootNodeIds: document.rootNodeIds.filter((id) => !removed.has(id)),
       pages: document.pages.filter((id) => !removed.has(id)),
+      timelines: removeDanglingAnimationTracks(document.timelines, removed),
     },
     removedIds,
   };
