@@ -10,7 +10,8 @@
       "!.npm-cache",
       "!coverage",
       "!playwright-report",
-      "!test-results"
+      "!test-results",
+      "!.claude"
     ]
   },
   "formatter": {

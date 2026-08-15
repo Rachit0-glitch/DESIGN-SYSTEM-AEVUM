@@ -232,6 +232,7 @@ export function createDeterministicMvpAdapters(): ReconstructionAdapters {
               shapeType: annotation.shape.shapeType,
               geometry: annotation.shape.geometry,
               ...(annotation.shape.fill ? { fill: annotation.shape.fill } : {}),
+              ...(annotation.shape.gradient ? { gradient: annotation.shape.gradient } : {}),
               ...(annotation.shape.stroke ? { stroke: annotation.shape.stroke } : {}),
               ...(annotation.shape.cornerRadius !== undefined ? { cornerRadius: annotation.shape.cornerRadius } : {}),
               confidence: confidence(region.confidence.score),

@@ -818,6 +818,13 @@ function CanvasNode({
       : undefined;
   const radius =
     typeof custom["aevum.studio.radius"] === "number" ? custom["aevum.studio.radius"] : (geometryCornerRadius ?? 0);
+  // node.geometry.stroke.width is real sampled data from reconstruction (see
+  // packages/reconstruction-vision/manifest.ts's stroke sampling) — the canonical schema has no
+  // typed strokeWidth field yet, so it's read directly here, the same pattern as cornerRadius above.
+  const geometryStrokeWidth =
+    node.type === "SHAPE" && typeof (node.geometry as { stroke?: { width?: unknown } }).stroke?.width === "number"
+      ? (node.geometry as { stroke: { width: number } }).stroke.width
+      : undefined;
   const strokeCss = operationStroke ? paintCss(operationStroke.paint) : undefined;
   const style: React.CSSProperties = {
     left: x,
@@ -830,7 +837,12 @@ function CanvasNode({
     background: fill,
     borderRadius: radius,
     color,
-    ...(strokeCss ? { border: `${operationStroke?.width ?? 1}px solid ${strokeCss}`, boxSizing: "border-box" } : {}),
+    ...(strokeCss
+      ? {
+          border: `${geometryStrokeWidth ?? operationStroke?.width ?? 1}px solid ${strokeCss}`,
+          boxSizing: "border-box",
+        }
+      : {}),
   };
   const pointerDown = (event: React.PointerEvent) => {
     if (node.locked) return;

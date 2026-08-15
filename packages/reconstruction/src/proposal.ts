@@ -86,6 +86,81 @@ class ColorTokenResolver {
   }
 }
 
+interface RawGradientValue {
+  readonly type: "LINEAR_GRADIENT" | "RADIAL_GRADIENT";
+  readonly angle?: number;
+  readonly stops: readonly { readonly r: number; readonly g: number; readonly b: number }[];
+}
+
+function isGradientValue(value: unknown): value is RawGradientValue {
+  const candidate = value as Partial<RawGradientValue> | undefined;
+  return (
+    (candidate?.type === "LINEAR_GRADIENT" || candidate?.type === "RADIAL_GRADIENT") &&
+    Array.isArray(candidate.stops) &&
+    candidate.stops.length >= 2 &&
+    candidate.stops.every((stop) => isSampledColor(stop))
+  );
+}
+
+interface RawStrokeValue {
+  readonly color: SampledColor;
+  readonly width: number;
+}
+
+function isStrokeValue(value: unknown): value is RawStrokeValue {
+  const candidate = value as Partial<RawStrokeValue> | undefined;
+  return isSampledColor(candidate?.color) && typeof candidate?.width === "number" && Number.isFinite(candidate.width);
+}
+
+/**
+ * Resolves real detected gradients (see packages/vision and packages/reconstruction-vision's
+ * detectLinearGradient) into a single shared, deduplicated GRADIENT Token per distinct gradient —
+ * the same real-Paint-by-token mechanism ColorTokenResolver uses for solid colors, extended to CDD
+ * 1.9.0's GradientSchema. The raw detected value only carries two endpoint colors with no offset
+ * (a two-stop measurement, not a designer's arbitrary stop list), so offsets are assigned evenly
+ * across the stop list here (0 and 1 for the real two-stop case).
+ */
+class GradientTokenResolver {
+  readonly #tokens = new Map<string, { readonly id: string; readonly token: ReturnType<typeof TokenSchema.parse> }>();
+
+  public constructor(private readonly taskId: string) {}
+
+  public resolve(gradient: RawGradientValue): string {
+    const stops = gradient.stops.map((stop, index) => ({
+      offset: gradient.stops.length > 1 ? index / (gradient.stops.length - 1) : 0,
+      r: Math.max(0, Math.min(255, Math.round(stop.r))),
+      g: Math.max(0, Math.min(255, Math.round(stop.g))),
+      b: Math.max(0, Math.min(255, Math.round(stop.b))),
+    }));
+    const angleKey = gradient.angle !== undefined ? Math.round(gradient.angle) : "none";
+    const key = `${gradient.type}|${angleKey}|${stops.map((stop) => `${stop.offset}:${stop.r},${stop.g},${stop.b}`).join("|")}`;
+    const existing = this.#tokens.get(key);
+    if (existing) return existing.id;
+    const index = this.#tokens.size;
+    const id = deterministicEntityId("token", { taskId: this.taskId, kind: "sampled-gradient", key });
+    const token = TokenSchema.parse({
+      id,
+      name: index === 0 ? "gradient.reconstructed.primary" : `gradient.reconstructed.variant${index + 1}`,
+      type: "GRADIENT",
+      value: {
+        type: gradient.type,
+        stops: stops.map((stop) => ({
+          offset: stop.offset,
+          color: { r: stop.r / 255, g: stop.g / 255, b: stop.b / 255, a: 1, colorSpace: "SRGB" },
+        })),
+        ...(gradient.angle !== undefined ? { angle: gradient.angle } : {}),
+      },
+      description: "Sampled from the source reference image during reconstruction.",
+    });
+    this.#tokens.set(key, { id, token });
+    return id;
+  }
+
+  public tokens(): readonly { readonly id: string; readonly token: ReturnType<typeof TokenSchema.parse> }[] {
+    return [...this.#tokens.values()];
+  }
+}
+
 function nodePrefix(category: DetectedRegion["category"]): "frame" | "group" | "text" | "image" | "shape" {
   if (category === "SECTION" || category === "FRAME") return "frame";
   if (category === "TEXT") return "text";
@@ -486,6 +561,7 @@ export function createReconstructionProposal(
     [source.asset.id, { asset: source.asset, role: "SOURCE_REFERENCE" }],
   ]);
   const colorTokens = new ColorTokenResolver(task.id);
+  const gradientTokens = new GradientTokenResolver(task.id);
   const orderedRegions = analysis.regions
     .filter((region) => nodeIdsByRegion.has(region.id))
     .sort(
@@ -653,16 +729,24 @@ export function createReconstructionProposal(
       const styleCandidates = shape
         ? {
             ...(shape.fill ? { fill: shape.fill } : {}),
+            ...(shape.gradient ? { gradient: shape.gradient } : {}),
             ...(shape.stroke ? { stroke: shape.stroke } : {}),
             ...(shape.cornerRadius !== undefined ? { cornerRadius: shape.cornerRadius } : {}),
           }
         : undefined;
-      const fillTokenId = isSampledColor(shape?.fill) ? colorTokens.resolve(shape.fill) : undefined;
-      // The canonical schema still has no typed Paint model for gradients or strokes (no gradient
-      // token type, no strokeTokenId source yet since stroke color is never sampled) — those stay
-      // captured only in the free-form `geometry` JSON, not silently discarded but not applied as
-      // a real Paint either. A solid fill IS now a real, applied Paint (fillTokenId), the same
-      // mechanism as text color above. No 2D renderer currently reads geometry.stroke/cornerRadius.
+      const gradientTokenId = isGradientValue(shape?.gradient) ? gradientTokens.resolve(shape.gradient) : undefined;
+      // A detected gradient fill takes the fillTokenId slot instead of a solid color — the two are
+      // mutually exclusive in the detected data (see detectLinearGradient's callers), matching how
+      // a shape can only have one fill Paint.
+      const fillTokenId =
+        gradientTokenId ?? (isSampledColor(shape?.fill) ? colorTokens.resolve(shape.fill) : undefined);
+      const strokeTokenId = isStrokeValue(shape?.stroke) ? colorTokens.resolve(shape.stroke.color) : undefined;
+      // cornerRadius and stroke *width* still have no typed canonical field (ShapeNodeSchema has no
+      // radius/strokeWidth token or property yet) — those stay captured only in the free-form
+      // `geometry` JSON, real sampled data preserved for Studio to read directly, not silently
+      // discarded but not a canonical typed Paint value either. Fill color, gradient fill, and
+      // stroke color ARE now real, applied Paints (fillTokenId/strokeTokenId), the same mechanism
+      // as text color above.
       node = DesignNodeSchema.parse({
         ...baseNode(
           id,
@@ -679,10 +763,11 @@ export function createReconstructionProposal(
         shapeType: shape?.shapeType ?? "RECTANGLE",
         geometry: shape ? { ...shape.geometry, ...styleCandidates } : { inferredRole: region.category.toLowerCase() },
         ...(fillTokenId ? { fillTokenId } : {}),
+        ...(strokeTokenId ? { strokeTokenId } : {}),
       });
-      if (shape?.stroke || shape?.cornerRadius !== undefined)
+      if (shape?.cornerRadius !== undefined || (shape?.stroke && strokeTokenId))
         unsupportedFeatureNotes.push(
-          "Stroke and cornerRadius are captured in geometry as real sampled data, but the canonical schema has no typed Paint/gradient/stroke-token model yet, and no 2D renderer paints geometry.stroke/cornerRadius.",
+          "cornerRadius and stroke width are captured in geometry as real sampled data, but the canonical schema has no typed radius/strokeWidth field yet; Studio reads them directly from node.geometry.",
         );
     } else if (region.category === "SECTION" || region.category === "FRAME") {
       node = DesignNodeSchema.parse({
@@ -743,9 +828,11 @@ export function createReconstructionProposal(
       candidateId: candidate.id,
       applied: false,
     })),
-    // Real, applied color tokens — unlike the suggestions above, these are already referenced by
-    // fillTokenId on the nodes built earlier in this function, not merely proposed for review.
+    // Real, applied color and gradient tokens — unlike the suggestions above, these are already
+    // referenced by fillTokenId/strokeTokenId on the nodes built earlier in this function, not
+    // merely proposed for review.
     ...colorTokens.tokens().map(({ id, token }) => ({ token, candidateId: id, applied: true })),
+    ...gradientTokens.tokens().map(({ id, token }) => ({ token, candidateId: id, applied: true })),
   ];
   const fallbacks = proposedNodes
     .filter((entry) => entry.fallbackStatus !== "NATIVE")

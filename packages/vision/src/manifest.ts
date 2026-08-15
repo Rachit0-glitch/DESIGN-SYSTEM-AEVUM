@@ -580,13 +580,20 @@ export async function visionAnalysisToManifest(
     }
     const area = w * h;
     const isLikelyBackground = area / sourceArea > 0.55;
-    const isLikelyImage = sample.variance > 700;
+    const rawIsLikelyImage = sample.variance > 700;
+    // A real gradient's smooth color sweep legitimately has high raw pixel variance across its
+    // full span — exactly the pattern the variance heuristic was designed to catch for photos —
+    // but a strong planar color fit (the same calibrated R² >= 0.85 threshold used everywhere else)
+    // is real, positive evidence this is a designed gradient, not photographic noise, so it
+    // overrides the coarse variance-only classification. Detection must run before the final
+    // isLikelyImage decision (not gated behind it) so a real gradient is never short-circuited.
+    const gradient = !isLikelyBackground ? await detectLinearGradient(sourceBytes, width, height, rect) : undefined;
+    const isLikelyImage = rawIsLikelyImage && !gradient;
     const category = isLikelyBackground ? "BACKGROUND" : isLikelyImage ? "IMAGE" : "SHAPE";
     const semanticHints = [
       `vision-provider:${analysis.provider.providerId.toLowerCase()}`,
       ...(object.name ? [`label:${object.name}`] : []),
     ];
-    const gradient = !isLikelyImage ? await detectLinearGradient(sourceBytes, width, height, rect) : undefined;
     const stroke = !isLikelyImage ? await sampleShapeStroke(sourceBytes, width, height, rect) : undefined;
     regions.push({
       key: `region-${regionIndex}`,

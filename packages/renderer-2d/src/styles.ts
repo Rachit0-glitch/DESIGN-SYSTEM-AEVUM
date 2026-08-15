@@ -23,11 +23,37 @@ function canonicalColor(value: unknown): RenderColor | undefined {
   return value as RenderColor;
 }
 
+function canonicalGradient(
+  value: unknown,
+): Extract<RenderPaint, { type: "LINEAR_GRADIENT" | "RADIAL_GRADIENT" }> | undefined {
+  if (value === null || typeof value !== "object") return undefined;
+  const candidate = value as Record<string, unknown>;
+  if (candidate.type !== "LINEAR_GRADIENT" && candidate.type !== "RADIAL_GRADIENT") return undefined;
+  if (!Array.isArray(candidate.stops) || candidate.stops.length < 2) return undefined;
+  const stops = candidate.stops.map((stop) => {
+    const entry = stop as { offset?: unknown; color?: unknown };
+    const color = canonicalColor(entry.color);
+    if (typeof entry.offset !== "number" || !color) return undefined;
+    return { offset: entry.offset, color };
+  });
+  if (stops.some((stop) => !stop)) return undefined;
+  return {
+    type: candidate.type,
+    stops: stops as { readonly offset: number; readonly color: RenderColor }[],
+    ...(typeof candidate.angle === "number" ? { angle: candidate.angle } : {}),
+    ...(candidate.center && typeof candidate.center === "object"
+      ? { center: candidate.center as { x: number; y: number } }
+      : {}),
+    ...(typeof candidate.radius === "number" ? { radius: candidate.radius } : {}),
+  };
+}
+
 function tokenPaint(node: RuntimeNode, tokenId: string | undefined): RenderPaint | undefined {
   if (!tokenId) return undefined;
   const token = node.resolvedReferences.tokens.find((entry) => entry.id === tokenId && entry.resolved)?.value;
   const color = canonicalColor(token?.value);
-  return color ? { type: "SOLID", color } : undefined;
+  if (color) return { type: "SOLID", color };
+  return canonicalGradient(token?.value);
 }
 
 export function resolveStyle(node: RuntimeNode): StyleResolution {

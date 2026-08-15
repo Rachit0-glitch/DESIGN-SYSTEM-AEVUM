@@ -4328,7 +4328,63 @@ suited to what each path's pipeline actually gives it.
 
 ---
 
-## 66. Final Roadmap Statement
+## 66. Block C4d: Reconstruction + Renderer Wiring for Gradient/Stroke Tokens (2026-08-15)
+
+The final Block C4 item. `ShapeNodeSchema` already had `fillTokenId`/`strokeTokenId`, and
+`renderer-2d`/Studio already had full gradient- and stroke-rendering support built proactively —
+the real remaining gap was narrower than expected. **Status: implemented, tested, and verified live
+in the running Studio app**, not just in unit tests.
+
+- `packages/reconstruction/src/proposal.ts`: new `GradientTokenResolver` (mirrors
+  `ColorTokenResolver`) creates a real, deduplicated GRADIENT Token from a detected
+  `shape.gradient` and sets it as `fillTokenId` (a detected gradient takes the fill slot instead of
+  a solid color — the two are mutually exclusive in the detected data). `shape.stroke.color` now
+  resolves through the existing `ColorTokenResolver` into a real `strokeTokenId`. `cornerRadius`
+  and stroke *width* still have no typed canonical field, so they remain geometry-only passthrough
+  (Studio reads them directly), honestly noted in the unsupported-feature message.
+- Real bug found and fixed: `packages/reconstruction/src/analyzer.ts`'s `shapes.infer()` — the
+  actual source-of-truth builder for `shapeCandidates` from manifest regions — copied `fill`,
+  `stroke`, and `cornerRadius` through but never `gradient`, silently dropping every detected
+  gradient before it ever reached the token resolver. Caught by a real end-to-end test, not
+  inspection.
+- `packages/renderer-2d/src/styles.ts`: `tokenPaint()` previously only resolved COLOR-typed token
+  values; extended with `canonicalGradient()` to also resolve GRADIENT-typed values into the
+  existing `RenderPaint` gradient shape.
+- `apps/studio/src/main.tsx`: stroke width now reads from `node.geometry.stroke.width` (real
+  sampled data) when present, the same pattern already used for `cornerRadius`, instead of a
+  hardcoded `1px`.
+- Real second bug found and fixed, via the same end-to-end test: `packages/vision/src/manifest.ts`
+  computed `isLikelyImage` from raw pixel variance *before* attempting gradient detection — a real
+  gradient's smooth color sweep has legitimately high raw variance (exactly what that heuristic was
+  designed to flag as "photo"), so every Vision-path gradient region was being misclassified as
+  IMAGE and gradient detection never ran. Fixed by running `detectLinearGradient` first and letting
+  a strong planar fit (R² >= 0.85, the already-calibrated threshold) override the coarse variance
+  heuristic — a smooth gradient's real geometric signature is strictly better evidence than raw
+  pixel variance for distinguishing "designed gradient" from "photographic noise."
+- Verified end to end in the running Studio dev server (not just asserted in tests): a real
+  GRADIENT-token shape renders `background: linear-gradient(90deg, rgb(255,0,0) 0%, rgb(0,0,255)
+  100%)`, and a real stroked shape independently renders `border: 6px solid rgb(0,0,0)` with a
+  correctly separate fill color — confirmed via computed-style inspection against a hand-built
+  document injected into the live app.
+- New tests: `tests/unit/renderer-2d.test.ts` (a SHAPE node's `fillTokenId`/`strokeTokenId`
+  resolving into a real gradient paint and real stroke color with no `UNRESOLVED_STYLE`
+  diagnostic), `tests/integration/mcp-color-tokens.test.ts` (a full `asset.register` →
+  `reconstruction.import_reference` run against a real gradient+stroke image produces a document
+  whose GRADIENT and stroke COLOR tokens are real and resolvable, not dangling references).
+- Known, out-of-scope limitation found and flagged separately (not fixed here): a gradient or
+  thickly-stroked shape's fillRatio-based corner-radius/ellipse classification (`classifyShapeGeometry`,
+  Block C3) gets fooled into reporting ELLIPSE for real rectangles, since gradient/stroke pixels
+  distort the fillRatio measurement that classification relies on. This is a shape-geometry bug, not
+  a paint-token bug, so it's flagged as a separate background task rather than folded into this one.
+- `pnpm validate` (docs, dependency rules, format, lint, typecheck, 426/426 tests, build across all
+  65 packages) passed clean.
+- **Block C4 (gradients, patterns, and stroke color sampling) is now complete.** Per the
+  implementation plan's block order, Block C (Reconstruction quality) is complete; Block D
+  (Studio/MCP completeness) is next.
+
+---
+
+## 67. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.
 

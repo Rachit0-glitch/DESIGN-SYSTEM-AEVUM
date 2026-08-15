@@ -1,5 +1,6 @@
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
+import type { DesignNode } from "@aevum/document-model";
 import { createGoogleVisionProvider, type GoogleVisionAnnotateResponse, type GoogleVisionClient } from "@aevum/vision";
 import { createInMemoryAssetStorage, createMcpTestFixture } from "../helpers/mcp-fixture.js";
 
@@ -105,6 +106,63 @@ function mockGoogleVisionClient(): GoogleVisionClient {
   return { annotateImage: async () => [response] };
 }
 
+/** A real gradient rectangle and a real stroked rectangle, side by side. */
+async function buildGradientStrokeFixtureImage(): Promise<Buffer> {
+  const svg = `
+    <svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stop-color="#ff0000" />
+          <stop offset="100%" stop-color="#0000ff" />
+        </linearGradient>
+      </defs>
+      <rect width="400" height="300" fill="#ffffff" />
+      <rect x="40" y="40" width="150" height="100" fill="url(#g)" />
+      <rect x="220" y="40" width="120" height="100" fill="#2255aa" stroke="#000000" stroke-width="6" />
+    </svg>
+  `;
+  return sharp(Buffer.from(svg)).png().toBuffer();
+}
+
+function mockGoogleVisionClientForGradientStroke(): GoogleVisionClient {
+  const response: GoogleVisionAnnotateResponse = {
+    fullTextAnnotation: { pages: [{ width: 400, height: 300, confidence: 1, blocks: [] }], text: "" },
+    labelAnnotations: [],
+    localizedObjectAnnotations: [
+      {
+        name: "gradient-rect",
+        score: 0.7,
+        boundingPoly: {
+          normalizedVertices: [
+            { x: 40 / 400, y: 40 / 300 },
+            { x: 190 / 400, y: 40 / 300 },
+            { x: 190 / 400, y: 140 / 300 },
+            { x: 40 / 400, y: 140 / 300 },
+          ],
+        },
+      },
+      {
+        // Object detection covers the whole visible object, stroke included — the true visible
+        // extent is 6px outside the nominal rect edge on every side (stroke-width=6 straddles it).
+        name: "stroked-rect",
+        score: 0.7,
+        boundingPoly: {
+          normalizedVertices: [
+            { x: 217 / 400, y: 37 / 300 },
+            { x: 343 / 400, y: 37 / 300 },
+            { x: 343 / 400, y: 143 / 300 },
+            { x: 217 / 400, y: 143 / 300 },
+          ],
+        },
+      },
+    ],
+    imagePropertiesAnnotation: {
+      dominantColors: { colors: [{ color: { red: 1, green: 1, blue: 1 }, score: 0.8, pixelFraction: 0.5 }] },
+    },
+  };
+  return { annotateImage: async () => [response] };
+}
+
 describe("Paint model: real color tokens (Block C)", () => {
   it("registers real, resolvable COLOR tokens for TEXT ink and SHAPE fill — not dangling fillTokenId references", async () => {
     const storage = createInMemoryAssetStorage();
@@ -180,5 +238,84 @@ describe("Paint model: real color tokens (Block C)", () => {
     // #2255aa -> roughly (0.13, 0.33, 0.67) in the 0-1 ColorSchema range.
     const blueFill = shapeColors.find((color) => color.r < 0.25 && color.r > 0.03 && color.b > 0.5);
     expect(blueFill, JSON.stringify(shapeColors)).toBeDefined();
+  }, 60_000);
+
+  it("registers real, resolvable GRADIENT and stroke COLOR tokens from a detected gradient shape and a stroked shape (Block C4d)", async () => {
+    const storage = createInMemoryAssetStorage();
+    const visionProvider = createGoogleVisionProvider({ client: mockGoogleVisionClientForGradientStroke() });
+    const fixture = createMcpTestFixture({
+      assetStorageAdapter: storage,
+      toolTimeoutMs: 30_000,
+      visionAdapter: () => visionProvider,
+    });
+    const image = await buildGradientStrokeFixtureImage();
+
+    const registered = await fixture.execute(
+      "asset.register",
+      {
+        expectedDocumentVersion: fixture.document.documentVersion,
+        kind: "IMAGE",
+        bytesBase64: image.toString("base64"),
+        originalFilename: "gradient-stroke-reference.png",
+        mimeType: "image/png",
+        width: 400,
+        height: 300,
+        alpha: false,
+        analyzeForReconstruction: true,
+      },
+      { idempotencyKey: "register-for-gradient-stroke-tokens" },
+    );
+    expect(registered.success, JSON.stringify(registered.errors)).toBe(true);
+    const registerData = registered.data as { assetId: string };
+
+    const afterRegister = await fixture.repository.getCurrentDocument(fixture.workspaceId, fixture.projectId);
+    if (!afterRegister) throw new Error("Document was not persisted after registration.");
+    const imported = await fixture.execute(
+      "reconstruction.import_reference",
+      {
+        expectedDocumentVersion: afterRegister.documentVersion,
+        sourceAssetId: registerData.assetId,
+        qualityMode: "DRAFT",
+      },
+      { idempotencyKey: "import-for-gradient-stroke-tokens" },
+    );
+    expect(imported.success, JSON.stringify(imported.errors)).toBe(true);
+
+    const stored = await fixture.repository.getCurrentDocument(fixture.workspaceId, fixture.projectId);
+    if (!stored) throw new Error("Document was not persisted.");
+
+    const shapeNodes = Object.values(stored.nodes).filter((node) => node.type === "SHAPE") as (DesignNode & {
+      type: "SHAPE";
+      fillTokenId?: string;
+      strokeTokenId?: string;
+    })[];
+
+    const gradientNode = shapeNodes.find(
+      (node) => node.fillTokenId && stored.tokens[node.fillTokenId]?.type === "GRADIENT",
+    );
+    expect(gradientNode, JSON.stringify(shapeNodes.map((node) => node.fillTokenId))).toBeDefined();
+    const gradientToken = gradientNode?.fillTokenId ? stored.tokens[gradientNode.fillTokenId] : undefined;
+    expect(gradientToken, "fillTokenId must resolve to a real GRADIENT token in the document").toBeDefined();
+    const gradientValue = gradientToken?.value as {
+      type: string;
+      stops: readonly { offset: number; color: { r: number; g: number; b: number } }[];
+    };
+    expect(gradientValue.type).toBe("LINEAR_GRADIENT");
+    expect(gradientValue.stops.length).toBeGreaterThanOrEqual(2);
+    const hasReddish = gradientValue.stops.some((stop) => stop.color.r > 0.7 && stop.color.b < 0.25);
+    const hasBluish = gradientValue.stops.some((stop) => stop.color.b > 0.7 && stop.color.r < 0.25);
+    expect(hasReddish, JSON.stringify(gradientValue.stops)).toBe(true);
+    expect(hasBluish, JSON.stringify(gradientValue.stops)).toBe(true);
+
+    const strokedNode = shapeNodes.find((node) => node.strokeTokenId);
+    expect(strokedNode, JSON.stringify(shapeNodes.map((node) => node.strokeTokenId))).toBeDefined();
+    const strokeToken = strokedNode?.strokeTokenId ? stored.tokens[strokedNode.strokeTokenId] : undefined;
+    expect(strokeToken, "strokeTokenId must resolve to a real COLOR token in the document").toBeDefined();
+    expect(strokeToken?.type).toBe("COLOR");
+    const strokeColor = strokeToken?.value as { r: number; g: number; b: number };
+    // The real SVG stroke was #000000 (black).
+    expect(strokeColor.r).toBeLessThan(0.15);
+    expect(strokeColor.g).toBeLessThan(0.15);
+    expect(strokeColor.b).toBeLessThan(0.15);
   }, 60_000);
 });

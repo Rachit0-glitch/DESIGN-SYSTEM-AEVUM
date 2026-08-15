@@ -326,6 +326,66 @@ describe("Hybrid 2D Renderer", () => {
     expect(textPaint?.style.fills[0]).toMatchObject({ type: "SOLID", color: { r: 0.9, g: 0.1, b: 0.2 } });
   });
 
+  it("resolves a SHAPE node's fillTokenId into a real gradient paint and strokeTokenId into a real stroke color (CDD 1.9.0)", () => {
+    const document = fixtures.assetDemo();
+    const frame = requireNode(Object.values(document.nodes).find((node) => node.type === "FRAME"));
+    const gradientTokenId = createEntityId("token");
+    document.tokens[gradientTokenId] = {
+      id: gradientTokenId,
+      name: "Sunset gradient",
+      type: "GRADIENT",
+      value: {
+        type: "LINEAR_GRADIENT",
+        angle: 90,
+        stops: [
+          { offset: 0, color: color(1, 0, 0) },
+          { offset: 1, color: color(0, 0, 1) },
+        ],
+      },
+    };
+    const strokeTokenId = createEntityId("token");
+    document.tokens[strokeTokenId] = {
+      id: strokeTokenId,
+      name: "Stroke black",
+      type: "COLOR",
+      value: color(0, 0, 0),
+    };
+    const shape: DesignNode = {
+      ...baseNode(frame.id, "Gradient stroked shape"),
+      type: "SHAPE",
+      shapeType: "RECTANGLE",
+      geometry: { width: 150, height: 100 },
+      fillTokenId: gradientTokenId,
+      strokeTokenId,
+    };
+    append(document, frame, shape);
+
+    const projection = project(document);
+    const graph = buildRenderGraph(projection);
+    const shapeRuntimeNode = [...projection.nodes.values()].find((node) => node.name === "Gradient stroked shape");
+    if (!shapeRuntimeNode) throw new Error("Shape runtime node is missing.");
+    const paintOperations = operationsOf(graph, "PAINT");
+    const shapePaint = paintOperations.find((operation) => operation.runtimeNodeId === shapeRuntimeNode.id);
+
+    expect(shapePaint, "no unresolved-style diagnostic should suppress the paint").toBeDefined();
+    expect(shapePaint?.style.fills).toHaveLength(1);
+    expect(shapePaint?.style.fills[0]).toMatchObject({
+      type: "LINEAR_GRADIENT",
+      angle: 90,
+      stops: [
+        { offset: 0, color: { r: 1, g: 0, b: 0 } },
+        { offset: 1, color: { r: 0, g: 0, b: 1 } },
+      ],
+    });
+    expect(shapePaint?.style.strokes).toHaveLength(1);
+    expect(shapePaint?.style.strokes[0]?.paint).toMatchObject({ type: "SOLID", color: { r: 0, g: 0, b: 0 } });
+    expect(
+      graph.diagnostics.some(
+        (diagnostic) => diagnostic.code === "UNRESOLVED_STYLE" && diagnostic.runtimeNodeId === shapeRuntimeNode.id,
+      ),
+    ).toBe(false);
+  });
+
   it("renders nested groups in stable parent-before-child order", () => {
     const document = fixtures.landingPage();
     const page = requireNode(document.nodes[document.rootNodeIds[0] ?? ""]);
