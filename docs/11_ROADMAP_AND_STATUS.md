@@ -4743,7 +4743,57 @@ a claim of full reconstruction.**
 
 ---
 
-## 76. Final Roadmap Statement
+## 76. Block D7: Asset Completeness Audit (2026-08-15)
+
+Audited asset registration, derived-asset provenance/lineage, deduplication, and the supported
+asset-type surface. **Status: audited and hardened — no genuine defect found in existing behavior;
+one real, previously-untested guardrail interaction is now covered by a regression test.**
+
+- **Registration/identity/dedup** (`packages/assets/src/{registry,identity}.ts`): content-addressed
+  IDs are a pure function of the SHA-256 hash (`assetIdFromHash`); `registerAsset` correctly
+  short-circuits to `DUPLICATE` on identical content before any storage write, and to `QUARANTINED`
+  before registration when security status says so. Confirmed correct — no changes needed.
+- **Derived-asset provenance/lineage** (`packages/assets/src/derivatives.ts`): `createDerivative`
+  builds a real `processingChain` entry (operation/actor/tool/toolVersion/parameters/seed) and
+  `parentAssetIds`, and never mutates the original asset. Confirmed correct — no changes needed.
+- **Independent image extraction** (`apps/mcp-server/src/tools.ts`, `extractIndependentImageAssets`):
+  crops real derived IMAGE assets out of IMAGE-category regions, deduplicates *within the same
+  extraction batch* via `findAssetByHash` against a working registry (so re-extracting an
+  already-extracted region returns the existing derived asset instead of minting a duplicate), and
+  orders the source-asset command before any derived-asset commands (required by document-model
+  reference validation). Confirmed correct — no changes needed.
+- **Real gap found and closed with a test (not a code fix — the behavior was already correct, just
+  unverified)**: `asset.register`'s duplicate-detection short-circuit runs *before* vision analysis
+  (a deliberate cost guardrail — never pay for a Vision API call whose result would be discarded).
+  This means registering already-known content with `analyzeForReconstruction: true` silently skips
+  analysis and leaves the asset with no reconstruction manifest. This was previously
+  correct-but-unverified: `packages/reconstruction`'s `analyzeReference()` already has a real
+  fallback (`manifestFor()` returns `undefined` → `fallbackManifest()` synthesizes a generic
+  whole-reference `PAGE`/`IMAGE` region pair tagged `full-reference-raster-fallback`), so this never
+  crashes — it degrades to a lower-fidelity single-embedded-image result. New test in
+  `tests/integration/mcp-asset-register.test.ts` locks this in end to end: register once, register
+  the same bytes again with `analyzeForReconstruction: true` (confirms `DUPLICATE` outcome, no
+  `reconstructionAnalysis`, no manifest on the asset), then runs the real `analyzeReference()`
+  against that asset and confirms it succeeds via the real fallback path rather than failing.
+- **Supported asset-type surface**: `AssetSchema.type` (document-model) already supports a wide,
+  pre-existing set (IMAGE, VIDEO, FONT, AUDIO, SVG, HDRI, GLB/GLTF/FBX/OBJ/STL/USD/USDZ, BINARY) for
+  asset records generally; the `asset.register` *MCP tool* deliberately only accepts `kind: "IMAGE"`
+  (STEP 6's documented scope decision, not an oversight — other kinds are registered through other,
+  purpose-specific pathways, e.g. GLB from 3D reconstruction). Per explicit instruction not to add
+  speculative asset types, this was left exactly as is — no real Studio/MCP use case exists for
+  expanding `asset.register`'s accepted kinds today.
+- Targeted: `tests/integration/mcp-asset-register.test.ts` (5/5), `tests/unit/assets.test.ts`,
+  `tests/integration/mcp-reconstruction-import.test.ts` all passing. Full `pnpm validate` (docs,
+  dependency rules, format, lint, typecheck, **460/460 tests**, build across all 65 packages) passed
+  clean.
+- **Out of scope, intentionally**: `createSupabaseAssetStorage` remains unverified against a real
+  Supabase Storage bucket (needs live credentials this environment doesn't have — already disclosed
+  in STEP 6); no real content-safety/malware scanner exists (`inspector: "NONE"` remains an honest
+  label, not a fabricated pass) — building one is a real feature, not an audit finding to harden.
+
+---
+
+## 77. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.
 

@@ -1,6 +1,11 @@
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
-import { analyzeReference, createAssetRegistryResolver, createReconstructionTask } from "@aevum/reconstruction";
+import {
+  analyzeReference,
+  createAssetRegistryResolver,
+  createReconstructionTask,
+  RECONSTRUCTION_MANIFEST_KEY,
+} from "@aevum/reconstruction";
 import { createGoogleVisionProvider, type GoogleVisionAnnotateResponse, type GoogleVisionClient } from "@aevum/vision";
 import { createInMemoryAssetStorage, createMcpTestFixture } from "../helpers/mcp-fixture.js";
 
@@ -77,6 +82,74 @@ describe("asset.register MCP tool", () => {
     expect(duplicateData.assetId).toBe(data.assetId);
     expect(storage.objects.size).toBe(1);
   });
+
+  it(
+    "skips vision analysis on a content-duplicate (real cost guardrail: never pay for a Vision " +
+      "call whose result would be discarded), and reconstruction still succeeds via the real whole-" +
+      "reference fallback manifest instead of crashing on the asset's missing analysis",
+    async () => {
+      const storage = createInMemoryAssetStorage();
+      const fixture = createMcpTestFixture({ assetStorageAdapter: storage });
+      const input = {
+        expectedDocumentVersion: fixture.document.documentVersion,
+        kind: "IMAGE" as const,
+        bytesBase64: pngBytesBase64(7),
+        originalFilename: "reference.png",
+        mimeType: "image/png",
+        width: 128,
+        height: 96,
+        alpha: false,
+      };
+
+      const first = await fixture.execute("asset.register", input, { idempotencyKey: "guardrail-register-once" });
+      expect(first.success, JSON.stringify(first.errors)).toBe(true);
+      const firstData = first.data as { assetId: string; resultVersion: number };
+
+      // Same bytes again, this time asking for analysis — real duplicate detection happens purely
+      // from already-canonical content, before any vision call, so this must never run analysis.
+      const second = await fixture.execute(
+        "asset.register",
+        { ...input, expectedDocumentVersion: firstData.resultVersion, analyzeForReconstruction: true },
+        { idempotencyKey: "guardrail-register-duplicate-with-analysis" },
+      );
+      expect(second.success, JSON.stringify(second.errors)).toBe(true);
+      const secondData = second.data as {
+        outcome: string;
+        assetId: string;
+        reconstructionAnalysis?: { regionCount: number };
+      };
+      expect(secondData.outcome).toBe("DUPLICATE");
+      expect(secondData.assetId).toBe(firstData.assetId);
+      expect(secondData.reconstructionAnalysis).toBeUndefined();
+
+      const stored = await fixture.repository.getCurrentDocument(fixture.workspaceId, fixture.projectId);
+      if (!stored) throw new Error("Document was not persisted.");
+      const asset = stored.assets[secondData.assetId];
+      expect(asset?.metadata[RECONSTRUCTION_MANIFEST_KEY]).toBeUndefined();
+
+      // The reconstruction engine must not fail on a manifest-less asset — it falls back to a
+      // real, honest whole-reference embedded-image manifest rather than crashing.
+      const task = createReconstructionTask({
+        projectId: fixture.projectId,
+        sourceAssetId: secondData.assetId,
+        qualityMode: "DRAFT",
+        targetViewport: { width: 128, height: 96, category: "CUSTOM", orientation: "LANDSCAPE" },
+        preserveEditability: true,
+        allowRasterFallbacks: true,
+        requestedCapabilities: ["REGION_DETECTION"],
+        deterministicSeed: 0,
+        createdAt: new Date().toISOString(),
+        createdBy: { id: "test-actor", type: "USER" },
+      });
+      const resolver = createAssetRegistryResolver(stored.assets);
+      const result = analyzeReference(task, resolver);
+
+      expect(result.success, JSON.stringify(!result.success ? result.diagnostics : undefined)).toBe(true);
+      if (!result.success) return;
+      const imageRegion = result.analysis.regions.find((region) => region.category === "IMAGE");
+      expect(imageRegion?.semanticHints).toContain("full-reference-raster-fallback");
+    },
+  );
 
   it("registers with real vision analysis, and packages/reconstruction's unmodified analyzeReference() consumes real OCR text from it", async () => {
     const storage = createInMemoryAssetStorage();
