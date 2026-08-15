@@ -7,7 +7,7 @@ import {
   serializeResponsiveProposal,
   validateResponsiveVariants,
 } from "@aevum/responsive-reconstruction";
-import { migrate, validateDocument } from "@aevum/document-model";
+import { CURRENT_MIGRATION_VERSION, CURRENT_SCHEMA_VERSION, migrate, validateDocument } from "@aevum/document-model";
 import { buildRenderGraph } from "@aevum/renderer-2d";
 import { projectScene } from "@aevum/scene-runtime";
 import { describe, expect, it } from "vitest";
@@ -178,8 +178,8 @@ describe("responsive reconstruction", () => {
     old.migrationVersion = 1;
     const migrated = migrate(old);
 
-    expect(migrated.schemaVersion).toBe("1.7.0");
-    expect(migrated.migrationVersion).toBe(7);
+    expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(migrated.migrationVersion).toBe(CURRENT_MIGRATION_VERSION);
     expect(migrated.stateMachines).toEqual({});
     expect(validateDocument(migrated).success).toBe(true);
   });

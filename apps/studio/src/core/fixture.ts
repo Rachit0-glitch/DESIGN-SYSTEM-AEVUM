@@ -1,4 +1,10 @@
-import type { CanonicalDesignDocument, DesignNode, TextStyle } from "@aevum/document-model";
+import {
+  CURRENT_MIGRATION_VERSION,
+  CURRENT_SCHEMA_VERSION,
+  type CanonicalDesignDocument,
+  type DesignNode,
+  type TextStyle,
+} from "@aevum/document-model";
 import type { ProjectMetadata } from "@aevum/project-store";
 
 const NOW = "2026-08-13T00:00:00.000Z";
@@ -200,8 +206,8 @@ export function createStudioProjectFixture(): { project: ProjectMetadata; docume
   };
 
   const document: CanonicalDesignDocument = {
-    schemaVersion: "1.7.0",
-    migrationVersion: 7,
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    migrationVersion: CURRENT_MIGRATION_VERSION,
     documentVersion: 1,
     parentVersionId: null,
     metadata: {

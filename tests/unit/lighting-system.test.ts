@@ -1,5 +1,5 @@
 import { beginTransaction, CURRENT_COMMAND_VERSION, type ApplyLightingRigCommand } from "@aevum/command-engine";
-import { CURRENT_SCHEMA_VERSION, migrate, validateDocument } from "@aevum/document-model";
+import { CURRENT_MIGRATION_VERSION, CURRENT_SCHEMA_VERSION, migrate, validateDocument } from "@aevum/document-model";
 import { analyzeReferenceLighting, buildLightingRig, resolveLighting, validateLighting } from "@aevum/lighting";
 import { create3DRenderPlan } from "@aevum/renderer-3d";
 import { createRuntimeViewport, project3DScene, projectScene, sceneRuntimeFixtures } from "@aevum/scene-runtime";
@@ -142,7 +142,7 @@ describe("Phase 20 lighting system", () => {
       delete legacy[key];
     const migrated = migrate(legacy);
     expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
-    expect(migrated.migrationVersion).toBe(7);
+    expect(migrated.migrationVersion).toBe(CURRENT_MIGRATION_VERSION);
     expect(migrated.lightingRigs).toEqual({});
     expect(validateDocument(migrated).success).toBe(true);
   });

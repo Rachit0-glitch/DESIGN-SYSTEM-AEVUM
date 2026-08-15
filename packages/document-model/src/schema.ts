@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { EntityIdSchema } from "./ids.js";
 
-export const CURRENT_SCHEMA_VERSION = "1.7.0" as const;
-export const CURRENT_MIGRATION_VERSION = 7 as const;
+export const CURRENT_SCHEMA_VERSION = "1.8.0" as const;
+export const CURRENT_MIGRATION_VERSION = 8 as const;
 
 export const JsonValueSchema: z.ZodType<unknown> = z.lazy(() =>
   z.union([
@@ -132,6 +132,9 @@ export const TextStyleSchema = z.strictObject({
   letterSpacing: LengthSchema,
   weight: z.number().int().min(1).max(1000),
   style: z.enum(["NORMAL", "ITALIC", "OBLIQUE"]),
+  // References a COLOR Token, mirroring ShapeNodeSchema's fillTokenId — the same Paint-by-token
+  // model, extended to text glyph color. Optional so pre-1.8.0 documents remain valid unchanged.
+  fillTokenId: EntityIdSchema.optional(),
   variableAxes: z.record(z.string(), z.number().finite()),
   openTypeFeatures: z.record(z.string(), z.union([z.boolean(), z.number().finite()])),
 });

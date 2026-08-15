@@ -45,8 +45,8 @@ describe("document migrations", () => {
     const second = migrate(legacy);
 
     expect(first).toEqual(second);
-    expect(first.schemaVersion).toBe("1.7.0");
-    expect(first.migrationVersion).toBe(7);
+    expect(first.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(first.migrationVersion).toBe(CURRENT_MIGRATION_VERSION);
     expect(first.lightingRigs).toEqual({});
     expect(first.cameraPaths).toEqual({});
     expect(first.cinematicShots).toEqual({});

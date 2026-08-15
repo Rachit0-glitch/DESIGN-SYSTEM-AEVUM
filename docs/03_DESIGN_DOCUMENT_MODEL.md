@@ -1,5 +1,20 @@
 # AEVUM AI Reconstruction Engine — Design Document Model
 
+## CDD 1.8.0 — Text Fill Token (Paint-by-token, solid color only)
+
+CDD `1.8.0` adds an optional `fillTokenId` to `TextStyle`, referencing a COLOR `Token` — the same
+Paint-by-token model `ShapeNodeSchema.fillTokenId`/`strokeTokenId` already used, extended to text
+glyph color. Before this version, `TextStyle` had no way to represent color at all. This is a
+narrow, solid-color-only step, not a general Paint model: there is still no gradient type, no
+inline paint value, and no typed representation for strokes/shadows/effects on text or shapes.
+Renderer and Studio support for painting the resolved color are tracked separately (see
+`docs/STABILIZATION_KNOWN_LIMITATIONS.md`'s Block C addendum for the full gap analysis that led to
+this field).
+
+The `1.7.0 -> 1.8.0` migration is a no-op for existing documents: `fillTokenId` is optional, so text
+runs authored before this version remain valid unchanged and simply have no resolved fill color,
+exactly as before.
+
 ## Phase 21 Canonical Camera And Cinematic Model
 
 CDD `1.7.0` expands each canonical camera with sensor size and fit, coherent focal-length/vertical-field-of-view

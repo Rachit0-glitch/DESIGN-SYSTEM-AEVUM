@@ -199,7 +199,7 @@ defaultRegistry.registerMigration("1.5.0", "1.6.0", (document, context) => ({
   reflectionProbes: {},
   lightingBakes: {},
 }));
-defaultRegistry.registerMigration("1.6.0", CURRENT_SCHEMA_VERSION, (document, context) => {
+defaultRegistry.registerMigration("1.6.0", "1.7.0", (document, context) => {
   const cameras = Object.fromEntries(
     Object.entries((document.cameras as Record<string, Record<string, unknown>> | undefined) ?? {}).map(
       ([id, camera]) => {
@@ -241,6 +241,15 @@ defaultRegistry.registerMigration("1.6.0", CURRENT_SCHEMA_VERSION, (document, co
     cinematicSequences: {},
   };
 });
+// TextStyle gained an optional fillTokenId (a Paint-by-token color reference, mirroring
+// ShapeNodeSchema's existing fillTokenId/strokeTokenId). No structural change is required for
+// existing documents — text runs without a fillTokenId remain valid and simply have no resolved
+// fill color yet, exactly as they did before this field existed.
+defaultRegistry.registerMigration("1.7.0", CURRENT_SCHEMA_VERSION, (document, context) => ({
+  ...document,
+  schemaVersion: context.toVersion,
+  migrationVersion: 8,
+}));
 
 export function currentSchema(): string {
   return defaultRegistry.currentSchema();
