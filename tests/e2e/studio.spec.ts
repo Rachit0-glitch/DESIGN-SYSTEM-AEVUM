@@ -39,7 +39,9 @@ test("loads a canonical project and supports precise human editing, persistence,
   await expect(page.locator(".property-section").filter({ hasText: "Typography" }).locator("select")).toHaveValue(
     "Basic",
   );
-  await expect(page.locator(".font-status")).toContainText("exact");
+  // No real fidelity measurement has run against this fixture text, so the honest status is
+  // "unknown", not a fabricated "exact" claim (Block D10).
+  await expect(page.locator(".font-status")).toContainText("unknown");
 });
 
 test("selects and moves canvas nodes, evaluates animation time, exposes fidelity attribution, and renders nonblank 3D", async ({
@@ -62,8 +64,9 @@ test("selects and moves canvas nodes, evaluates animation time, exposes fidelity
   await expect(page.locator(".timeline-toolbar strong")).toContainText("0.75s");
 
   await page.getByRole("button", { name: "Fidelity", exact: true }).click();
-  await expect(page.locator(".score-ring")).toContainText("94.8");
-  await page.getByRole("button", { name: /Heading width/ }).click();
+  // No ValidationRecord has been computed for this fixture document (fidelity.measure, Block D8,
+  // has never run against it), so the honest state is "Not evaluated" -- never a fabricated score.
+  await expect(page.locator(".fidelity-empty")).toContainText("Not evaluated");
 
   await page.getByRole("button", { name: "3D" }).click();
   const canvas = page.getByTestId("three-canvas");

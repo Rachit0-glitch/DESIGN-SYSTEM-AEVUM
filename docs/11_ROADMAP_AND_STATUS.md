@@ -4908,7 +4908,61 @@ unchanged.**
 
 ---
 
-## 79. Final Roadmap Statement
+## 79. Block D10: Honesty/Quality Cleanup (2026-08-15)
+
+Removed the remaining fabricated status/metric values named across earlier blocks' own findings.
+**Status: implemented and tested.**
+
+- **`fontMatchStatus: "EXACT"` hardcodes removed** in both places it existed:
+  `apps/studio/src/core/fixture.ts`'s `style()` factory (used by every demo text node) and
+  `apps/studio/src/main.tsx`'s font-picker `onChange` handler (stamped on every font pick,
+  regardless of which font — including the dropdown's own deliberately-"missing" `Inter` option).
+  Both now write `"UNKNOWN"` — the schema's real "not measured" value — since no actual
+  `rankFontCandidates()` glyph-advance comparison (`packages/fidelity/src/reference.ts`) has run at
+  either point. `"EXACT"`/`"LIKELY_MATCH"`/`"CLOSE_SUBSTITUTE"` remain real, reachable values once a
+  genuine measurement (e.g. via D8's `fidelity.measure`) produces them — nothing in the schema
+  changed, only these two call sites stopped asserting a status nothing had verified.
+- **A second, worse fabrication found in the same audit**: `main.tsx`'s Typography panel's
+  `.font-status` label was not reading the hardcode into a wrong field — it was **fully static JSX
+  text**, `"Basic Regular · exact"`, that never changed no matter which font was actually selected
+  (picking "Inter · missing" or "Arial · system" still showed "Basic Regular · exact"). Replaced with
+  a real, dynamic read: `{style.fontFamily} · {style.fontMatchStatus.toLowerCase()}` — verified live
+  in a browser to show "Basic · unknown" and to track the actual selected `TextStyle`, not a fixed
+  string.
+- **"94.8\nFIDELITY" demo artifact removed**: the fixture's "Fidelity card" frame (a rotated stat-card
+  design element on the demo landing page) had literal text content claiming a specific fidelity
+  score that was never computed by anything. Renamed the frame "Stat card" and changed its content to
+  "PRECISION\nDESIGN" — demo marketing copy with no numeric claim, consistent with the rest of the
+  landing-page mockup's copy ("Build the impossible.", "Form follows intelligence."), instead of a
+  number that could be mistaken for a real measured result.
+- **A stale, already-broken end-to-end assertion found and fixed while auditing this**:
+  `tests/e2e/studio.spec.ts` asserted `.score-ring` contained `"94.8"` — but `document.validations`
+  in this fixture has always been `{}` (empty), so this could never have passed against the current
+  `FidelityWorkspace` (which shows real "Not evaluated" text when there's no record, per STEP 8) —
+  this was leftover debt from before STEP 8 made the workspace honest, never updated to match. Fixed
+  to assert the real empty state instead, and removed an adjacent `.getByRole("button", { name:
+  /Heading width/ })` click that referenced a control that doesn't exist anywhere in the current UI
+  (also stale, unrelated dead test code found in the same spot). A second stale assertion in the same
+  file (`.font-status` containing `"exact"`) was updated to `"unknown"` to match the real default.
+- **Full audit swept for other fabricated displayed metrics/statuses** (`grep` across
+  `apps/studio/src/main.tsx` and `fixture.ts` for hardcoded status/score literals): the only other
+  matches were legitimate local UI async-operation-stage enums (`"IDLE" | "UPLOADING" | "FAILED"`,
+  etc., for import/measurement progress indicators) — real component state, not claims about
+  measured content. No further fabricated values found.
+- Updated `tests/unit/studio.test.ts` (`"Fidelity card copy"` → `"Stat card copy"` after the rename)
+  and confirmed via a live browser check that the Typography panel now shows a real, tracking
+  `.font-status` value with no console errors.
+- Targeted: `studio.test.ts`, `studio-components.test.tsx`, `studio-approval.test.ts`,
+  `studio-production.test.ts` all passing (40 tests). Full `pnpm validate` (docs, dependency rules,
+  format, lint, typecheck, **471/471 tests**, build across all 65 packages) passed clean.
+- **Out of scope, intentionally**: no changes to `packages/fidelity` itself (already real, per D8);
+  no attempt to derive a real font-match status client-side at pick time — that requires an actual
+  rendered comparison, which is exactly what `fidelity.measure` is for, not something Studio's
+  properties panel can honestly compute in an `onChange` handler.
+
+---
+
+## 80. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.
 

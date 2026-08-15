@@ -44,7 +44,7 @@ describe("AEVUM Studio canonical session", () => {
     const fixture = createStudioProjectFixture();
     const session = createStudioSession({ ...fixture, persistence: createMemoryPersistence() });
     const duplicateId = session.duplicateNode(studioFixtureIds.card);
-    expect(session.getSnapshot().document.nodes[duplicateId]?.name).toBe("Fidelity card copy");
+    expect(session.getSnapshot().document.nodes[duplicateId]?.name).toBe("Stat card copy");
     expect(session.getSnapshot().document.nodes[duplicateId]?.childIds).not.toEqual(
       session.getSnapshot().document.nodes[studioFixtureIds.card]?.childIds,
     );

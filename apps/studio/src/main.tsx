@@ -1226,7 +1226,11 @@ function TypographySection({ node }: { node: Extract<DesignNode, { type: "TEXT" 
             updateStyle({
               fontFamily: event.target.value,
               fontAssetId: studioFixtureIds.font,
-              fontMatchStatus: "EXACT",
+              // A font pick alone is not a measurement: real match status (EXACT/LIKELY_MATCH/
+              // CLOSE_SUBSTITUTE) comes from packages/fidelity's rankFontCandidates(), which compares
+              // real rendered glyph advances against a reference — nothing that's happened yet at
+              // pick time. UNKNOWN is the honest default until a real fidelity measurement runs.
+              fontMatchStatus: "UNKNOWN",
             })
           }
         >
@@ -1260,7 +1264,7 @@ function TypographySection({ node }: { node: Extract<DesignNode, { type: "TEXT" 
         />
       </div>
       <div className="font-status">
-        <span /> Basic Regular · exact
+        <span /> {style.fontFamily} · {style.fontMatchStatus.toLowerCase().replace(/_/g, " ")}
       </div>
     </PropertySection>
   );

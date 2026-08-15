@@ -66,7 +66,9 @@ const style = (size: number, weight: number): TextStyle => ({
   fontAssetId: id.font,
   fontFamily: "Basic",
   fallbackFamilies: ["Arial", "sans-serif"],
-  fontMatchStatus: "EXACT",
+  // No real fidelity measurement (rankFontCandidates against a rendered reference) has ever run
+  // for this fixture text, so UNKNOWN is the honest status -- not a claimed EXACT match.
+  fontMatchStatus: "UNKNOWN",
   size: px(size),
   lineHeight: { multiplier: 1.08 },
   letterSpacing: px(0),
@@ -152,7 +154,7 @@ export function createStudioProjectFixture(): { project: ProjectMetadata; docume
   );
   body.dimensions = { width: px(550), height: px(72) };
   const card: DesignNode = {
-    ...base(id.card, "Fidelity card", id.hero, 950, 132),
+    ...base(id.card, "Stat card", id.hero, 950, 132),
     type: "FRAME",
     layout: { type: "ABSOLUTE" },
     dimensions: { width: px(360), height: px(580) },
@@ -160,7 +162,9 @@ export function createStudioProjectFixture(): { project: ProjectMetadata; docume
     transform: { ...transform(950, 132), rotation: { x: 0, y: 0, z: -3 } },
     metadata: { tags: ["studio"], customData: { "aevum.studio.fill": "#d9dfd2", "aevum.studio.radius": 6 } },
   };
-  const cardTitle = textNode(id.cardTitle, "Card label", id.card, "94.8\nFIDELITY", 42, 390, style(48, 760));
+  // Not a claimed fidelity score -- real ValidationRecords come from fidelity.measure (Block D8)
+  // and are never fabricated demo copy.
+  const cardTitle = textNode(id.cardTitle, "Card label", id.card, "PRECISION\nDESIGN", 42, 390, style(48, 760));
   cardTitle.metadata = { tags: ["studio"], customData: { "aevum.studio.color": "#151917" } };
   cardTitle.dimensions = { width: px(250), height: px(120) };
   const scene: DesignNode = {
