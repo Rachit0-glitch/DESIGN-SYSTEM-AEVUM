@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { EntityIdSchema } from "./ids.js";
 
-export const CURRENT_SCHEMA_VERSION = "1.8.0" as const;
-export const CURRENT_MIGRATION_VERSION = 8 as const;
+export const CURRENT_SCHEMA_VERSION = "1.9.0" as const;
+export const CURRENT_MIGRATION_VERSION = 9 as const;
 
 export const JsonValueSchema: z.ZodType<unknown> = z.lazy(() =>
   z.union([
@@ -41,6 +41,19 @@ export const ColorSchema = z.strictObject({
   b: UnitIntervalSchema,
   a: UnitIntervalSchema.default(1),
   colorSpace: z.enum(["SRGB", "LINEAR_SRGB", "DISPLAY_P3", "ACESCG", "REC709", "REC2020"]),
+});
+export const GradientStopSchema = z.strictObject({
+  offset: UnitIntervalSchema,
+  color: ColorSchema,
+});
+// Mirrors @aevum/renderer-2d's RenderPaint gradient variant exactly, so a GRADIENT token's value
+// can be resolved into a real paint with no shape translation at the renderer boundary.
+export const GradientSchema = z.strictObject({
+  type: z.enum(["LINEAR_GRADIENT", "RADIAL_GRADIENT"]),
+  stops: z.array(GradientStopSchema).min(2),
+  angle: z.number().finite().optional(),
+  center: z.strictObject({ x: UnitIntervalSchema, y: UnitIntervalSchema }).optional(),
+  radius: UnitIntervalSchema.optional(),
 });
 
 export const LengthSchema = z.strictObject({
@@ -587,11 +600,11 @@ export const ComponentSchema = z.strictObject({
   defaultOverrides: z.record(z.string(), JsonValueSchema),
 });
 
-const TokenValueSchema = z.union([ColorSchema, LengthSchema, TextStyleSchema, JsonObjectSchema]);
+const TokenValueSchema = z.union([ColorSchema, GradientSchema, LengthSchema, TextStyleSchema, JsonObjectSchema]);
 export const TokenSchema = z.strictObject({
   id: EntityIdSchema,
   name: z.string().min(1),
-  type: z.enum(["COLOR", "TYPOGRAPHY", "SPACING", "SHADOW", "RADIUS", "ANIMATION"]),
+  type: z.enum(["COLOR", "GRADIENT", "TYPOGRAPHY", "SPACING", "SHADOW", "RADIUS", "ANIMATION"]),
   value: TokenValueSchema,
   description: z.string().optional(),
 });

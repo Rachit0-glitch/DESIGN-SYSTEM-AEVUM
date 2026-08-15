@@ -245,10 +245,19 @@ defaultRegistry.registerMigration("1.6.0", "1.7.0", (document, context) => {
 // ShapeNodeSchema's existing fillTokenId/strokeTokenId). No structural change is required for
 // existing documents — text runs without a fillTokenId remain valid and simply have no resolved
 // fill color yet, exactly as they did before this field existed.
-defaultRegistry.registerMigration("1.7.0", CURRENT_SCHEMA_VERSION, (document, context) => ({
+defaultRegistry.registerMigration("1.7.0", "1.8.0", (document, context) => ({
   ...document,
   schemaVersion: context.toVersion,
   migrationVersion: 8,
+}));
+// Token gained a GRADIENT type (TokenSchema.type union) and a real GradientSchema value shape,
+// mirroring @aevum/renderer-2d's existing RenderPaint gradient variant. No structural change is
+// required for existing documents — no document currently has a token with type "GRADIENT", so
+// nothing needs backfilling; this migration only advances the version stamp.
+defaultRegistry.registerMigration("1.8.0", CURRENT_SCHEMA_VERSION, (document, context) => ({
+  ...document,
+  schemaVersion: context.toVersion,
+  migrationVersion: 9,
 }));
 
 export function currentSchema(): string {

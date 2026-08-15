@@ -2,6 +2,7 @@ import {
   CURRENT_MIGRATION_VERSION,
   CURRENT_SCHEMA_VERSION,
   MigrationRegistry,
+  TokenSchema,
   currentSchema,
   fixtures,
   migrate,
@@ -69,5 +70,29 @@ describe("document migrations", () => {
     const registry = new MigrationRegistry();
     registry.registerMigration("0.9.0", "1.0.0", (document) => ({ ...document }));
     expect(() => registry.migrate({ schemaVersion: "0.9.0" })).toThrow("did not set schemaVersion");
+  });
+
+  it("validates a real GRADIENT token (CDD 1.9.0)", () => {
+    const gradient = TokenSchema.parse({
+      id: "token_10000000-0000-4000-8000-000000000099",
+      name: "gradient.reconstructed.primary",
+      type: "GRADIENT",
+      value: {
+        type: "LINEAR_GRADIENT",
+        angle: 45,
+        stops: [
+          { offset: 0, color: { r: 1, g: 0, b: 0, a: 1, colorSpace: "SRGB" } },
+          { offset: 1, color: { r: 0, g: 0, b: 1, a: 1, colorSpace: "SRGB" } },
+        ],
+      },
+    });
+    expect(gradient.type).toBe("GRADIENT");
+    expect(gradient.value).toMatchObject({ type: "LINEAR_GRADIENT" });
+    // NOTE: TokenSchema.value is a loose z.union(...) that includes a permissive JsonObjectSchema
+    // fallback, so a malformed gradient value (e.g. only one stop) does NOT get rejected here — it
+    // silently falls through to being accepted as "just some JSON object." This is real,
+    // pre-existing behavior across every token type in the union (not introduced by GRADIENT), and
+    // out of scope for this change; tightening TokenValueSchema into a real discriminated union is
+    // a separate task.
   });
 });
