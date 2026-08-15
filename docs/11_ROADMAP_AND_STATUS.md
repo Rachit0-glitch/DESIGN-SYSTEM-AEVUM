@@ -4296,7 +4296,39 @@ choice. **Status: implemented and tested.**
 
 ---
 
-## 65. Final Roadmap Statement
+## 65. Block C4c: Real Stroke Color Sampling (2026-08-15)
+
+`shape.stroke` was a schema field with no producer anywhere in the codebase — always `undefined`.
+**Status: implemented and tested**, for both vision paths, using two different real techniques
+suited to what each path's pipeline actually gives it.
+
+- **LOCAL path** (`packages/reconstruction-vision`): a real `node -e` probe first confirmed how a
+  stroked shape actually segments — a stroked rectangle produces *two* separate blobs by color
+  quantization, a fill blob and a distinct thin "frame" blob whose bounding box encloses the fill's
+  by a margin exactly equal to the true stroke width on every side (measured: 6px margin on all 4
+  sides for a real `stroke-width="6"` rect). `findStrokeFrames()` finds each fill blob's enclosing
+  frame blob via containment + margin-consistency + area-ratio + color-distance checks (real,
+  measured signals — not guessed), attaches the frame's own color and the measured margin as the
+  fill's `stroke`, and suppresses the frame blob from being emitted as its own spurious extra shape
+  region (a real, if minor, latent bug this work surfaced: before this fix, a stroked shape would
+  have produced two shape regions — the real fill and a bogus black "ellipse" from the
+  misclassified frame blob).
+- **Google Vision path** (`packages/vision`): Vision provides only a bounding box, no fill mask, so
+  stroke detection instead scans concentric pixel rings inward from the box edge (depth 0, 1, 2...)
+  and compares each ring's mean color to the shape's own interior color. A real probe against the
+  same rendered stroke confirmed a clean, exact signal: ring depths 0-5 measured pure stroke color,
+  depth 6 onward measured pure fill color — an exact match to the real 6px stroke width, not an
+  approximation.
+- Both techniques return `undefined` (no `stroke` field at all) for a genuinely flat shape, verified
+  by a dedicated non-regression test in both suites.
+- `pnpm validate` (docs, dependency rules, format, lint, typecheck, 424/424 tests, build across all
+  65 packages) passed clean.
+- Next action: Block C4d (reconstruction + renderer wiring for gradient/stroke tokens — the final
+  Block C4 item), per the implementation plan's block order.
+
+---
+
+## 66. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.
 

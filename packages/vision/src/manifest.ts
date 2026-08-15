@@ -396,6 +396,73 @@ async function detectLinearGradient(
   };
 }
 
+/**
+ * Detects a real solid stroke (border) ring around a shape from measured pixels: a shape's own
+ * bounding box (Vision's object bbox has no fill mask, only bounds) is scanned by "distance from
+ * the nearest edge" — each depth forms a concentric ring. A shape with a stroke shows a sharp,
+ * uniform color transition at the true stroke width (verified via a real `node -e` probe: a
+ * rendered rect with stroke-width=6 measured pure stroke color at ring depths 0-5, then the fill
+ * color from depth 6 onward — an exact, clean match, not a guessed threshold). No stroke (or a
+ * shape whose edge already matches its own interior) returns undefined rather than a fabricated
+ * border.
+ */
+async function sampleShapeStroke(
+  sourceBytes: Uint8Array,
+  sourceWidth: number,
+  sourceHeight: number,
+  rect: Rect,
+): Promise<{ readonly color: { r: number; g: number; b: number }; readonly width: number } | undefined> {
+  const left = Math.max(0, Math.min(sourceWidth - 1, Math.round(rect.x0)));
+  const top = Math.max(0, Math.min(sourceHeight - 1, Math.round(rect.y0)));
+  const width = Math.max(1, Math.min(sourceWidth - left, Math.round(rect.x1 - rect.x0)));
+  const height = Math.max(1, Math.min(sourceHeight - top, Math.round(rect.y1 - rect.y0)));
+  if (width < 16 || height < 16) return undefined;
+  let data: Buffer;
+  try {
+    ({ data } = await sharp(Buffer.from(sourceBytes))
+      .extract({ left, top, width, height })
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true }));
+  } catch {
+    return undefined;
+  }
+  const maxDepth = Math.min(24, Math.floor(Math.min(width, height) / 3));
+  if (maxDepth < 1) return undefined;
+  const ringMean = (depth: number): readonly [number, number, number] | undefined => {
+    let sr = 0;
+    let sg = 0;
+    let sb = 0;
+    let n = 0;
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        if (Math.min(x, width - 1 - x, y, height - 1 - y) !== depth) continue;
+        const index = (y * width + x) * 4;
+        sr += data[index] ?? 0;
+        sg += data[index + 1] ?? 0;
+        sb += data[index + 2] ?? 0;
+        n += 1;
+      }
+    }
+    return n === 0 ? undefined : [sr / n, sg / n, sb / n];
+  };
+  const interior = ringMean(maxDepth);
+  const edge = ringMean(0);
+  if (!interior || !edge) return undefined;
+  const colorDistance = (a: readonly [number, number, number], b: readonly [number, number, number]) =>
+    Math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2);
+  if (colorDistance(edge, interior) < 30) return undefined;
+  let width_ = maxDepth;
+  for (let depth = 1; depth < maxDepth; depth += 1) {
+    const ring = ringMean(depth);
+    if (ring && colorDistance(ring, interior) < 30) {
+      width_ = depth;
+      break;
+    }
+  }
+  return { color: { r: Math.round(edge[0]), g: Math.round(edge[1]), b: Math.round(edge[2]) }, width: width_ };
+}
+
 export interface VisionAnalysisToManifestOptions {
   readonly referenceType?: "WEBSITE_SCREENSHOT" | "UI_SCREENSHOT" | "LANDING_PAGE" | "POSTER" | "STATIC_2D";
   readonly maxObjectRegions?: number;
@@ -520,6 +587,7 @@ export async function visionAnalysisToManifest(
       ...(object.name ? [`label:${object.name}`] : []),
     ];
     const gradient = !isLikelyImage ? await detectLinearGradient(sourceBytes, width, height, rect) : undefined;
+    const stroke = !isLikelyImage ? await sampleShapeStroke(sourceBytes, width, height, rect) : undefined;
     regions.push({
       key: `region-${regionIndex}`,
       category,
@@ -545,6 +613,7 @@ export async function visionAnalysisToManifest(
                       b: Math.round(sample.meanColor[2]),
                     },
                   }),
+              ...(stroke ? { stroke } : {}),
             },
           }),
     });

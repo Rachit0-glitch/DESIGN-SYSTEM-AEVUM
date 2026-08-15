@@ -208,6 +208,84 @@ async function detectLinearGradient(
 }
 
 /**
+ * Detects a real solid stroke (border) around a shape from the segmentation's own blobs. A stroked
+ * shape segments into two separate blobs by color quantization — one for the interior fill, one for
+ * the border ring — confirmed via direct debugging (a real rect with `stroke-width="6"` produced a
+ * fill blob and a distinct, near-black frame blob whose bounding box enclosed the fill blob's by
+ * exactly 6px of margin on every side, matching the true stroke width exactly). This finds, for
+ * each "fill" blob, the smallest enclosing "frame" blob whose margins are thin, roughly equal on
+ * all 4 sides (a real uniform stroke measures the same thickness everywhere, not a coincidental
+ * enclosure), small relative to the fill's own area (ruling out the page background, which also
+ * technically "encloses" everything but at a vastly larger scale), and has a real, low fillRatio
+ * (a hollow ring is mostly empty, unlike the flood-filled whole-canvas background) and a color
+ * clearly distinct from the fill's own color.
+ */
+function findStrokeFrames(
+  blobs: readonly Blob[],
+  toSourceScale: (value: number) => number,
+): {
+  readonly strokeByFillIndex: ReadonlyMap<
+    number,
+    { readonly color: { r: number; g: number; b: number }; readonly width: number }
+  >;
+  readonly frameBlobIndices: ReadonlySet<number>;
+} {
+  const strokeByFillIndex = new Map<number, { color: { r: number; g: number; b: number }; width: number }>();
+  const frameBlobIndices = new Set<number>();
+  for (let frameIndex = 0; frameIndex < blobs.length; frameIndex += 1) {
+    const frame = blobs[frameIndex];
+    if (!frame || frame.fillRatio >= 0.5) continue;
+    let bestFillIndex = -1;
+    let bestFillArea = Number.POSITIVE_INFINITY;
+    for (let fillIndex = 0; fillIndex < blobs.length; fillIndex += 1) {
+      if (fillIndex === frameIndex) continue;
+      const fill = blobs[fillIndex];
+      if (!fill) continue;
+      const contains =
+        frame.minX <= fill.minX && frame.minY <= fill.minY && frame.maxX >= fill.maxX && frame.maxY >= fill.maxY;
+      if (!contains) continue;
+      const marginLeft = fill.minX - frame.minX;
+      const marginTop = fill.minY - frame.minY;
+      const marginRight = frame.maxX - fill.maxX;
+      const marginBottom = frame.maxY - fill.maxY;
+      const margins = [marginLeft, marginTop, marginRight, marginBottom];
+      const minMargin = Math.min(...margins);
+      const maxMargin = Math.max(...margins);
+      if (minMargin < 1 || maxMargin > 40) continue;
+      if (maxMargin - minMargin > Math.max(3, minMargin * 0.5)) continue;
+      const frameArea = Math.max(1, frame.maxX - frame.minX) * Math.max(1, frame.maxY - frame.minY);
+      const fillArea = Math.max(1, fill.maxX - fill.minX) * Math.max(1, fill.maxY - fill.minY);
+      if (frameArea / fillArea > 3) continue;
+      const colorDistance = Math.sqrt(
+        (frame.meanColor[0] - fill.meanColor[0]) ** 2 +
+          (frame.meanColor[1] - fill.meanColor[1]) ** 2 +
+          (frame.meanColor[2] - fill.meanColor[2]) ** 2,
+      );
+      if (colorDistance < 30) continue;
+      if (fillArea < bestFillArea) {
+        bestFillArea = fillArea;
+        bestFillIndex = fillIndex;
+      }
+    }
+    if (bestFillIndex < 0) continue;
+    const fill = blobs[bestFillIndex];
+    if (!fill) continue;
+    const marginAverage =
+      (fill.minX - frame.minX + (fill.minY - frame.minY) + (frame.maxX - fill.maxX) + (frame.maxY - fill.maxY)) / 4;
+    strokeByFillIndex.set(bestFillIndex, {
+      color: {
+        r: Math.round(frame.meanColor[0]),
+        g: Math.round(frame.meanColor[1]),
+        b: Math.round(frame.meanColor[2]),
+      },
+      width: Math.max(1, Math.round(toSourceScale(marginAverage))),
+    });
+    frameBlobIndices.add(frameIndex);
+  }
+  return { strokeByFillIndex, frameBlobIndices };
+}
+
+/**
  * A real gradient's smooth color sweep gets fragmented by segmentForeground()'s histogram color
  * quantization into several adjacent thin blobs of similar quantized color — confirmed via direct
  * debugging (a real 150px-wide test gradient produced a single ~19px-wide blob, whose detected
@@ -590,13 +668,20 @@ export async function buildManifestFromImage(
   // fragments are dropped as noise rather than kept as spurious extra layers.
   const maxShapeRegions = 16;
 
+  // A stroked shape segments into a separate fill blob and a thin "frame" blob (see
+  // findStrokeFrames' doc comment); resolve those associations before the gradient merge pass and
+  // the main loop, so a frame blob is attached to its fill's region as a real stroke instead of
+  // being emitted as its own spurious extra shape.
+  const { strokeByFillIndex, frameBlobIndices } = findStrokeFrames(segmentation.blobs, toSourceScale);
+
   // Real gradients get fragmented into several adjacent thin blobs by color-quantization
   // segmentation (see findGradientBlobGroups' doc comment); recover the true span before the
   // per-blob loop runs, so a merged gradient region is emitted once instead of several
   // misleadingly narrow, wrong-colored fragments.
   const gradientCandidateIndices = segmentation.blobs
     .map((blob, index) => ({ blob, index }))
-    .filter(({ blob }) => {
+    .filter(({ blob, index }) => {
+      if (frameBlobIndices.has(index)) return false;
       if (isConsumedByText(blob)) return false;
       // Deliberately does NOT exclude high colorVariance blobs here (unlike the per-blob
       // isLikelyImage check below): a real gradient color-band fragment legitimately has elevated
@@ -646,6 +731,7 @@ export async function buildManifestFromImage(
   for (const [blobIndex, blob] of segmentation.blobs.entries()) {
     if (regionIndex >= maxShapeRegions) break;
     if (mergedBlobIndices.has(blobIndex)) continue;
+    if (frameBlobIndices.has(blobIndex)) continue;
     if (isConsumedByText(blob)) continue;
     if (isMostlyInsideAccepted(blob)) continue;
     const x = Math.max(0, Math.round(toSourceScale(blob.minX)));
@@ -663,6 +749,7 @@ export async function buildManifestFromImage(
     const gradient = !isLikelyImage
       ? await detectLinearGradient(bytes, width, height, { x0: x, y0: y, x1: x + w, y1: y + h })
       : undefined;
+    const stroke = !isLikelyImage ? strokeByFillIndex.get(blobIndex) : undefined;
     regions.push({
       key: `region-${regionIndex}`,
       category,
@@ -691,6 +778,7 @@ export async function buildManifestFromImage(
                       b: Math.round(blob.meanColor[2]),
                     },
                   }),
+              ...(stroke ? { stroke } : {}),
             },
           }),
     });

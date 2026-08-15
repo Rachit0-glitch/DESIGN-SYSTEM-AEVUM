@@ -166,6 +166,45 @@ describe("reconstruction-vision manifest builder (OCR disabled — deterministic
     expect(shape?.shape?.gradient).toBeUndefined();
     expect(shape?.shape?.fill).toBeDefined();
   });
+
+  it("detects a real stroke color and width around a shape from measured pixels", async () => {
+    const svg = `
+      <svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
+        <rect width="400" height="300" fill="#ffffff" />
+        <rect x="60" y="80" width="150" height="100" fill="#2255aa" stroke="#000000" stroke-width="6" />
+      </svg>
+    `;
+    const image = await sharp(Buffer.from(svg)).png().toBuffer();
+    const { manifest } = await buildManifestFromImage(image, { enableOcr: false });
+
+    const shapes = manifest.regions.filter((region) => region.category === "SHAPE");
+    // The stroke's own segmentation blob is a real, distinct "frame" region and must not be
+    // emitted as its own spurious extra shape — it belongs attached to the fill shape only.
+    expect(shapes).toHaveLength(1);
+    const stroke = shapes[0]?.shape?.stroke as
+      | { color: { r: number; g: number; b: number }; width: number }
+      | undefined;
+    expect(stroke, JSON.stringify(shapes[0])).toBeDefined();
+    expect(stroke?.color.r).toBeLessThan(30);
+    expect(stroke?.color.g).toBeLessThan(30);
+    expect(stroke?.color.b).toBeLessThan(30);
+    expect(stroke?.width).toBe(6);
+  });
+
+  it("does not detect a stroke on a plain flat-colored shape", async () => {
+    const svg = `
+      <svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
+        <rect width="400" height="300" fill="#ffffff" />
+        <rect x="60" y="80" width="150" height="100" fill="#2255aa" />
+      </svg>
+    `;
+    const image = await sharp(Buffer.from(svg)).png().toBuffer();
+    const { manifest } = await buildManifestFromImage(image, { enableOcr: false });
+
+    const shape = manifest.regions.find((region) => region.category === "SHAPE");
+    expect(shape, JSON.stringify(manifest.regions)).toBeDefined();
+    expect(shape?.shape?.stroke).toBeUndefined();
+  });
 });
 
 describe("reconstruction-vision real local OCR (tesseract.js — no paid API)", () => {

@@ -373,6 +373,81 @@ describe("@aevum/vision manifest conversion", () => {
     expect(ellipseShape, JSON.stringify(ellipseManifest.regions)).toBeDefined();
     expect(ellipseShape?.shape?.shapeType).toBe("ELLIPSE");
   });
+
+  it("detects a real stroke color and width around a shape from measured pixels", async () => {
+    // A real object detector's bounding box covers the whole visible object, stroke included — the
+    // rendered rect is nominally at x=60,y=80,w=150,h=100 with stroke-width=6 straddling the path
+    // edge, so the true visible extent is x:[57,213] y:[77,183] (6px outside the nominal edge).
+    const svg = `
+      <svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
+        <rect width="400" height="300" fill="#ffffff" />
+        <rect x="60" y="80" width="150" height="100" fill="#2255aa" stroke="#000000" stroke-width="6" />
+      </svg>
+    `;
+    const image = await sharp(Buffer.from(svg)).png().toBuffer();
+    const analysis = fixtureAnalysis({
+      imageWidth: 400,
+      imageHeight: 300,
+      textBlocks: [],
+      objects: [
+        {
+          name: "stroked-rect",
+          score: 0.6,
+          boundingPoly: {
+            vertices: [
+              { x: 57, y: 77 },
+              { x: 213, y: 77 },
+              { x: 213, y: 183 },
+              { x: 57, y: 183 },
+            ],
+          },
+        },
+      ],
+    });
+    const { manifest } = await visionAnalysisToManifest(analysis, image);
+    const shape = manifest.regions.find((region) => region.category === "SHAPE");
+    expect(shape, JSON.stringify(manifest.regions)).toBeDefined();
+    const stroke = shape?.shape?.stroke as { color: { r: number; g: number; b: number }; width: number } | undefined;
+    expect(stroke, JSON.stringify(shape)).toBeDefined();
+    expect(stroke?.color.r).toBeLessThan(30);
+    expect(stroke?.color.g).toBeLessThan(30);
+    expect(stroke?.color.b).toBeLessThan(30);
+    // The real SVG stroke-width was 6px; the measured transition depth should land exactly there.
+    expect(stroke?.width).toBe(6);
+  });
+
+  it("does not detect a stroke on a plain flat-colored shape", async () => {
+    const svg = `
+      <svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
+        <rect width="400" height="300" fill="#ffffff" />
+        <rect x="60" y="80" width="150" height="100" fill="#2255aa" />
+      </svg>
+    `;
+    const image = await sharp(Buffer.from(svg)).png().toBuffer();
+    const analysis = fixtureAnalysis({
+      imageWidth: 400,
+      imageHeight: 300,
+      textBlocks: [],
+      objects: [
+        {
+          name: "plain-rect",
+          score: 0.6,
+          boundingPoly: {
+            vertices: [
+              { x: 60, y: 80 },
+              { x: 210, y: 80 },
+              { x: 210, y: 180 },
+              { x: 60, y: 180 },
+            ],
+          },
+        },
+      ],
+    });
+    const { manifest } = await visionAnalysisToManifest(analysis, image);
+    const shape = manifest.regions.find((region) => region.category === "SHAPE");
+    expect(shape, JSON.stringify(manifest.regions)).toBeDefined();
+    expect(shape?.shape?.stroke).toBeUndefined();
+  });
 });
 
 describe("@aevum/vision cache and quota guardrails", () => {
