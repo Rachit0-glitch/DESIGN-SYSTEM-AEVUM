@@ -4211,7 +4211,44 @@ for every detected TEXT region regardless of the source pixels. **Status: implem
 
 ---
 
-## 63. Final Roadmap Statement
+## 63. Block C3: Real Rounded-Corner and Ellipse Shape Detection (2026-08-15)
+
+Every detected SHAPE region was always emitted as `shapeType: "RECTANGLE"` with no `cornerRadius`,
+regardless of the source pixels. **Status: implemented and tested**, scoped honestly — full
+arbitrary polygon/vector tracing is a separate, much larger project and was not attempted.
+
+- Real geometric classification from measured fill ratio (filled pixels / bounding-box area): a
+  corner radius `r` cuts a `(1 - pi/4) * r^2` area from each of a rectangle's 4 corners, so the
+  missing area is invertible into a real corner-radius estimate. When the estimated radius would
+  exceed what any valid rectangle corner radius for that box could produce, the shape is classified
+  ELLIPSE instead — the same underlying geometric fact (a square rounded to `r = side/2` *is* a
+  circle), not an approximation error.
+- Calibrated and verified against real rendered shapes (sharp rect, `rx=10/25`, a maximal "stadium"
+  `rx=50`, an ellipse, a circle) via measurement before writing any threshold, not guessed.
+- `packages/reconstruction-vision` already computed `blob.fillRatio` during segmentation and now
+  uses it directly. `packages/vision` (Google Vision path) has no segmentation mask, only a
+  bounding box, so a real per-pixel fill-ratio measurement was added, reusing the same
+  majority/minority luminance-cluster split already used for text ink color (majority cluster this
+  time, since a solid shape is mostly its own fill with background only at rounded corners — the
+  opposite of a text region).
+- Real bug found and fixed along the way: a rounded rectangle's corners expose background color,
+  which inflated the pre-existing whole-bbox color-variance "is this a photo" check enough to
+  misclassify a plain rounded rectangle as an IMAGE region before the new geometry code could ever
+  run. Consolidated color/variance/fill-ratio sampling into one pass restricted to the majority
+  luminance cluster, so variance reflects real within-fill diversity (true for photos, false for
+  flat shapes) rather than cross-cluster corner noise. The existing real-photo classification test
+  still passes unchanged.
+- Verified end to end: a real rendered rounded-rectangle and ellipse, run through both the LOCAL
+  segmentation pipeline and the Google Vision manifest converter, classify correctly with a real,
+  in-range corner-radius estimate for the rounded case.
+- `pnpm validate` (docs, dependency rules, format, lint, typecheck, 417/417 tests, build across
+  all 65 packages) passed clean.
+- Next action: Block C4 (gradients, patterns, and stroke color sampling) is the only remaining
+  Block C item. Per the implementation plan's block order, Block C work continues before Block D.
+
+---
+
+## 64. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.
 
