@@ -175,8 +175,16 @@ describe("Studio capability registry (Block D1)", () => {
     }
   });
 
-  it("documents node.create, node.update, node.delete, and document.rename as gateway-routable", () => {
-    for (const type of ["node.create", "node.update", "node.delete", "document.rename"] as const) {
+  it("documents node.create, node.update, node.delete, document.rename, node.move, node.duplicate, and token.register as gateway-routable", () => {
+    for (const type of [
+      "node.create",
+      "node.update",
+      "node.delete",
+      "document.rename",
+      "node.move",
+      "node.duplicate",
+      "token.register",
+    ] as const) {
       expect(isGatewayRoutable(type), type).toBe(true);
     }
   });
@@ -196,18 +204,33 @@ describe("Studio capability registry (Block D1)", () => {
     expect(isGatewayRoutable("reconstruction.import_reference" as Command["type"])).toBe(false);
   });
 
-  it("honestly documents token.register as not yet available, with a real reason, rather than omitting or faking it", () => {
+  it("registers token.register as a real, gateway-routable capability (Block D2 — previously NOT_YET_AVAILABLE)", () => {
     const capability = findStudioCapability("token.register");
-    expect(capability?.status).toBe("NOT_YET_AVAILABLE");
-    if (capability?.status === "NOT_YET_AVAILABLE") {
-      expect(capability.unavailableReason.length).toBeGreaterThan(0);
+    expect(capability?.status).toBe("AVAILABLE");
+    if (capability?.status === "AVAILABLE") {
+      expect(capability.mcpTool).toBe("token.register");
+      expect(capability.supportsDryRun).toBe(true);
     }
-    expect(isGatewayRoutable("token.register")).toBe(false);
+    expect(isGatewayRoutable("token.register")).toBe(true);
   });
 
   it("returns undefined for a command type with no documented capability at all", () => {
-    expect(findStudioCapability("node.move")).toBeUndefined();
-    expect(isGatewayRoutable("node.move")).toBe(false);
+    // node.reparent has a real MCP command type and Command Engine apply logic but no MCP tool and
+    // no confirmed Studio UI need (no reparentNode function exists in session.ts) — genuinely
+    // undocumented, unlike node.move/node.duplicate which Block D2 added real tools for.
+    expect(findStudioCapability("node.reparent")).toBeUndefined();
+    expect(isGatewayRoutable("node.reparent")).toBe(false);
+  });
+
+  it("keeps the NOT_YET_AVAILABLE type path sound even when the registry currently has no such entry", () => {
+    // Every entry with that status must carry a real, non-empty reason and no mcpTool — verified as
+    // a structural invariant so this stays true if a future capability is ever added in that state,
+    // not merely asserted against today's specific (now-empty) set.
+    for (const capability of STUDIO_CAPABILITIES) {
+      if (capability.status !== "NOT_YET_AVAILABLE") continue;
+      expect(capability.unavailableReason.length).toBeGreaterThan(0);
+      expect("mcpTool" in capability).toBe(false);
+    }
   });
 });
 
@@ -233,10 +256,41 @@ describe("Studio production MCP command gateway", () => {
     global.fetch = fetchMock as unknown as typeof fetch;
 
     const project = await loadProductionStudioProject(configuration, makeSession("token-1"));
-    const command = testCommand({ type: "node.move", payload: { nodeId: "irrelevant", index: 0 } });
+    // node.reparent has no MCP tool and no documented capability (see the Block D2 registry test),
+    // unlike node.move/node.duplicate which Block D2 gave real tool mappings.
+    const command = testCommand({ type: "node.reparent", payload: { nodeId: "irrelevant", parentId: null, index: 0 } });
 
     await expect(project.commandGateway.execute(command)).rejects.toThrow(/no MCP tool mapping/i);
     expect(calls).toEqual(["document.get", "system.get_capabilities"]);
+  });
+
+  it("moves and duplicates a node through MCP now that Block D2 added real tool mappings", async () => {
+    const fixture = createStudioProjectFixture();
+    const { fetchMock, calls } = stubTransport({
+      fixtureDocument: fixture.document,
+      enabledTools: ["node.move", "node.duplicate"],
+      handleWrite: (_tool, dryRun) => writeOutput(dryRun ? 1 : 1),
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const project = await loadProductionStudioProject(configuration, makeSession("token-1"));
+    const move = testCommand({ type: "node.move", payload: { nodeId: "heading", index: 2 } });
+    await expect(project.commandGateway.execute(move)).resolves.toBeUndefined();
+
+    const duplicate = testCommand({
+      type: "node.duplicate",
+      payload: { sourceNodeId: "heading", parentId: null, index: 3, idMap: { heading: "text_new" } },
+    });
+    await expect(project.commandGateway.execute(duplicate)).resolves.toBeUndefined();
+
+    expect(calls).toEqual([
+      "document.get",
+      "system.get_capabilities",
+      "node.move",
+      "node.move",
+      "node.duplicate",
+      "node.duplicate",
+    ]);
   });
 
   it("rejects a mapped command the actor's role is not permitted to run, without bypassing MCP", async () => {
@@ -268,26 +322,6 @@ describe("Studio production MCP command gateway", () => {
 
     await expect(project.commandGateway.execute(command)).resolves.toBeUndefined();
     expect(calls).toEqual(["document.get", "system.get_capabilities", "node.update", "node.update"]);
-  });
-
-  it("rejects a documented-but-not-yet-available command type with its real unavailability reason, not the generic mapping error", async () => {
-    const fixture = createStudioProjectFixture();
-    const { fetchMock, calls } = stubTransport({ fixtureDocument: fixture.document, enabledTools: [] });
-    global.fetch = fetchMock as unknown as typeof fetch;
-
-    const project = await loadProductionStudioProject(configuration, makeSession("token-1"));
-    const command = testCommand({
-      type: "token.register",
-      payload: { token: { id: "token_1", name: "color.test", type: "COLOR", value: { r: 0, g: 0, b: 0 } } },
-    });
-
-    const capability = findStudioCapability("token.register");
-    await expect(project.commandGateway.execute(command)).rejects.toThrow(
-      capability?.status === "NOT_YET_AVAILABLE" ? capability.unavailableReason : "unreachable",
-    );
-    // The dedicated message must not be confused with the generic "no mapping exists at all" one.
-    await expect(project.commandGateway.execute(command)).rejects.not.toThrow(/no MCP tool mapping exists/i);
-    expect(calls).toEqual(["document.get", "system.get_capabilities"]);
   });
 
   it("rejects asset.register sent as a Command through the generic gateway, since only its tool-shaped call site is valid", async () => {

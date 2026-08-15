@@ -1729,6 +1729,66 @@ export function registerInitialTools(
 
   registry.registerTool(
     definition(
+      "node.move",
+      "Reorder one canonical node within its parent's child list.",
+      ["document.write"],
+      "WRITE",
+      async (raw, context) => {
+        const input = TOOL_SCHEMAS["node.move"].input.parse(raw);
+        return executeWrite(context, input, (base) => ({
+          ...base,
+          type: "node.move",
+          payload: { nodeId: input.nodeId, index: input.index },
+        }));
+      },
+      config,
+    ),
+  );
+
+  registry.registerTool(
+    definition(
+      "node.duplicate",
+      "Duplicate one canonical node subtree with caller-supplied identities for every duplicated node.",
+      ["document.write"],
+      "WRITE",
+      async (raw, context) => {
+        const input = TOOL_SCHEMAS["node.duplicate"].input.parse(raw);
+        return executeWrite(context, input, (base) => ({
+          ...base,
+          type: "node.duplicate",
+          payload: {
+            sourceNodeId: input.sourceNodeId,
+            parentId: input.parentId,
+            index: input.index,
+            idMap: input.idMap,
+            ...(input.name !== undefined ? { name: input.name } : {}),
+          },
+        }));
+      },
+      config,
+    ),
+  );
+
+  registry.registerTool(
+    definition(
+      "token.register",
+      "Register one canonical design token (color, gradient, typography, spacing, shadow, radius, or animation).",
+      ["document.write"],
+      "WRITE",
+      async (raw, context) => {
+        const input = TOOL_SCHEMAS["token.register"].input.parse(raw);
+        return executeWrite(context, input, (base) => ({
+          ...base,
+          type: "token.register",
+          payload: { token: input.token },
+        }));
+      },
+      config,
+    ),
+  );
+
+  registry.registerTool(
+    definition(
       "three.update_node_transform",
       "Update one canonical 3D node transform in local meter space.",
       ["document.write", "three.write"],

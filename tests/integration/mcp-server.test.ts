@@ -18,7 +18,8 @@ describe("MCP server integration", () => {
     const version = await fixture.execute("document.get_version", { version: 1, projection: "summary" });
 
     expect(capabilities.success).toBe(true);
-    expect((capabilities.data as { enabledTools: string[] }).enabledTools).toHaveLength(31);
+    // 31 pre-existing tools + node.move, node.duplicate, token.register (Block D2).
+    expect((capabilities.data as { enabledTools: string[] }).enabledTools).toHaveLength(34);
     expect(project.data).toMatchObject({ projectId: fixture.projectId, currentDocumentVersion: 1 });
     expect(document.data).toMatchObject({ id: fixture.document.metadata.id, documentVersion: 1 });
     expect((hierarchy.data as { nodes: unknown[] }).nodes.length).toBe(Object.keys(fixture.document.nodes).length);
@@ -166,6 +167,92 @@ describe("MCP server integration", () => {
     expect(current?.nodes[node.id]).toBeUndefined();
     expect(current?.documentVersion).toBe(4);
     expect(fixture.document.nodes[node.id]).toBeUndefined();
+  });
+
+  it("moves, duplicates, and registers a token through versioned Command Engine writes (Block D2)", async () => {
+    const fixture = createMcpTestFixture();
+    const pageId = fixture.document.pages[0];
+    if (!pageId) throw new Error("Asset fixture must contain a page.");
+    const nodeA = createFrame(pageId, "MCP Frame A");
+    const nodeB = createFrame(pageId, "MCP Frame B");
+    await fixture.execute(
+      "node.create",
+      { expectedDocumentVersion: 1, node: nodeA },
+      { idempotencyKey: "d2-create-a" },
+    );
+    await fixture.execute(
+      "node.create",
+      { expectedDocumentVersion: 2, node: nodeB },
+      { idempotencyKey: "d2-create-b" },
+    );
+    const beforeMove = await fixture.repository.getCurrentDocument(fixture.workspaceId, fixture.projectId);
+    const childrenBeforeMove = beforeMove?.nodes[pageId]?.childIds ?? [];
+    const nodeAIndexBeforeMove = childrenBeforeMove.indexOf(nodeA.id);
+    const targetIndex = nodeAIndexBeforeMove === 0 ? 1 : 0;
+
+    const dryRunMove = await fixture.execute(
+      "node.move",
+      { expectedDocumentVersion: 3, nodeId: nodeA.id, index: targetIndex },
+      { dryRun: true, idempotencyKey: "d2-move-dry" },
+    );
+    const afterDryRunMove = await fixture.repository.getCurrentDocument(fixture.workspaceId, fixture.projectId);
+    expect(dryRunMove.data).toMatchObject({ dryRun: true, baseVersion: 3, predictedDocumentVersion: 4 });
+    // A dry run must not mutate the canonical document — the position stays exactly where it was.
+    expect(afterDryRunMove?.nodes[pageId]?.childIds).toEqual(childrenBeforeMove);
+
+    const moved = await fixture.execute(
+      "node.move",
+      { expectedDocumentVersion: 3, nodeId: nodeA.id, index: targetIndex },
+      { idempotencyKey: "d2-move-commit" },
+    );
+    expect(moved.success).toBe(true);
+    const afterMove = await fixture.repository.getCurrentDocument(fixture.workspaceId, fixture.projectId);
+    expect(afterMove?.nodes[pageId]?.childIds.indexOf(nodeA.id)).toBe(targetIndex);
+    expect(afterMove?.documentVersion).toBe(4);
+
+    const duplicated = await fixture.execute(
+      "node.duplicate",
+      {
+        expectedDocumentVersion: 4,
+        sourceNodeId: nodeA.id,
+        parentId: pageId,
+        index: 2,
+        idMap: { [nodeA.id]: "frame_d2d0d000-0000-4000-8000-000000000001" },
+        name: "MCP Frame A copy",
+      },
+      { idempotencyKey: "d2-duplicate" },
+    );
+    expect(duplicated.success, JSON.stringify(duplicated.errors)).toBe(true);
+    const afterDuplicate = await fixture.repository.getCurrentDocument(fixture.workspaceId, fixture.projectId);
+    expect(afterDuplicate?.nodes["frame_d2d0d000-0000-4000-8000-000000000001"]?.name).toBe("MCP Frame A copy");
+    expect(afterDuplicate?.documentVersion).toBe(5);
+
+    const tokenId = "token_d2d0d000-0000-4000-8000-000000000001";
+    const registered = await fixture.execute(
+      "token.register",
+      {
+        expectedDocumentVersion: 5,
+        token: {
+          id: tokenId,
+          name: "color.d2.test",
+          type: "COLOR",
+          value: { r: 0.5, g: 0.2, b: 0.8, a: 1, colorSpace: "SRGB" },
+        },
+      },
+      { idempotencyKey: "d2-token-register" },
+    );
+    expect(registered.success).toBe(true);
+    const afterToken = await fixture.repository.getCurrentDocument(fixture.workspaceId, fixture.projectId);
+    expect(afterToken?.tokens[tokenId]).toMatchObject({ type: "COLOR", name: "color.d2.test" });
+    expect(afterToken?.documentVersion).toBe(6);
+
+    // A stale expectedDocumentVersion must still be rejected the same way every other write is.
+    const staleMove = await fixture.execute(
+      "node.move",
+      { expectedDocumentVersion: 1, nodeId: nodeA.id, index: 0 },
+      { idempotencyKey: "d2-move-stale" },
+    );
+    expect(staleMove.errors[0]?.code).toBe("MCP_DOCUMENT_VERSION_CONFLICT");
   });
 
   it("inspects registered 3D entities and dry-runs then persists a canonical transform write", async () => {

@@ -29,7 +29,8 @@ describe("MCP protocol", () => {
     registerInitialTools(registry, mcpTestConfig);
     const tools = registry.listTools();
 
-    expect(tools).toHaveLength(73);
+    // 73 pre-existing tools + node.move, node.duplicate, token.register (Block D2).
+    expect(tools).toHaveLength(76);
     expect(tools.every((tool) => tool.version === MCP_TOOL_VERSION)).toBe(true);
     expect(tools.map((tool) => tool.name)).toEqual(Object.keys(TOOL_SCHEMAS).sort());
     expect(() => registerInitialTools(registry, mcpTestConfig)).toThrow(/already registered/);

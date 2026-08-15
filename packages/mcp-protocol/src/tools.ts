@@ -13,6 +13,7 @@ import {
   EntityIdSchema,
   JsonValueSchema,
   TimelineSchema,
+  TokenSchema,
   TransformSchema,
 } from "@aevum/document-model";
 import { CameraValidationReportSchema, ResolvedCameraSchema } from "@aevum/camera-cinematics";
@@ -104,6 +105,9 @@ export const McpToolNameSchema = z.enum([
   "node.create",
   "node.update",
   "node.delete",
+  "node.move",
+  "node.duplicate",
+  "token.register",
 ]);
 
 export const McpToolDescriptorSchema = z.strictObject({
@@ -589,6 +593,18 @@ export const NodeUpdateInputSchema = WriteBaseSchema.extend({
   changes: z.record(z.string().min(1).max(100), JsonValueSchema),
 });
 export const NodeDeleteInputSchema = WriteBaseSchema.extend({ nodeId: EntityIdSchema });
+export const NodeMoveInputSchema = WriteBaseSchema.extend({
+  nodeId: EntityIdSchema,
+  index: z.number().int().nonnegative(),
+});
+export const NodeDuplicateInputSchema = WriteBaseSchema.extend({
+  sourceNodeId: EntityIdSchema,
+  parentId: EntityIdSchema.nullable(),
+  index: z.number().int().nonnegative(),
+  idMap: z.record(EntityIdSchema, EntityIdSchema),
+  name: z.string().trim().min(1).max(255).optional(),
+});
+export const TokenRegisterInputSchema = WriteBaseSchema.extend({ token: TokenSchema });
 export const FidelityInspectInputSchema = z.strictObject({ profile: FidelityProfileNameSchema });
 export const FidelityInspectOutputSchema = z.strictObject({
   profile: FidelityProfileNameSchema,
@@ -1087,6 +1103,9 @@ export const TOOL_SCHEMAS = Object.freeze({
   "node.create": { input: NodeCreateInputSchema, output: WriteToolOutputSchema },
   "node.update": { input: NodeUpdateInputSchema, output: WriteToolOutputSchema },
   "node.delete": { input: NodeDeleteInputSchema, output: WriteToolOutputSchema },
+  "node.move": { input: NodeMoveInputSchema, output: WriteToolOutputSchema },
+  "node.duplicate": { input: NodeDuplicateInputSchema, output: WriteToolOutputSchema },
+  "token.register": { input: TokenRegisterInputSchema, output: WriteToolOutputSchema },
   "three.update_node_transform": {
     input: ThreeUpdateNodeTransformInputSchema,
     output: WriteToolOutputSchema,

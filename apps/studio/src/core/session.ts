@@ -51,7 +51,7 @@ export interface StudioSession {
    * — callers must have obtained it from a real document.get, not derived it themselves.
    */
   resyncDocument(document: CanonicalDesignDocument): void;
-  moveNode(nodeId: string, index: number, options?: StudioMutationOptions): void;
+  moveNode(nodeId: string, index: number, options?: StudioMutationOptions): void | Promise<void>;
   duplicateNode(nodeId: string, options?: StudioMutationOptions): string;
   deleteNode(nodeId: string, options?: StudioMutationOptions): void | Promise<void>;
   undo(): void | Promise<void>;
@@ -277,12 +277,13 @@ export function createStudioSession(input: {
       notify();
     },
     moveNode(nodeId: string, index: number, options: StudioMutationOptions = {}) {
-      if (input.commandGateway) throw new Error("Remote layer reordering is not exposed by the current MCP contract.");
       const document = store.getDocument();
-      execute({ ...commandBase(document, options), type: "node.move", payload: { nodeId, index } });
+      const command: Command = { ...commandBase(document, options), type: "node.move", payload: { nodeId, index } };
+      if (input.commandGateway) return executeRemote(command);
+      execute(command);
+      return undefined;
     },
     duplicateNode(nodeId: string, options: StudioMutationOptions = {}) {
-      if (input.commandGateway) throw new Error("Remote duplication is not exposed by the current MCP contract.");
       const document = store.getDocument();
       const node = document.nodes[nodeId];
       if (!node) throw new Error(`Node ${nodeId} does not exist.`);
@@ -293,7 +294,7 @@ export function createStudioSession(input: {
       const parentChildren = node.parentId ? (document.nodes[node.parentId]?.childIds ?? []) : document.rootNodeIds;
       const targetId = idMap[nodeId];
       if (!targetId) throw new Error("Duplicate identity allocation failed.");
-      execute({
+      const command: Command = {
         ...commandBase(document, options),
         type: "node.duplicate",
         payload: {
@@ -303,7 +304,18 @@ export function createStudioSession(input: {
           idMap,
           name: `${node.name} copy`,
         },
-      });
+      };
+      if (input.commandGateway) {
+        // The new node's id is already deterministic and known client-side (idMap), so it's
+        // returned synchronously the same way the local path always has. The remote write still
+        // happens in the background; any failure surfaces through saveState/lastError like every
+        // other remote mutation (see executeRemote), so this floating promise's rejection is
+        // intentionally swallowed here rather than left as a duplicate, unhandled console warning
+        // for an error already reported through that reactive channel.
+        executeRemote(command).catch(() => undefined);
+        return targetId;
+      }
+      execute(command);
       return targetId;
     },
     deleteNode(nodeId: string, options: StudioMutationOptions = {}) {

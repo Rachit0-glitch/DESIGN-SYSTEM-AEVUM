@@ -4433,7 +4433,49 @@ documentation. **Status: implemented and tested.**
 
 ---
 
-## 68. Final Roadmap Statement
+## 68. Block D2: Document Mutation Surface — node.move, node.duplicate, token.register (2026-08-15)
+
+Real MCP tools added for the three genuinely-missing Command Engine operations with confirmed
+Studio need: `node.move` and `node.duplicate` were already fully implemented in
+`packages/command-engine` and had real Studio session functions (`moveNode`/`duplicateNode`) that
+threw "not exposed by the current MCP contract" specifically because no MCP tool existed; `token.register`
+was explicitly requested. No speculative tools were added — `node.reparent`, `page.*`, `timeline.*`,
+`material.update`, `light.update`, and others remain undocumented in the capability registry because
+no genuine Studio UI need was found for them (no `reparentNode` function exists, no page/timeline/
+material editing UI exists today). **Status: implemented and tested.**
+
+- `packages/mcp-protocol/src/tools.ts`: added `"node.move"`, `"node.duplicate"`, `"token.register"`
+  to `McpToolNameSchema`, with input schemas (`NodeMoveInputSchema`, `NodeDuplicateInputSchema`,
+  `TokenRegisterInputSchema`) verified to match their Command Engine payload shapes exactly (the
+  same constraint the D1 registry already documents for the original 4 gateway-routable commands).
+- `apps/mcp-server/src/tools.ts`: registered all three as real `WRITE` tools using the existing
+  `executeWrite` helper — same dry-run-then-commit, version-conflict, and atomicity guarantees as
+  every other write tool, no new mechanism introduced.
+- `apps/studio/src/core/capabilities.ts`: all three added as `AVAILABLE` and gateway-routable
+  (their `mcpTool` equals their `commandType`); `token.register`'s prior `NOT_YET_AVAILABLE` entry
+  removed now that it's real.
+- `apps/studio/src/core/session.ts`: `moveNode`/`duplicateNode` no longer throw when a remote
+  gateway is present — they route through `executeRemote`, the same mechanism `updateNode`/
+  `deleteNode` already used. `duplicateNode` still returns the new node's id synchronously (the id
+  is deterministic and computed client-side before the remote call — an existing keyboard shortcut,
+  `Cmd/Ctrl+D`, depends on this to select the new node immediately), with the remote write's
+  rejection deliberately caught rather than left as a duplicate unhandled-console-warning for an
+  error already surfaced through `saveState`/`lastError`, matching this file's existing convention.
+- New tests: `tests/integration/mcp-server.test.ts` (move/duplicate/register through real
+  dry-run-then-commit, confirming a dry run leaves `childIds` unchanged, plus a stale-version
+  rejection); `tests/unit/studio-production.test.ts` (all three now gateway-routable; the prior
+  NOT_YET_AVAILABLE-specific tests replaced with a general structural invariant test now that the
+  registry has no such entry; `node.reparent` takes over as the "genuinely undocumented" example);
+  `tests/unit/studio.test.ts` (remote `duplicateNode`/`moveNode` now succeed instead of throwing).
+  Two pre-existing hardcoded tool-count assertions (`enabledTools` length, `registry.listTools()`
+  length) updated from 31→34 and 73→76 to reflect the 3 new tools, not weakened.
+- `pnpm validate` (docs, dependency rules, format, lint, typecheck, 435/435 tests, build across all
+  65 packages) passed clean.
+- Next action: Block D3 (reliability + Studio testing).
+
+---
+
+## 69. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.
 

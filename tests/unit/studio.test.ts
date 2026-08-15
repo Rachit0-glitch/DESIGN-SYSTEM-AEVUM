@@ -148,7 +148,17 @@ describe("AEVUM Studio canonical session", () => {
     await session.redo();
     expect(session.getSnapshot().document.nodes[studioFixtureIds.heading]?.name).toBe("Production heading");
     expect(commands).toEqual(["node.update@1", "node.update@2", "node.update@3"]);
-    expect(() => session.duplicateNode(studioFixtureIds.heading)).toThrow(/MCP contract/);
+
+    // Block D2: node.duplicate and node.move now have real MCP tools, so these no longer throw
+    // "not exposed by the current MCP contract" — they route through the same remote gateway.
+    const duplicateId = session.duplicateNode(studioFixtureIds.heading);
+    expect(typeof duplicateId).toBe("string");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(commands.at(-1)).toBe("node.duplicate@4");
+    expect(session.getSnapshot().document.nodes[duplicateId]?.name).toBe("Production heading copy");
+
+    await session.moveNode(studioFixtureIds.heading, 0);
+    expect(commands.at(-1)).toBe("node.move@5");
   });
 
   it("reflects an already-committed agent MCP write locally without a second remote round trip", () => {

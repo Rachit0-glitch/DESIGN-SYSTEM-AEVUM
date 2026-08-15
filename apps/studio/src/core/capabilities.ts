@@ -87,6 +87,30 @@ export const STUDIO_CAPABILITIES: readonly StudioCapability[] = [
   },
   {
     status: "AVAILABLE",
+    mcpTool: "node.move",
+    commandType: "node.move",
+    supportsDryRun: true,
+    classification: "SAFE_WRITE",
+    studioUseCase: "Reorder a layer within its parent from the layers panel (Block D2).",
+  },
+  {
+    status: "AVAILABLE",
+    mcpTool: "node.duplicate",
+    commandType: "node.duplicate",
+    supportsDryRun: true,
+    classification: "SAFE_WRITE",
+    studioUseCase: "Duplicate a node (and its subtree) from the canvas or layers panel (Block D2).",
+  },
+  {
+    status: "AVAILABLE",
+    mcpTool: "token.register",
+    commandType: "token.register",
+    supportsDryRun: true,
+    classification: "SAFE_WRITE",
+    studioUseCase: "Register a design token (color, gradient, typography) created or edited in Studio (Block D2).",
+  },
+  {
+    status: "AVAILABLE",
     mcpTool: "asset.register",
     supportsDryRun: true,
     classification: "SAFE_WRITE",
@@ -108,13 +132,6 @@ export const STUDIO_CAPABILITIES: readonly StudioCapability[] = [
     classification: "READ_ONLY",
     studioUseCase:
       "Read the canonical document: initial project load, and resyncing after a multi-command server-side transaction (e.g. reconstruction import) whose exact command list isn't returned to the caller for a local replay.",
-  },
-  {
-    status: "NOT_YET_AVAILABLE",
-    commandType: "token.register",
-    studioUseCase: "Register a design token (color, gradient, typography) created or edited in Studio.",
-    unavailableReason:
-      "No MCP tool exists for token.register yet — only the Command Engine schema does (packages/command-engine/src/schemas.ts). Adding one is a backend change, out of scope for this gateway refactor.",
   },
 ];
 
