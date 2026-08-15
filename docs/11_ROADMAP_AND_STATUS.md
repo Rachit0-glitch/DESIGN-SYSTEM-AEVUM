@@ -4186,7 +4186,32 @@ corrected STABILIZATION_KNOWN_LIMITATIONS.md addendum for the precise remaining 
 
 ---
 
-## 62. Final Roadmap Statement
+## 62. Block C2: Real Font Weight Inference (2026-08-15)
+
+Closes the last fabricated value in C2 (typography inference): `fontWeight` was hardcoded to `400`
+for every detected TEXT region regardless of the source pixels. **Status: implemented and tested.**
+
+- Reuses the minority-cluster ink-area fraction already computed for text ink-color sampling (no
+  new pixel pass): bold glyph strokes measurably cover more of their bounding box than
+  regular-weight strokes of the same text at the same size.
+- Thresholds are calibrated against real measured output of this environment's font rendering
+  stack, not guessed — and the first calibration attempt was wrong and caught by testing: it
+  measured ink fraction over a generously padded canvas, but real OCR-detected boxes are tight,
+  and tight-box fractions are substantially higher, so both a regular and a bold sample landed in
+  the same bucket. Recalibrated against tight crops matching real OCR output.
+- Honestly bucketed, not precise: this rendering stack resolves to only ~3 distinguishable weight
+  clusters (~0.33/~0.43/~0.47 ink fraction), reflecting real font-substitution behavior rather than
+  a universal 9-step OpenType scale. Documented as a best-effort estimate at both call sites.
+- Verified with a real end-to-end test: the same word rendered bold vs. regular through the real
+  local OCR pipeline yields a strictly higher estimated weight for the bold rendering.
+- `pnpm validate` (docs, dependency rules, format, lint, typecheck, 414/414 tests, build across
+  all 65 packages) passed clean.
+- Next action: Block C3 (rounded-corner/vector shape detection from pixels) and C4 (gradients,
+  patterns, stroke color sampling) remain — no further C2 typography gaps are known at this time.
+
+---
+
+## 63. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.
 
