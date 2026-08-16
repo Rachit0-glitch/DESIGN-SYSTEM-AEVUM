@@ -5231,7 +5231,62 @@ with the remaining boundary (structural/layout correction) documented rather tha
 
 ---
 
-## 84. Final Roadmap Statement
+## 84. Block F: Fidelity / Production QA (2026-08-16)
+
+Made the reconstruction system's fidelity measurement genuinely production-grade: traced the full
+reference → analysis → reconstruction → render → fidelity → correction pipeline end to end and
+closed the single biggest real gap the trace found. **Status: implemented and tested — real
+geometry/missing-element/image/typography mismatch detection closed; remaining gaps (typography
+line-wrap structure, dedicated spacing metric, stroke/gradient attribution, CROP attribution, the
+disconnected older Phase 7/8 validation/correction system) documented with concrete reasons rather
+than faked.**
+
+- **The central finding**: `packages/fidelity/src/structure.ts`'s `compareStructuralFidelity()` —
+  real, already-tested BOUNDS/CROP/GRADIENT/PAINT_ORDER/LINE_BREAKS comparison — was completely
+  unreachable from any real `fidelity.measure` call. Its `structuralExpectations` input was only
+  ever populated by hand-built unit-test fixtures; the real MCP handler never supplied one.
+  Region-based pixel comparison (Block E5) was also SHAPE-only, so TEXT/IMAGE mismatches and
+  missing elements were invisible to any real measurement.
+- **Real, non-fabricated fix**: reconstruction already captures exactly the data needed to close
+  this — every reconstructed node carries a real `RECONSTRUCTED_FROM` `sourceLink`
+  (`packages/reconstruction/src/proposal.ts`) back to its detected region, and
+  `document.references[refId].regions[regionId].bounds` still holds that region's real, original
+  bounds. `apps/mcp-server/src/tools.ts`'s `fidelity.measure` handler now derives real
+  `StructuralExpectation`s (BOUNDS) from this data, and rebuilt region-based comparison to cover
+  every reconstructed region by real node type (TEXT → TYPOGRAPHY, IMAGE → ASSET, else → COLOR) —
+  including regions with no surviving node at all, closing real missing-element detection.
+- **Verified against the real sushi poster fixture, not a synthetic substitute**
+  (`tests/integration/mcp-fidelity-structural.test.ts`): moving a genuinely reconstructed node by a
+  real 60/45px offset produces a real `LAYOUT_BOUNDS_MISMATCH` reporting exactly that delta;
+  deleting a genuinely reconstructed leaf node produces a real region-mismatch signal for its
+  now-empty region; real TYPOGRAPHY and ASSET domain regions are confirmed genuinely built and
+  measured for the poster's real text and image content.
+- **Live-verified in Studio**: the Fidelity workspace's "Not evaluated" empty state (no fabricated
+  score) and the References panel's honest `"Deterministic Studio provider does not expose
+  asset.register."` error (when the reference-import flow is attempted in the local dev fixture,
+  which has never implemented that tool) both confirmed live — the full UI-to-honest-failure chain
+  never fabricates success.
+- **Left honestly open, each investigated and documented with a concrete reason** (see
+  `docs/STABILIZATION_KNOWN_LIMITATIONS.md`'s new "Block F" section for full detail): typography
+  line-wrap structural comparison (no real captured source exists); a dedicated spacing/alignment
+  metric (real per-node BOUNDS comparison already reports the same information); stroke/gradient-
+  specific attribution (real pixel content differences ARE caught, just not labeled specifically);
+  CROP-specific attribution (same — real ASSET-domain region mismatches catch wrong crop content
+  generically); the older Phase 7/8 `packages/validation`/`packages/correction` system, confirmed
+  disconnected from the real fidelity pipeline with no real inference logic of its own to wire to
+  in a way that wouldn't produce empty, fake-passing proposals; and a real, previously-undisclosed
+  performance characteristic in `packages/fidelity/src/raster.ts`'s in-browser pixel encoding
+  (bounded, chunked to avoid crashes, not rewritten this pass).
+- **Fabricated/demo values re-audited**: a fresh, direct search of `apps/studio/src` found no
+  hardcoded fidelity score or `fontMatchStatus: "EXACT"` anywhere — Block D10's removal holds.
+- Tests: `tests/integration/mcp-fidelity-structural.test.ts` (2, real sushi poster fixture); full
+  existing fidelity/reconstruction/sushi-poster suites re-run clean (no regressions).
+- Full `pnpm validate` (docs, dependency rules, format, lint, typecheck, **500/500 tests**, build
+  across all 65 packages) passed clean.
+
+---
+
+## 85. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.
 

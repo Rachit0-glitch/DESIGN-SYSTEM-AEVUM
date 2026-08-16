@@ -410,6 +410,97 @@ needs infrastructure or engineering effort beyond what "wire up an existing capa
 
 ---
 
+## Block F — Fidelity / Production QA (2026-08-16)
+
+A full, code-level audit of the reference → analysis → reconstruction → render → fidelity →
+correction pipeline, prompted by a direct request to make the reconstruction system production-
+grade from a fidelity/QA perspective. The audit's central finding: `packages/fidelity/src/structure.ts`'s
+`compareStructuralFidelity()` (BOUNDS/CROP/GRADIENT/PAINT_ORDER/LINE_BREAKS detection) was real and
+already tested, but **completely unreachable from any real `fidelity.measure` call** — the
+`structuralExpectations` parameter it depends on was only ever populated by hand-built unit-test
+fixtures, never by the real MCP handler. Region-based pixel comparison (Block E5) was SHAPE-only,
+so TEXT/IMAGE content mismatches and missing elements were invisible to any real measurement.
+
+**Closed, for real, this pass:**
+- 🟢 **Geometry (BOUNDS) mismatch detection is now real and reachable.** `apps/mcp-server/src/tools.ts`'s
+  `fidelity.measure` handler now builds real `StructuralExpectation`s from data reconstruction
+  already captures at import time: every reconstructed node carries a real `RECONSTRUCTED_FROM`
+  `sourceLink` (`packages/reconstruction/src/proposal.ts`) back to its real originally-detected
+  region, and `document.references[refId].regions[regionId].bounds` still holds that region's real,
+  original bounds. If a node's live position/size has since drifted from that, the already-tested
+  BOUNDS comparator now genuinely fires. Verified against the real sushi poster fixture: moving a
+  genuinely reconstructed node by a real (60, 45) px offset produces a real `LAYOUT_BOUNDS_MISMATCH`
+  issue reporting exactly that delta (`tests/integration/mcp-fidelity-structural.test.ts`).
+- 🟢 **Missing-element detection is now real.** Region-based comparison now iterates every region a
+  reference genuinely detected, not just the SHAPE nodes currently in the render graph — a region
+  with no surviving node still produces a real region-mismatch issue (no fabricated `nodeId`,
+  honestly absent) instead of silently vanishing from the report the moment the node is deleted.
+  Verified against the real sushi poster fixture: deleting a genuinely reconstructed leaf node
+  produces a real, detected mismatch for its now-empty region.
+- 🟢 **Image and typography region coverage.** Region-based comparison is no longer SHAPE-only —
+  every reconstructed region is now compared and attributed by its real node type (TEXT →
+  TYPOGRAPHY domain, IMAGE → ASSET domain, everything else → COLOR), closing the "wrong image
+  content" and "wrong text region" gaps Block E5 left open. Verified against the real sushi poster
+  fixture: real TYPOGRAPHY and ASSET domain regions are genuinely built and measured
+  (`domainScores[...].totalRegions > 0` for both).
+
+**Left honestly open, each for a concrete, investigated reason — not hidden behind a heuristic:**
+- 🔴 **LINE_BREAKS (typography line-wrap) structural comparison remains unreachable.** Unlike BOUNDS,
+  there is no equivalent real, already-captured "expected" line-wrap layout anywhere in the
+  document/reference data — `reference.regions[]` only ever stored bounds, never shaped-text
+  metrics. Building one would mean capturing real line/baseline data at reconstruction time first;
+  not done this pass.
+- 🟡 **No separately-attributed spacing/alignment metric was built.** Real per-node BOUNDS
+  comparison (above) already reports an exact, real positional delta for any drifted reconstructed
+  node; since spacing between two nodes is fully determined by their individual positions, a
+  dedicated spacing/alignment comparator would report information the BOUNDS comparator already
+  provides. Documented as intentionally not duplicated, not as an unaddressed gap.
+- 🟡 **Stroke/gradient mismatches are not separately attributed.** GRADIENT is one of
+  `compareStructuralFidelity`'s real types but, like LINE_BREAKS, has no real captured "expected"
+  source to compare against outside unit-test fixtures. A stroke or gradient rendering difference on
+  a SHAPE region is still genuinely caught — it's real pixel content inside that region's real pixel
+  comparison (above) — just reported as a generic region mismatch, not a `GRADIENT`-coded or
+  stroke-specific one.
+- 🔴 **CROP structural comparison remains unreachable**, for the same reason as LINE_BREAKS/GRADIENT
+  — real IMAGE-region pixel comparison (above) catches a wrong crop's visible content as a genuine
+  ASSET-domain mismatch, just not attributed specifically to "the crop window is wrong" versus any
+  other reason that region's pixels differ.
+- 🔴 **The older, parallel Phase 7/8 validation/correction system
+  (`packages/validation`/`packages/correction`, `apps/validation-worker`/`apps/correction-worker`)
+  remains disconnected from the real, MCP/Studio-wired fidelity system
+  (`packages/fidelity`).** A bridge exists (`packages/fidelity/src/phase8.ts`'s
+  `createPhase8FidelityBridge`) but investigated and confirmed unused by any real caller — and
+  `packages/correction`'s engine has no inference logic of its own (it only ever copies an
+  externally-supplied `expectedValue` onto node fields), so wiring it to a real fidelity measurement
+  today would produce empty, no-op proposals for every issue `fidelity.measure` actually generates.
+  Left unbuilt rather than wired to produce nothing (same reasoning Block E5 already applied to
+  structural auto-correction).
+- 🟡 **A real, disclosed (not previously documented) performance characteristic**:
+  `packages/fidelity/src/raster.ts`'s in-browser raw-pixel-to-base64 encoding (inside the Playwright
+  page, ahead of decoding back to bytes in Node) builds the output string in 32KB chunks via
+  `String.fromCharCode` — real, bounded (scales with the rendered pixel count, capped by
+  `maxPixels`), and already avoids a call-stack overflow via chunking, but is a real O(pixels)
+  JS-string-building cost inside the browser for large renders. Not rewritten this pass (would need
+  a real architecture change to the raster backend, e.g. `canvas.toDataURL()`/
+  `OffscreenCanvas.convertToBlob()`); disclosed here instead of silently left undocumented.
+- 🟢 **Fabricated/demo fidelity values: re-audited, confirmed still clean.** No hardcoded score,
+  hardcoded `fontMatchStatus: "EXACT"`, or other fabricated-looking value was found anywhere in
+  `apps/studio/src` — Block D10's removal holds under a fresh, direct search.
+
+**Live-verified in Studio (dev server):** the Fidelity workspace shows the honest "Not evaluated. No
+Maximum Fidelity report has been generated for this document yet." empty state with no report
+present (no fabricated score); attempting the reference-import flow in the local dev fixture (which
+has never implemented `asset.register`, by design — see STEP 6) surfaces the real, honest error
+"Deterministic Studio provider does not expose asset.register." directly in the References panel —
+confirming the whole chain (UI action → real MCP call → honest failure → honest UI display) never
+fabricates success at any point, even when the underlying capability genuinely isn't available in
+this environment.
+
+New tests: `tests/integration/mcp-fidelity-structural.test.ts` (2 tests, both against the real
+sushi poster fixture, not a synthetic substitute).
+
+---
+
 ## Is the annotated poster image editable?
 
 **No — the annotated PNG sent in this conversation is a static diagnostic visualization only.**

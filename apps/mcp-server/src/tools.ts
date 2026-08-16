@@ -30,6 +30,7 @@ import {
   type RasterAssetResolver,
   type RegionExpectation,
   resolveFidelityProfile,
+  type StructuralExpectation,
 } from "@aevum/fidelity";
 import {
   LOCAL_BASELINE_PROVIDER_VERSION,
@@ -55,7 +56,7 @@ import {
   type ReconstructionManifestRegion,
 } from "@aevum/reconstruction";
 import { buildManifestFromImage } from "@aevum/reconstruction-vision";
-import { buildRenderGraph, type PaintOperation } from "@aevum/renderer-2d";
+import { buildRenderGraph, type RenderGraph } from "@aevum/renderer-2d";
 import { compile3DImportTransaction, create3DImportProposal, create3DRenderPlan } from "@aevum/renderer-3d";
 import {
   createHumanoidSemanticMapping,
@@ -389,6 +390,91 @@ function isRgbColor(value: unknown): value is RgbColor {
   );
 }
 
+/**
+ * Real geometry-mismatch detection (Block F, F1) — for every node reconstruction actually created
+ * (a real `RECONSTRUCTED_FROM` sourceLink, set by packages/reconstruction/src/proposal.ts at import
+ * time), the ORIGINALLY DETECTED bounds are still sitting right there in
+ * `document.references[refId].regions[regionId].bounds` — real data captured once, at import time,
+ * never fabricated here. If the node's current transform/dimensions have since drifted from that
+ * (a user or agent moved/resized it), compareStructuralFidelity's existing, already-tested BOUNDS
+ * comparison (packages/fidelity/src/structure.ts) now has a real "expected" value to compare
+ * against — previously this comparator was unreachable from any real fidelity.measure call because
+ * nothing ever supplied it one.
+ */
+function buildStructuralExpectations(document: CanonicalDesignDocument): StructuralExpectation[] {
+  const expectations: StructuralExpectation[] = [];
+  for (const node of Object.values(document.nodes)) {
+    const link = node.sourceLinks.find((entry) => entry.relationship === "RECONSTRUCTED_FROM" && entry.regionId);
+    if (!link?.regionId) continue;
+    const region = document.references[link.referenceId]?.regions.find((entry) => entry.id === link.regionId);
+    if (!region) continue;
+    expectations.push({ nodeId: node.id, property: "BOUNDS", expected: region.bounds, confidence: link.confidence });
+  }
+  return expectations;
+}
+
+/**
+ * Real, node-attributed region comparison (Block D8 + Block E5 + Block F, F2) — every region
+ * reconstruction actually detected (document.references[*].regions, the same real vision-pipeline
+ * output buildStructuralExpectations reads above) becomes one real pixel-comparison region, not
+ * just the SHAPE-only subset Block E5 originally covered:
+ *  - a region a node still represents is attributed to that real node, domain chosen by its real
+ *    type (TEXT -> TYPOGRAPHY, IMAGE -> ASSET, everything else -> COLOR) — catching wrong image
+ *    content and wrong text-region rendering, not only wrong SHAPE fill color;
+ *  - a region NO SURVIVING NODE represents any more (deleted since reconstruction) still gets
+ *    compared with no nodeId — real, honest "missing element" detection: the target render's now-
+ *    empty area genuinely differs from what the reference actually shows there, so it still
+ *    produces a real region-mismatch issue instead of silently vanishing from the report.
+ * Hand-authored SHAPE nodes with no reconstruction lineage at all (Block E5's original scope) still
+ * get a real region built from their own live render bounds, since no reference region exists for
+ * them to be looked up by.
+ */
+function buildRegions(document: CanonicalDesignDocument, graph: RenderGraph): RegionExpectation[] {
+  const nodeByRegionKey = new Map<string, DesignNode>();
+  for (const node of Object.values(document.nodes)) {
+    for (const link of node.sourceLinks) {
+      if (link.relationship === "RECONSTRUCTED_FROM" && link.regionId) {
+        nodeByRegionKey.set(`${link.referenceId}:${link.regionId}`, node);
+      }
+    }
+  }
+  const coveredNodeIds = new Set<string>();
+  const regions: RegionExpectation[] = [];
+  for (const reference of Object.values(document.references)) {
+    for (const region of reference.regions) {
+      const node = nodeByRegionKey.get(`${reference.id}:${region.id}`);
+      if (node) coveredNodeIds.add(node.id);
+      regions.push({
+        id: `region:${reference.id}:${region.id}`,
+        ...(node ? { nodeId: node.id } : {}),
+        region: region.bounds,
+        domain: !node ? "LAYOUT" : node.type === "TEXT" ? "TYPOGRAPHY" : node.type === "IMAGE" ? "ASSET" : "COLOR",
+        property: !node ? "presence" : node.type === "TEXT" ? "content" : node.type === "IMAGE" ? "asset" : "fill",
+        confidence: 1,
+      });
+    }
+  }
+  for (const operation of graph.operations.values()) {
+    if (operation.kind !== "PAINT" || operation.nodeType !== "SHAPE") continue;
+    if (coveredNodeIds.has(operation.canonicalNodeId)) continue;
+    if (!operation.dimensions?.width.value || !operation.dimensions.height.value) continue;
+    regions.push({
+      id: `region:${operation.canonicalNodeId}`,
+      nodeId: operation.canonicalNodeId,
+      region: {
+        x: operation.worldTransform.position.x,
+        y: operation.worldTransform.position.y,
+        width: operation.dimensions.width.value,
+        height: operation.dimensions.height.value,
+      },
+      domain: "COLOR",
+      property: "fill",
+      confidence: 1,
+    });
+  }
+  return regions;
+}
+
 async function executeWrite(
   context: ToolExecutionContext,
   input: { expectedDocumentVersion: number },
@@ -606,28 +692,12 @@ export function registerInitialTools(
               reference: normalized.reference,
               referenceRaster: normalized.raster,
               graph: targetGraph,
-              // Real, node-attributed COLOR regions — every SHAPE's own real render bounds — so a
-              // pixel mismatch is attributed to the exact node responsible, not just one opaque
-              // whole-document score (Block E, E5).
-              regions: [...targetGraph.operations.values()]
-                .filter((operation): operation is PaintOperation => operation.kind === "PAINT")
-                .filter((operation) => operation.nodeType === "SHAPE")
-                .filter((operation) => operation.dimensions?.width.value && operation.dimensions.height.value)
-                .map(
-                  (operation): RegionExpectation => ({
-                    id: `region:${operation.canonicalNodeId}`,
-                    nodeId: operation.canonicalNodeId,
-                    region: {
-                      x: operation.worldTransform.position.x,
-                      y: operation.worldTransform.position.y,
-                      width: operation.dimensions?.width.value ?? 0,
-                      height: operation.dimensions?.height.value ?? 0,
-                    },
-                    domain: "COLOR",
-                    property: "fill",
-                    confidence: 1,
-                  }),
-                ),
+              // Real, node-attributed regions across every reconstructed node type, plus real
+              // missing-element detection, plus a live-SHAPE fallback for hand-authored content
+              // (Block D8 + Block E5 + Block F, F2 — see buildRegions' own doc comment).
+              regions: buildRegions(target, targetGraph),
+              // Real geometry-drift detection (Block F, F1) — see buildStructuralExpectations.
+              structuralExpectations: buildStructuralExpectations(target),
             },
           ];
         };
