@@ -1,7 +1,12 @@
+import type { IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
-import { createMcpHttpServer } from "@aevum/mcp-server";
+import { clientIp, createMcpHttpServer } from "@aevum/mcp-server";
 import { afterEach, describe, expect, it } from "vitest";
 import { createMcpTestFixture } from "../helpers/mcp-fixture.js";
+
+function fakeRequest(headers: Record<string, string | string[] | undefined>, remoteAddress: string): IncomingMessage {
+  return { headers, socket: { remoteAddress } } as unknown as IncomingMessage;
+}
 
 const servers: ReturnType<typeof createMcpHttpServer>[] = [];
 
@@ -162,5 +167,38 @@ describe("MCP HTTP transport", () => {
     expect(malformed.status).toBe(400);
     expect((await malformed.json()).errors[0].code).toBe("MCP_INPUT_INVALID");
     expect(oversized.status).toBe(413);
+  });
+
+  // clientIp() feeds directly into the ip-scoped rate-limit bucket (executor.ts) and into
+  // request-level logging -- this is the exact branch the live Railway deployment actually runs
+  // (docs/ACCOUNT_MIGRATION.md lists MCP_TRUST_PROXY as an explicitly configured production
+  // variable), yet every other test in this file hardcodes `trustProxy: false`, so this branch had
+  // zero coverage until now (Block H14 finding).
+  describe("clientIp() with MCP_TRUST_PROXY behavior", () => {
+    it("trusts the first X-Forwarded-For entry only when trustProxy is enabled", () => {
+      const withHeader = fakeRequest({ "x-forwarded-for": "203.0.113.5, 10.0.0.1" }, "127.0.0.1");
+      expect(clientIp(withHeader, true)).toBe("203.0.113.5");
+      expect(clientIp(withHeader, false)).toBe("127.0.0.1");
+    });
+
+    it("falls back to the socket address when trustProxy is enabled but no header is present", () => {
+      const withoutHeader = fakeRequest({}, "192.168.1.10");
+      expect(clientIp(withoutHeader, true)).toBe("192.168.1.10");
+    });
+
+    it("handles a duplicated header (Node normalizes repeated headers into an array) by taking the first entry", () => {
+      const arrayHeader = fakeRequest({ "x-forwarded-for": ["198.51.100.7", "203.0.113.5"] }, "127.0.0.1");
+      expect(clientIp(arrayHeader, true)).toBe("198.51.100.7");
+    });
+
+    it("ignores a blank forwarded-for header and falls back to the socket address", () => {
+      const blankHeader = fakeRequest({ "x-forwarded-for": "   " }, "127.0.0.1");
+      expect(clientIp(blankHeader, true)).toBe("127.0.0.1");
+    });
+
+    it('reports "unknown" only when neither a trusted header nor a socket address is available', () => {
+      const nothing = fakeRequest({}, undefined as unknown as string);
+      expect(clientIp(nothing, false)).toBe("unknown");
+    });
   });
 });

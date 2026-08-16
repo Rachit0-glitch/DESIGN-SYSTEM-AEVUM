@@ -251,6 +251,34 @@ describe("AEVUM Studio canonical session", () => {
     expect(commands.at(-1)).toBe("node.move@5");
   });
 
+  it("invalidates the remote undo/redo stack after any mutation it doesn't track, instead of letting Undo revert a stale, unrelated edit (Block H14)", async () => {
+    const fixture = createStudioProjectFixture();
+    const commands: string[] = [];
+    const session = createStudioSession({
+      ...fixture,
+      persistence: createMemoryPersistence(),
+      restoreFromPersistence: false,
+      commandGateway: {
+        async execute(command) {
+          commands.push(command.type);
+        },
+      },
+    });
+
+    await session.updateNode(studioFixtureIds.heading, { name: "Tracked edit" });
+    expect(session.getSnapshot().history.canUndo).toBe(true);
+
+    // node.delete is a real remote mutation the session cannot compute a safe inverse for -- Undo
+    // must not remain enabled afterward and silently revert the earlier, unrelated node.update
+    // instead of doing anything about this deletion.
+    const headingId = studioFixtureIds.heading;
+    await session.deleteNode(headingId);
+    expect(session.getSnapshot().document.nodes[headingId]).toBeUndefined();
+    expect(session.getSnapshot().history.canUndo, "Undo must be disabled, not pointing at a stale entry").toBe(false);
+    expect(session.getSnapshot().history.canRedo).toBe(false);
+    expect(() => session.undo()).toThrow(/no remote edit to undo/i);
+  });
+
   it("reflects an already-committed agent MCP write locally without a second remote round trip", () => {
     const fixture = createStudioProjectFixture();
     const commands: string[] = [];

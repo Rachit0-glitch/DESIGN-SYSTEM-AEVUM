@@ -1,5 +1,13 @@
 import { commandError } from "../errors.js";
-import { addNode, insertAt, removeNodeSubtree, replaceNode, requireDocument, requireNode } from "../immutable.js";
+import {
+  addNode,
+  collectSubtreeIds,
+  insertAt,
+  removeNodeSubtree,
+  replaceNode,
+  requireDocument,
+  requireNode,
+} from "../immutable.js";
 import { registerCommand } from "../registry.js";
 import {
   CreatePageCommandSchema,
@@ -42,8 +50,13 @@ registerCommand<DeletePageCommand>({
   type: "page.delete",
   schema: DeletePageCommandSchema,
   canExecute(document, command) {
-    const page = requireNode(requireDocument(document), command.payload.pageId);
+    const source = requireDocument(document);
+    const page = requireNode(source, command.payload.pageId);
     if (page.type !== "PAGE") throw commandError("CONFLICT_ERROR", `${page.id} is not a page.`);
+    const lockedNodeId = collectSubtreeIds(source, page.id).find((nodeId) => requireNode(source, nodeId).locked);
+    if (lockedNodeId) {
+      throw commandError("LOCKED_ENTITY", `Node ${lockedNodeId} is locked.`, { nodeId: lockedNodeId });
+    }
   },
   apply(document, command) {
     const removed = removeNodeSubtree(requireDocument(document), command.payload.pageId);
@@ -61,6 +74,7 @@ registerCommand<RenamePageCommand>({
   canExecute(document, command) {
     const page = requireNode(requireDocument(document), command.payload.pageId);
     if (page.type !== "PAGE") throw commandError("CONFLICT_ERROR", `${page.id} is not a page.`);
+    if (page.locked) throw commandError("LOCKED_ENTITY", `Node ${page.id} is locked.`, { nodeId: page.id });
   },
   apply(document, command) {
     const source = requireDocument(document);

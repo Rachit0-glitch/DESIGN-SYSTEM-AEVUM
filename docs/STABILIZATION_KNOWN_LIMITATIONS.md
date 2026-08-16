@@ -607,6 +607,18 @@ proposed future phase below.
   working document, so no real path to exercise this branch was found; the fix closes a genuine
   structural asymmetry in the code (confirmed by direct reading) and the full existing transaction
   test suite continues to pass with it in place.
+- 🟢 **Update (Block H14, 2026-08-16): this raw count has drifted again, predictably — the fix is to
+  stop hardcoding it.** Each new batch of MCP tools (`page.*`, `asset.remove`, `component.register`,
+  `reference.register`, `timeline.*`, …) shifts both numbers, so a copied-in count goes stale the
+  moment the next tool is added — as it did here (previous text said 40/78; the real count at the
+  time of this update was 41/87, verified directly against `packages/mcp-protocol/src/tools.ts`'s
+  `TOOL_SCHEMAS` and `apps/mcp-server/src/tools.ts`'s `blenderTools` array, both of which
+  `apps/mcp-server/src/executor.ts`'s own readiness check, `registry.listTools().length ===
+  Object.keys(TOOL_SCHEMAS).length`, already keeps honest). The underlying claim (Blender-gated tools
+  are deliberately, permanently disabled in production) remains true and is unaffected by the exact
+  numbers — treat any specific count in this document as a snapshot, not a maintained invariant;
+  `tests/unit/mcp-protocol.test.ts`'s `toHaveLength(...)` assertion is the actual source of truth for
+  the total tool count at any given time.
 - 40 of the 78 registered MCP tools (all `blender.*`, `camera.create/update`,
   `cinematic.apply_sequence`, `lighting.*`, and most `three.*` mesh/rig/skin/pose/weight/IK tools) are
   permanently disabled in production because `createProductionMcpRuntime` never passes a real
@@ -616,6 +628,13 @@ proposed future phase below.
   already has exactly one honestly-documented `NOT_YET_AVAILABLE` capability (`node.reparent`) and
   should be read as covering the deliberately-disabled Blender-gated surface too, not as an
   exhaustive list — this doc is the disclosure of record for that gap.
+- 🟢 **Update (Block H2/H3, 2026-08-16): this bullet is half-stale — real MCP tools now exist.**
+  `page.create`/`page.delete`/`page.rename` and `asset.remove` all have real, registered MCP tools
+  now (real optimistic-concurrency + dry-run +, for asset.remove, a real cross-reference guard). The
+  remaining gap is narrower than originally described: there is still no Studio UI affordance to call
+  them from (honestly documented as `NOT_YET_AVAILABLE` in `apps/studio/src/core/capabilities.ts`,
+  matching how `node.reparent` was already handled) — see "Proposed Future Phase: Page & Asset
+  Lifecycle Surface" below, whose own MCP-tool half is now closed too.
 - The Page domain (`page.delete`, `page.rename`) and `asset.remove` are real, validated, tested
   command types with **no MCP tool and no Studio affordance** — there is currently no way to delete
   or rename a page, or hard-remove an asset, through the product at all. Unlike `node.reparent`
@@ -625,11 +644,25 @@ proposed future phase below.
   Phase: Page & Asset Lifecycle Surface" below.
 
 **MEDIUM — documented, not all fixed**
+- 🟢 **Update (Block H4, 2026-08-16): CLOSED.** A real `createRedisRateLimitProvider`
+  (`apps/mcp-server/src/rate-limit.ts`) now exists — an atomic sliding-window Lua `EVAL` script,
+  selected automatically whenever `CACHE_URL` is configured (`runtime.ts`'s
+  `rateLimitProviderForEnvironment`), falling back to the in-memory provider only when it isn't. The
+  in-memory provider itself was also fixed in Block H13 to stop leaking an unbounded Map entry per
+  distinct key. Whether the deployed production service actually has `CACHE_URL` set is now the only
+  open question — flagged in `docs/ACCOUNT_MIGRATION.md`'s required-variable list for an operator to
+  verify directly, since this repo has no way to check a live Railway service's env vars itself.
 - The in-memory rate limiter (`apps/mcp-server/src/executor.ts`) is real and genuinely wired into the
   request path, but is single-process only; `docker-compose.yml` provisions a Redis cache service
   that is never actually used anywhere in `apps/`/`packages/`. On any horizontally-scaled deployment
   each replica has an independent bucket, multiplying the effective limit and resetting on
   redeploy. **Not fixed this pass** — see "Proposed Future Phase: Distributed Rate Limiting" below.
+- 🟢 **Update (Block H5, 2026-08-16): partially closed.** `AiPanel` and `FidelityWorkspace` (the two
+  highest-value, most complex panels) now have real render-and-interact test coverage
+  (`tests/unit/studio-ai-panel.test.tsx`, `tests/unit/studio-fidelity-workspace.test.tsx`), driving
+  the real deterministic planner/engine/approval flow through actual user interaction. The other six
+  panels listed below (`CanvasNode`, `DesignCanvas`, `LeftPanel`, `PropertiesPanel`, `Timeline`,
+  `ViewportControls`) remain untested — this bullet's claim of "eight untested panels" is now six.
 - Eight interactive Studio panel components (`AiPanel`, `FidelityWorkspace`, `CanvasNode`,
   `DesignCanvas`, `LeftPanel`, `PropertiesPanel`, `Timeline`, `ViewportControls`) have zero
   component-level render-and-assert test coverage; only `ReferencesPanel` does. The underlying
@@ -653,6 +686,13 @@ disclosed in Block F.
 
 ### Proposed future phases (not built this pass — genuinely new architecture, not mechanical fixes)
 
+**🟢 Update (2026-08-16): the four entries below predate Block H and are now substantially stale —
+three are closed, one is partially closed. Left in place as a historical record rather than deleted,
+per this doc's own convention; each entry below carries its own specific update note.**
+
+- 🟢 **CLOSED — Block H1.** `document.components` now has real content: reconstruction's component
+  candidates materialize into real `document.components` entries with real `COMPONENT_INSTANCE`
+  nodes, proven end to end against real images (not just fixtures), including real renderer output.
 - **Component Materialization.** Reason: `document.components` currently has zero real content
   despite reconstruction detecting real repeated-structure candidates; `COMPONENT_INFERENCE` is a
   claimed capability with no document effect. Dependency: none blocking, but touches the schema's
@@ -666,6 +706,9 @@ disclosed in Block F.
   fidelity-measurable the same as any other node. Why not part of A→G: requires a genuine schema/
   product decision this pass's scope (mechanical fixes within existing architecture) explicitly
   excludes.
+- 🟢 **PARTIALLY CLOSED — Block H2/H3.** Real MCP tools for `page.create`/`page.delete`/`page.rename`/
+  `asset.remove` now exist. The Studio UI affordance half of this entry (page context menu, asset
+  browser) is still open — see the corrected note on the earlier "Page domain" bullet above.
 - **Page & Asset Lifecycle Surface.** Reason: `page.delete`, `page.rename`, and `asset.remove` are
   real, tested command-engine commands with no way to reach them from the product. Dependency: none.
   Problem: no MCP tool or Studio UI affordance exists for deleting/renaming a page or removing an
@@ -675,6 +718,8 @@ disclosed in Block F.
   asset through Studio, with the same optimistic-concurrency and cross-reference safety already
   proven in the command layer. Why not part of A→G: user-facing feature/UI work, not a fix to
   something already wired.
+- 🟢 **CLOSED — Block H4.** A real `createRedisRateLimitProvider` now exists (atomic sliding-window
+  Lua `EVAL`, selected automatically when `CACHE_URL` is configured) — see the corrected note above.
 - **Distributed Rate Limiting.** Reason: the real, wired in-memory rate limiter does not coordinate
   across replicas; Redis is provisioned but unused. Dependency: none. Problem: horizontal scaling
   silently multiplies the effective rate limit and resets it on every redeploy, with no current
@@ -683,6 +728,8 @@ disclosed in Block F.
   sharing one Redis instance enforce one real, combined limit. Why not part of A→G: a genuine new
   infrastructure integration and failure-mode surface (Redis unavailable, latency budget), not a
   same-file fix.
+- 🟢 **PARTIALLY CLOSED — Block H5.** `AiPanel` and `FidelityWorkspace` now have real render-and-
+  interact test coverage — see the corrected note above. Six panels remain untested.
 - **Studio Interactive Panel Test Coverage.** Reason: eight large, user-facing panel components have
   no render-level test coverage. Dependency: none. Problem: regressions in these components'
   rendering/interaction logic (as opposed to the session/planner logic they call) would not be
@@ -852,21 +899,112 @@ component registration under repetition (real `DUPLICATE_ID`/root-ownership guar
 deterministically) and Studio session listener subscribe/unsubscribe (no leak at its one real call
 site).
 
-**H14–H16 — NOT STARTED THIS PASS. Honest scope of what remains:**
-- 🔴 **H14 (final parallel forensic audit)** — not run this pass; Block G's three-part forensic audit
-  is the most recent one, and is now several real engineering passes out of date (doesn't know about
-  H1–H13's changes).
+**H14 — Final parallel forensic audit: CLOSED (Batch 5).** Four independent, parallel, read-only
+audits (protocol/command-engine/security; Studio/vision/reconstruction/renderer; tokens/assets/
+components/fidelity/correction; transactions/performance/testing/deployment/documentation) covered
+the whole repo, each briefed on everything Blocks G and H1–H13 already closed so they wouldn't
+re-report it. Found 6 real HIGH findings and a cluster of MEDIUM/LOW ones. **Fixed**:
+- `node.reparent` and `page.delete`/`page.rename` never enforced the `locked` invariant every sibling
+  structural command already does (`node.delete`, `node.move`, `node.create`) — `page.delete`/
+  `page.rename` reachability is live today (real, registered MCP tools; `locked` is a real, live
+  Studio feature via the generic lock toggle), so this was a genuine bypass of a guarantee the MCP
+  server's own `initialize` handshake advertises ("Never bypass validation or protected-node rules").
+  `node.reparent` had the identical gap but is currently unreachable (no MCP tool exists for it yet) —
+  fixed anyway, before the next pass wires it up. A third instance of the same pattern,
+  `Track.locked` (a schema field with zero enforcement anywhere, dormant since nothing sets it to
+  `true` yet), was fixed in `timeline.update` too. All three now reject with `LOCKED_ENTITY`, matching
+  the existing pattern exactly; real regression tests added (`tests/unit/command-engine.test.ts`).
+- Studio's REMOTE-mode undo/redo (`apps/studio/src/core/session.ts`) only ever pushed a real inverse
+  entry for `updateNode` — every other remote mutation (`moveNode`, `duplicateNode`, `deleteNode`,
+  `registerToken`, `updateReference`, `acknowledgeAgentNodeUpdate`) left the undo/redo stacks
+  untouched, so `canUndo` could remain `true` after one of these fired and a later Undo would silently
+  revert an unrelated, stale earlier edit instead — worst case, a real delete becomes permanently
+  unrecoverable through the UI while Undo does something else entirely. Fixed by invalidating both
+  stacks on every mutation that doesn't (and, given the real inverse commands several of these would
+  need — e.g. recreating an entire deleted subtree correctly — are a genuinely larger feature, not
+  attempted this pass) push a real entry, so Undo/Redo become correctly disabled instead of
+  dangerously misleading. Real regression test added (`tests/unit/studio.test.ts`).
+- The isolated local vision adapter's dimension handling (`packages/vision/src/local-adapter.ts`)
+  didn't have the same "could not determine source image dimensions" guard
+  `packages/reconstruction-vision/src/manifest-builder.ts` already has for the identical failure
+  mode — added, matching the sibling guard's exact error message and reasoning. (Neither guard has a
+  practical repro test — `sharp` throws earlier on essentially all malformed input this sandbox could
+  construct — consistent with the pre-existing sibling guard's own untested status, not a new gap in
+  test discipline.)
+- Two real, unrelated config/doc-accuracy issues the transactions/deployment/docs audit lane found:
+  `MCP_REQUIRE_AUTH` was a dead environment variable (declared, zero real consumers — an operator
+  setting it believes they're gating auth; nothing happens) — removed. `CACHE_URL` was missing from
+  `docs/ACCOUNT_MIGRATION.md`'s required-variable list for recreating the live Railway service —
+  added, with an explanation of why its absence would silently defeat Block H4's distributed rate
+  limiter rather than fail loudly. Several factual claims that had drifted since Blocks G/H1–H4 were
+  written (the rate limiter, page/asset lifecycle, and Studio panel test coverage bullets earlier in
+  this doc, the `../apps/mcp-server/README.md` rate-limiter description, and a stale MCP tool count) were
+  corrected with inline update notes, per this doc's own established convention.
+- Real test coverage added for `clientIp()`'s `MCP_TRUST_PROXY` branch
+  (`apps/mcp-server/src/server-factory.ts`), which had zero coverage despite being the exact
+  configuration the live Railway deployment runs (`docs/ACCOUNT_MIGRATION.md` lists
+  `MCP_TRUST_PROXY` as an explicitly configured production variable) — 5 new focused unit tests
+  (`tests/integration/mcp-http.test.ts`) covering the trusted-header, no-header, array-header,
+  blank-header, and no-signal-at-all cases.
+
+**Documented, not fixed this pass** — each is a real finding that needs a genuine design decision or
+new architecture, not a same-file patch; full writeups are the standalone entries below:
+- Token `value` is never cross-validated against its declared `type` (HIGH) — building this correctly
+  requires inventing value schemas for `SHADOW`/`RADIUS`/`ANIMATION` tokens that don't exist yet, a
+  real schema design decision, not a mechanical fix.
+- The asset quarantine/security system is structurally unreachable — every real production code path
+  self-attests `PASSED` with no actual byte inspection behind it (HIGH) — a real fix needs a real
+  scanner, which is genuine external infrastructure this pass can't fabricate.
+- `packages/validation`'s (the older, non-`fidelity`-orchestrator correction engine) correction-plan
+  generator silently drops proposals for `ADJUST_COLOR`/`ADJUST_BORDER`/`ADJUST_RADIUS`/
+  `ADJUST_SHADOW`/`ADJUST_GRADIENT`/`REORDER_NODE`/`REPAIR_HIERARCHY` (HIGH) — investigated in depth;
+  the "expected" values these differences carry don't map cleanly onto the target node's own real
+  fields (color, in particular, would need real token creation/resolution, the same problem the real
+  `fidelity` orchestrator's auto-correct adapter already solves properly elsewhere) — a genuine
+  feature, not a switch-statement gap.
+- Component `slots`/`variants`/`defaultOverrides` and `COMPONENT_INSTANCE.overrides` are never
+  cross-checked against the component's real root-node subtree (MEDIUM).
+- The `PAINT_ORDER` structural fidelity comparator is real, complete, tested code that
+  `buildStructuralExpectations` never actually populates — the same "comparator exists, nothing
+  reaches it" pattern Block F closed for `BOUNDS` and this Block H closed for `GRADIENT`/`CROP`, but a
+  genuinely new instance for a different property (MEDIUM).
+- `duplicateNode` in REMOTE mode returns a node id synchronously before the remote write resolves,
+  so a caller that immediately selects it briefly renders an empty-selection state, and a failed
+  write leaves selection pointing at a node that will never exist (MEDIUM, minor UX polish).
+
+**H15/H16 — NOT STARTED THIS PASS.**
 - 🔴 **H15 (missing phase/block detection)** — not performed as its own dedicated comparison pass
   this time.
 - 🔴 **H16 (final acceptance gate)** — `pnpm validate` has passed clean after every batch through
-  Batch 4 (exact current test/file/package counts are stale the moment a new batch adds tests; H16
+  Batch 5 (exact current test/file/package counts are stale the moment a new batch adds tests; H16
   will report the final real count), but the live-Studio 19–20-point checklist H16 specifies
   (component materialization, gradient/stroke/image/text rendering, correction/autocorrect, approval
   flow, repeated operations, etc.) was not run against the current dev server this pass.
 
-None of H14–H16 were silently skipped or claimed done — they are unstarted, and this section exists
+None of H15–H16 were silently skipped or claimed done — they are unstarted, and this section exists
 so a future pass (or this same session, continued) has an accurate, non-overlapping starting point
-rather than re-deriving what Blocks G/H Batches 1–4 already covered.
+rather than re-deriving what Blocks G/H Batches 1–5 already covered.
+
+### Token value is never cross-validated against its declared type (H14 finding, documented not fixed)
+
+**What's real**: `TokenValueSchema` (`packages/document-model/src/schema.ts`) is a plain (non-
+discriminated) union whose last branch, a catch-all `JsonObjectSchema`, accepts virtually any plain
+object. Nothing anywhere — not the schema, not `token.register`'s `canExecute`
+(`packages/command-engine/src/commands/token.ts`) — checks that a token's `value` shape actually
+matches its declared `type`. Concretely: `SHADOW`, `RADIUS`, and `ANIMATION` token types have no
+dedicated value schema at all (they fall straight through to the catch-all, so `{}` or any arbitrary
+object is a legal value for one), and a `type: "COLOR"` token can legally hold a `LengthSchema`-shaped
+value or vice versa.
+
+**Why not fixed this pass**: a real fix needs two things this pass would otherwise have to invent on
+the spot: (1) real value schemas for `SHADOW`/`RADIUS`/`ANIMATION`, which don't exist anywhere in the
+codebase today (what fields should a shadow token's value have — offset, blur, spread, color, in what
+units? what should a radius token's value be — one number, or per-corner?) — genuine product/schema
+design decisions, not something to guess correctly under time pressure; and (2) a `superRefine`
+cross-check wiring `type` to the correct value schema, which risks rejecting any currently-valid
+document that happens to rely on the loose union in a way this pass can't fully audit for in the time
+available. Documented rather than risk shipping an invented schema shape that later has to be migrated
+away from.
 
 ### Asset storage bytes can be orphaned on a routine VERSION_CONFLICT (H11 finding, documented not fixed)
 
@@ -919,6 +1057,91 @@ become a real, live defect the instant Blender integration is enabled, and the r
 `asset.register` commit until after a real `persistArtifact` call returns a real URI, or giving
 `persistArtifact` a return value the caller can patch into the command before committing) touches the
 Blender integration's own contract, not something to redesign in passing.
+
+### Asset quarantine/security system is structurally unreachable (H14 finding, documented not fixed)
+
+**What's real**: `QuarantineStore` (`packages/assets/src/storage.ts`) is a real, well-designed
+interface (`isolate`/`purge`, real severity levels) — but a repo-wide search found zero call sites and
+zero implementations anywhere. `packages/assets/src/registry.ts`'s `registerAsset`/`createDerivative`
+require the *caller* to supply a pre-built `AssetSecurityAssessment` — they never inspect bytes,
+sniff mime types, or scan content themselves; they just branch on whatever `security.status` the
+caller asserts. The only real production caller that constructs this object
+(`packages/geometry-reconstruction/src/asset-registration.ts`) hardcodes
+`security: { status: "PASSED", ... }` unconditionally, with no inspection logic behind it. Separately,
+`packages/command-engine/src/commands/asset.ts`'s `asset.register` command bypasses `@aevum/assets`
+entirely, taking a pre-built `AssetSchema` record straight into the document with no security
+involvement at all.
+
+**Why not fixed this pass**: the type/interface layer implies a functioning quarantine gate exists;
+in reality every real code path self-declares "passed" with nothing behind it. A genuine fix needs a
+real scanner (malware detection, mime-sniffing, format validation against real byte content) — actual
+external infrastructure this pass cannot fabricate without producing exactly the kind of fake
+functionality this whole Block H effort has been built around refusing to do. Documented as a real,
+currently-decorative gap rather than quietly left implying more protection than exists.
+
+### `packages/validation`'s correction-plan generator silently drops most correction kinds (H14 finding, documented not fixed)
+
+**What's real**: `changesFor` (`packages/validation/src/correction.ts`) — the older, non-`fidelity`-
+orchestrator correction-plan generator invoked from `packages/validation/src/engine.ts` on every
+validation task — only produces a concrete `node.update` payload for `ADJUST_POSITION`,
+`ADJUST_OPACITY`, `ADJUST_SIZE`, `ADJUST_VISIBILITY`, `ADJUST_TYPOGRAPHY` (TEXT only), and
+`REPLACE_ASSET` (IMAGE/VIDEO only). Every other real `ValidationCorrectionKind` that
+`packages/validation/src/compare.ts`'s `visualChecks` genuinely emits — `ADJUST_COLOR`,
+`ADJUST_BORDER`, `ADJUST_RADIUS`, `ADJUST_SHADOW`, `ADJUST_GRADIENT` — plus `REORDER_NODE` and
+`REPAIR_HIERARCHY`, falls through to `return undefined`, and `generateCorrectionPlan` silently drops
+that difference from the plan entirely. Since `ADJUST_COLOR` covers plain wrong-fill-color
+mismatches — arguably the single most common visual defect — this correction engine can *detect* a
+wrong color/border/radius/shadow/gradient but never proposes a fix for any of them.
+
+**Why not fixed this pass**: the visual-check differences' "expected" values
+(`region.expectedVisual[property]`, a free-form bag of raw values sourced from reference-image
+analysis — e.g. a raw RGB color) do not map cleanly onto the target `DesignNode`'s own real fields
+(`fillTokenId`, `cornerRadius`, `effects`, …). A correct fix needs real token creation/resolution from
+a raw color value — the exact problem the real `packages/fidelity` orchestrator's auto-correct adapter
+(Block E5) already solves properly, with real reference-pixel sampling and real token registration.
+Reimplementing that here, or routing through it, is a genuine feature-scoping decision (which engine
+should own paint corrections going forward — this older validation-engine or the newer fidelity one?)
+rather than a mechanical "add cases to a switch" fix, and risks producing wrong, silently-accepted
+color/style suggestions if rushed. This correction plan is not directly executable in either case
+(`executable: false`, `requiresCommandEngine: true`, `requiresReview: true` on every suggestion) — a
+human reviews every suggestion before anything is applied, which lowers the real-world risk of the gap
+but does not make the missing functionality any less real.
+
+### Component slots/variants/overrides are never cross-checked against the real subtree (H14 finding, documented not fixed)
+
+**What's real**: `component.register`'s `canExecute` (`packages/command-engine/src/commands/component.ts`)
+validates the component id, root-node existence/lock state, and root-ownership — but never inspects
+`component.slots`, `.variants`, or `.defaultOverrides` against the real node subtree rooted at
+`rootNodeId`. `ComponentSchema.slots[].accepts` is free-text (`z.array(z.string().min(1))`), never
+checked against real `DesignNode["type"]` values, and `COMPONENT_INSTANCE.overrides`
+(`z.record(string, JsonValueSchema)`) is never checked against the component's own `slots`/
+`defaultOverrides` keys at all — only `variantId` gets a real existence check. A component can be
+registered with a slot that corresponds to nothing in its real subtree, and every instance's
+`overrides` object is completely unvalidated free-form JSON.
+
+**Why not fixed this pass**: this is the same category as the component-override interpretation gap
+already disclosed in `docs/11_ROADMAP_AND_STATUS.md` ("override payloads are attributed but not
+interpreted because CDD 1.1.0 does not define an override-path language") — validating overrides
+against slot/variant definitions that themselves have no defined semantics yet would mean inventing
+that semantics as a side effect of a validation fix, which is a real schema/product decision beyond
+this pass's scope.
+
+### `PAINT_ORDER` structural fidelity comparator is dead code (H14 finding, documented not fixed)
+
+**What's real**: `compareStructuralFidelity` (`packages/fidelity/src/structure.ts`) has a fully
+implemented `PAINT_ORDER` branch (real `PAINT_ORDER_MISMATCH` issue emission) — but the only real
+producer of `StructuralExpectation[]`, `buildStructuralExpectations`
+(`apps/mcp-server/src/tools.ts`), never constructs one. It only ever emits `BOUNDS`, `GRADIENT`
+(SHAPE-guarded), and `CROP` (IMAGE-guarded) — the exact same "comparator exists, nothing populates it"
+pattern Block F closed for `BOUNDS` and this Block H closed for `GRADIENT`/`CROP`, but for a different
+property this pass didn't reach. A real layer-reordering regression (e.g. auto-correction accidentally
+reordering paint operations) is currently invisible to `fidelity.measure`.
+
+**Why not fixed this pass**: closing this the same way `GRADIENT`/`CROP` were closed requires
+deciding what a real "expected paint order" value should be derived from for a region (reconstruction
+doesn't currently track or expose a per-region expected z-order the way it does bounds/gradient/crop),
+which is real, scoped design/data work this batch's time didn't allow investigating properly rather
+than a one-line wiring change.
 
 ### Real fidelity/autoCorrect characteristics discovered while building Block H12 (documented, not fixed)
 

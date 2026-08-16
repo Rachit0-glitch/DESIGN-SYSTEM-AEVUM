@@ -285,7 +285,14 @@ export function createStudioSession(input: {
     registerToken(token: Token, options: StudioMutationOptions = {}) {
       const document = store.getDocument();
       const command: Command = { ...commandBase(document, options), type: "token.register", payload: { token } };
-      if (input.commandGateway) return executeRemote(command);
+      if (input.commandGateway) {
+        // No real inverse command is tracked for this mutation type (see deleteNode/moveNode/
+        // duplicateNode/updateReference below) -- invalidate any prior undo/redo entries rather than
+        // let a later Undo silently revert a stale, unrelated earlier edit instead (Block H14).
+        remoteUndo.length = 0;
+        remoteRedo.length = 0;
+        return executeRemote(command);
+      }
       execute(command);
       return undefined;
     },
@@ -296,12 +303,21 @@ export function createStudioSession(input: {
         type: "reference.update",
         payload: { reference },
       };
-      if (input.commandGateway) return executeRemote(command);
+      if (input.commandGateway) {
+        remoteUndo.length = 0;
+        remoteRedo.length = 0;
+        return executeRemote(command);
+      }
       execute(command);
       return undefined;
     },
     acknowledgeAgentNodeUpdate(nodeId: string, changes: Record<string, unknown>, options: StudioMutationOptions = {}) {
       const document = store.getDocument();
+      // Reflects a command an external gateway already committed remotely -- not tracked as a local
+      // undo entry, so any prior entries' assumptions about "one step back from the current document"
+      // no longer hold (Block H14, same reasoning as the other untracked mutations below).
+      remoteUndo.length = 0;
+      remoteRedo.length = 0;
       execute({ ...commandBase(document, options), type: "node.update", payload: { nodeId, changes } });
     },
     resyncDocument(document: CanonicalDesignDocument) {
@@ -316,7 +332,11 @@ export function createStudioSession(input: {
     moveNode(nodeId: string, index: number, options: StudioMutationOptions = {}) {
       const document = store.getDocument();
       const command: Command = { ...commandBase(document, options), type: "node.move", payload: { nodeId, index } };
-      if (input.commandGateway) return executeRemote(command);
+      if (input.commandGateway) {
+        remoteUndo.length = 0;
+        remoteRedo.length = 0;
+        return executeRemote(command);
+      }
       execute(command);
       return undefined;
     },
@@ -343,6 +363,8 @@ export function createStudioSession(input: {
         },
       };
       if (input.commandGateway) {
+        remoteUndo.length = 0;
+        remoteRedo.length = 0;
         // The new node's id is already deterministic and known client-side (idMap), so it's
         // returned synchronously the same way the local path always has. The remote write still
         // happens in the background; any failure surfaces through saveState/lastError like every
@@ -358,7 +380,11 @@ export function createStudioSession(input: {
     deleteNode(nodeId: string, options: StudioMutationOptions = {}) {
       const document = store.getDocument();
       const command: Command = { ...commandBase(document, options), type: "node.delete", payload: { nodeId } };
-      if (input.commandGateway) return executeRemote(command);
+      if (input.commandGateway) {
+        remoteUndo.length = 0;
+        remoteRedo.length = 0;
+        return executeRemote(command);
+      }
       execute(command);
       return undefined;
     },

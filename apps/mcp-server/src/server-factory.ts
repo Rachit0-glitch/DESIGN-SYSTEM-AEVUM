@@ -220,7 +220,7 @@ async function executeStreamableMcp(input: {
   return { status: 404, body: jsonRpcError(id, -32601, "Method not found.") };
 }
 
-function clientIp(request: IncomingMessage, trustProxy: boolean): string {
+export function clientIp(request: IncomingMessage, trustProxy: boolean): string {
   if (trustProxy) {
     const forwarded = request.headers["x-forwarded-for"];
     const first = Array.isArray(forwarded) ? forwarded[0] : forwarded?.split(",")[0];

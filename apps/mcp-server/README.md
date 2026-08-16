@@ -62,15 +62,19 @@ enforced by the Command Engine.
 - Graceful shutdown: `SIGINT` and `SIGTERM`, bounded by `MCP_SHUTDOWN_GRACE_MS`
 
 Structured log events provide hooks for request/tool counts, latency, failures, authorization denials, version
-conflicts, rate limits, audit failures, and readiness failures. A distributed metrics sink and Redis rate-limit
-provider remain replaceable future adapters.
+conflicts, rate limits, audit failures, and readiness failures. A distributed metrics sink remains a replaceable
+future adapter; a real Redis-backed distributed rate-limit provider (`createRedisRateLimitProvider`,
+`apps/mcp-server/src/rate-limit.ts`) is wired in and selected automatically whenever `CACHE_URL` is configured
+(Block H4) — see "Current Limitations" below for the one remaining caveat.
 
 ## Current Limitations
 
 - HTTP JSON is the only Phase 12 transport; WebSockets are deferred.
 - Multi-command transaction tools and persistent job queues are deferred. Versioned protocol foundations exist.
-- The production rate-limit interface is replaceable, but the included implementation is in-process and intended for
-  one replica.
+- The production rate-limit interface is replaceable. The real implementation is Redis-backed and coordinates
+  correctly across replicas when `CACHE_URL` is configured; only the fallback used when it is *not* configured is
+  in-process and single-replica-only. Verify `CACHE_URL` is actually set on the live deployment — its absence
+  wouldn't fail startup, it would just silently fall back.
 - The Phase 12 tools plus the three bounded Phase 14 3D tools are implemented. Raw model bytes, uploads, modelling,
   rendering, and Blender execution are not MCP operations in this phase.
 

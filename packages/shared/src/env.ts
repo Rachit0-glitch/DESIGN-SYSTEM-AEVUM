@@ -125,7 +125,6 @@ export const aevumEnvironmentVariablesSchema = z
     VISION_MAX_CALLS_PER_WORKSPACE_PER_DAY: positiveIntegerFromString.default(200),
 
     MCP_SERVER_HOST: z.string().min(1).default("127.0.0.1"),
-    MCP_REQUIRE_AUTH: booleanFromString.default(false),
     MCP_SERVER_PORT: positiveIntegerFromString.default(3010),
     MCP_AUTH_MODE: z.enum(["development", "supabase", "disabled"]).default("development"),
     MCP_ALLOWED_ORIGINS: z.string().default(""),
@@ -391,7 +390,6 @@ export interface AevumEnvironment {
     readonly blenderBridgePort: number;
     readonly agentWorkerPort: number;
     readonly mcpHost: string;
-    readonly mcpRequireAuth: boolean;
     readonly renderWorkerConcurrency: number;
     readonly renderWorkerMaxPixels: number;
   };
@@ -578,7 +576,6 @@ function toEnvironment(variables: AevumEnvironmentVariables): AevumEnvironment {
       blenderBridgePort: variables.BLENDER_BRIDGE_PORT,
       agentWorkerPort: variables.AGENT_WORKER_PORT,
       mcpHost: variables.MCP_SERVER_HOST,
-      mcpRequireAuth: variables.MCP_REQUIRE_AUTH,
       renderWorkerConcurrency: variables.RENDER_WORKER_CONCURRENCY,
       renderWorkerMaxPixels: variables.RENDER_WORKER_MAX_PIXELS,
     },

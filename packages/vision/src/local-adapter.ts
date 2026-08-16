@@ -7,13 +7,14 @@
  */
 import sharp from "sharp";
 import { createOcrSession, segmentForeground } from "@aevum/reconstruction-vision";
-import type {
-  VisionAnalysis,
-  VisionAnalyzeOptions,
-  VisionObjectRegion,
-  VisionPoint,
-  VisionProvider,
-  VisionTextBlock,
+import {
+  VisionProviderError,
+  type VisionAnalysis,
+  type VisionAnalyzeOptions,
+  type VisionObjectRegion,
+  type VisionPoint,
+  type VisionProvider,
+  type VisionTextBlock,
 } from "./types.js";
 import { requestFingerprint } from "./cache.js";
 
@@ -42,6 +43,12 @@ export function createLocalVisionProvider(options: CreateLocalVisionProviderOpti
       const metadata = await source.metadata();
       const width = metadata.width ?? 0;
       const height = metadata.height ?? 0;
+      // Matches manifest-builder.ts's own guard for the same failure mode (a real image sharp
+      // could decode but report no usable dimensions for) -- without this, a 0x0 PAGE node could
+      // silently validate downstream (Block H14 finding).
+      if (width <= 0 || height <= 0) {
+        throw new VisionProviderError("VISION_PROVIDER_INVALID_IMAGE", "Could not determine source image dimensions.");
+      }
 
       const workingMaxEdge = options.workingMaxEdge ?? 480;
       const scale = Math.min(1, workingMaxEdge / Math.max(width || 1, height || 1));

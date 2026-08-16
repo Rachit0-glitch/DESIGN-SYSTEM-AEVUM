@@ -68,10 +68,24 @@ registerCommand<UpdateTimelineCommand>({
   canExecute(document, command) {
     const source = requireDocument(document);
     const timeline = command.payload.timeline;
-    if (!source.timelines[timeline.id]) {
+    const existing = source.timelines[timeline.id];
+    if (!existing) {
       throw commandError("REFERENCE_MISSING", `Timeline ${timeline.id} does not exist.`, { timelineId: timeline.id });
     }
     assertTargetsExist(source, timeline);
+    // timeline.update replaces the whole track list wholesale, so a track's own `locked` flag
+    // (Track.locked) is otherwise never enforced anywhere -- reject any update that drops or
+    // changes a track the existing timeline has locked.
+    for (const track of existing.tracks) {
+      if (!track.locked) continue;
+      const next = timeline.tracks.find((candidate) => candidate.id === track.id);
+      if (!next || JSON.stringify(next) !== JSON.stringify(track)) {
+        throw commandError("LOCKED_ENTITY", `Track ${track.id} is locked.`, {
+          timelineId: timeline.id,
+          trackId: track.id,
+        });
+      }
+    }
   },
   apply(document, command) {
     const source = requireDocument(document);

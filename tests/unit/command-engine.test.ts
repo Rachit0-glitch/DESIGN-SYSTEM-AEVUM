@@ -673,6 +673,186 @@ describe("Command Engine", () => {
     );
   });
 
+  it("rejects reparenting a locked node, out of a locked parent, or into a locked parent (Block H14)", () => {
+    function buildTwoFrameDocument(): {
+      document: CanonicalDesignDocument;
+      heroId: string;
+      sidebarId: string;
+      textId: string;
+    } {
+      const document = structuredClone(fixtures.landingPage());
+      const page = document.rootNodeIds[0];
+      if (!page) throw new Error("Landing fixture requires a page.");
+      const pageNode = document.nodes[page];
+      const hero = Object.values(document.nodes).find((node) => node.type === "FRAME");
+      const text = Object.values(document.nodes).find((node) => node.type === "TEXT");
+      if (!pageNode || !hero || !text) throw new Error("Landing fixture requires a page/frame/text.");
+      const sidebar = createFrame(page, "Sidebar");
+      pageNode.childIds.push(sidebar.id);
+      document.nodes[sidebar.id] = sidebar;
+      return { document, heroId: hero.id, sidebarId: sidebar.id, textId: text.id };
+    }
+
+    // The node being moved is itself locked.
+    const lockedNode = buildTwoFrameDocument();
+    const text1 = lockedNode.document.nodes[lockedNode.textId];
+    if (!text1) throw new Error("Expected text node.");
+    text1.locked = true;
+    expectCommandError(
+      () =>
+        executeCommand(lockedNode.document, {
+          ...base(lockedNode.document),
+          type: "node.reparent",
+          payload: { nodeId: lockedNode.textId, parentId: lockedNode.sidebarId, index: 0 },
+        }),
+      "LOCKED_ENTITY",
+    );
+
+    // The node's current (old) parent is locked.
+    const lockedOldParent = buildTwoFrameDocument();
+    const hero2 = lockedOldParent.document.nodes[lockedOldParent.heroId];
+    if (!hero2) throw new Error("Expected hero frame.");
+    hero2.locked = true;
+    expectCommandError(
+      () =>
+        executeCommand(lockedOldParent.document, {
+          ...base(lockedOldParent.document),
+          type: "node.reparent",
+          payload: { nodeId: lockedOldParent.textId, parentId: lockedOldParent.sidebarId, index: 0 },
+        }),
+      "LOCKED_ENTITY",
+    );
+
+    // The destination (new) parent is locked.
+    const lockedNewParent = buildTwoFrameDocument();
+    const sidebar3 = lockedNewParent.document.nodes[lockedNewParent.sidebarId];
+    if (!sidebar3) throw new Error("Expected sidebar frame.");
+    sidebar3.locked = true;
+    expectCommandError(
+      () =>
+        executeCommand(lockedNewParent.document, {
+          ...base(lockedNewParent.document),
+          type: "node.reparent",
+          payload: { nodeId: lockedNewParent.textId, parentId: lockedNewParent.sidebarId, index: 0 },
+        }),
+      "LOCKED_ENTITY",
+    );
+
+    // A genuinely unlocked reparent still succeeds.
+    const unlocked = buildTwoFrameDocument();
+    const result = executeCommand(unlocked.document, {
+      ...base(unlocked.document),
+      type: "node.reparent",
+      payload: { nodeId: unlocked.textId, parentId: unlocked.sidebarId, index: 0 },
+    });
+    expect(result.newDocument.nodes[unlocked.textId]?.parentId).toBe(unlocked.sidebarId);
+  });
+
+  it("rejects deleting or renaming a locked page (Block H14)", () => {
+    const document = structuredClone(fixtures.landingPage());
+    const pageId = document.rootNodeIds[0];
+    if (!pageId) throw new Error("Landing fixture requires a page.");
+    const page = document.nodes[pageId];
+    if (!page) throw new Error("Expected page node.");
+    page.locked = true;
+
+    expectCommandError(
+      () => executeCommand(document, { ...base(document), type: "page.delete", payload: { pageId } }),
+      "LOCKED_ENTITY",
+    );
+    expectCommandError(
+      () =>
+        executeCommand(document, {
+          ...base(document),
+          type: "page.rename",
+          payload: { pageId, name: "Blocked rename" },
+        }),
+      "LOCKED_ENTITY",
+    );
+
+    // Locking a descendant of the page (not the page itself) also blocks page.delete, matching
+    // node.delete's own subtree-lock behavior.
+    const descendantLockedDocument = structuredClone(fixtures.landingPage());
+    const hero = Object.values(descendantLockedDocument.nodes).find((node) => node.type === "FRAME");
+    if (!hero) throw new Error("Expected hero frame.");
+    hero.locked = true;
+    const descendantPageId = descendantLockedDocument.rootNodeIds[0];
+    if (!descendantPageId) throw new Error("Expected page.");
+    expectCommandError(
+      () =>
+        executeCommand(descendantLockedDocument, {
+          ...base(descendantLockedDocument),
+          type: "page.delete",
+          payload: { pageId: descendantPageId },
+        }),
+      "LOCKED_ENTITY",
+    );
+  });
+
+  it("rejects a timeline.update that drops or changes a locked track (Block H14)", () => {
+    const document = structuredClone(fixtures.landingPage());
+    const hero = Object.values(document.nodes).find((node) => node.type === "FRAME");
+    if (!hero) throw new Error("Landing fixture requires a frame.");
+    const lockedTrack = {
+      id: createEntityId("track"),
+      targetId: hero.id,
+      property: "OPACITY" as const,
+      propertyPath: "transform.opacity",
+      valueType: "NUMBER" as const,
+      muted: false,
+      locked: true,
+      layer: 0,
+      keyframes: [],
+    };
+    const timeline = {
+      id: createEntityId("timeline"),
+      version: "1.0.0",
+      name: "Fade",
+      type: "TIME" as const,
+      duration: 1,
+      frameRate: 60,
+      timeScale: 1,
+      loop: { enabled: false, count: null, mode: "RESTART" as const },
+      tracks: [lockedTrack],
+      clips: [],
+      markers: [],
+      triggers: [],
+      events: [],
+      labels: {},
+      metadata: {},
+    };
+    document.timelines[timeline.id] = timeline;
+
+    // Dropping the locked track entirely.
+    expectCommandError(
+      () =>
+        executeCommand(document, {
+          ...base(document),
+          type: "timeline.update",
+          payload: { timeline: { ...timeline, tracks: [] } },
+        }),
+      "LOCKED_ENTITY",
+    );
+    // Changing the locked track's own fields (even keeping its id).
+    expectCommandError(
+      () =>
+        executeCommand(document, {
+          ...base(document),
+          type: "timeline.update",
+          payload: { timeline: { ...timeline, tracks: [{ ...lockedTrack, muted: true }] } },
+        }),
+      "LOCKED_ENTITY",
+    );
+    // An update that leaves the locked track byte-for-byte identical, but changes something else
+    // about the timeline, still succeeds.
+    const result = executeCommand(document, {
+      ...base(document),
+      type: "timeline.update",
+      payload: { timeline: { ...timeline, name: "Fade in", tracks: [lockedTrack] } },
+    });
+    expect(result.newDocument.timelines[timeline.id]?.name).toBe("Fade in");
+  });
+
   it("produces identical documents for identical command sequences", () => {
     const document = fixtures.landingPage();
     const command: Command = { ...base(document), type: "document.rename", payload: { name: "Deterministic" } };

@@ -111,6 +111,7 @@ Required MCP variable names to recreate are:
 ```text
 AEVUM_RUNTIME_MODE
 AEVUM_SERVICE
+CACHE_URL
 MCP_ALLOWED_ORIGINS
 MCP_AUTH_MODE
 MCP_DEPLOYMENT_VERSION
@@ -124,6 +125,14 @@ SUPABASE_SERVICE_ROLE_KEY
 SUPABASE_STORAGE_BUCKET
 SUPABASE_URL
 ```
+
+`CACHE_URL` (Redis) is required, not optional: without it, `apps/mcp-server/src/runtime.ts` silently
+falls back to the in-memory rate-limit provider, which is per-process only — on a multi-replica
+deployment this multiplies the effective rate limit by replica count (the exact issue Block H4's
+distributed rate limiter was built to close). Verify it is actually set on the live `mcp-server`
+service before treating that migration as complete, not just declared in this list — its absence here
+was itself a real drift this repo's own Block H14 audit found (see
+`docs/STABILIZATION_KNOWN_LIMITATIONS.md`).
 
 Railway-provided `RAILWAY_*` variables must not be copied manually. Supabase credentials must come from the new
 Supabase project, not from the old project.

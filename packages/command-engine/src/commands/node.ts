@@ -194,7 +194,19 @@ registerCommand<ReparentNodeCommand>({
     const source = requireDocument(document);
     const node = requireNode(source, command.payload.nodeId);
     if (node.type === "PAGE") throw commandError("CONFLICT_ERROR", "A page cannot be reparented.");
-    if (command.payload.parentId) requireNode(source, command.payload.parentId);
+    if (node.locked) throw commandError("LOCKED_ENTITY", `Node ${node.id} is locked.`, { nodeId: node.id });
+    if (node.parentId) {
+      const oldParent = requireNode(source, node.parentId);
+      if (oldParent.locked) {
+        throw commandError("LOCKED_ENTITY", `Node ${oldParent.id} is locked.`, { nodeId: oldParent.id });
+      }
+    }
+    if (command.payload.parentId) {
+      const newParent = requireNode(source, command.payload.parentId);
+      if (newParent.locked) {
+        throw commandError("LOCKED_ENTITY", `Node ${newParent.id} is locked.`, { nodeId: newParent.id });
+      }
+    }
     if (wouldCreateCycle(source, node.id, command.payload.parentId)) {
       throw commandError("CYCLE_DETECTED", `Reparenting ${node.id} would create a hierarchy cycle.`, {
         nodeId: node.id,
