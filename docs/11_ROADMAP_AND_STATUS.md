@@ -5123,7 +5123,115 @@ genuinely blocked/large items left open with concrete, stated reasons.**
 
 ---
 
-## 83. Final Roadmap Statement
+## 83. Block E: Real Agent / AI Integration (2026-08-16)
+
+Turns the Agent system from a dispatcher over ~15 fixed single-target plan templates into a
+genuinely useful design-operation planner: a compound multi-operation prompt becomes a real,
+document-aware, dependency-ordered plan that executes through the existing MCP/Command Engine
+pipeline, and Maximum Fidelity measurement is connected to a real (if narrowly scoped) correction
+loop for the first time. **Status: implemented and tested — E1 through E4 complete; E5 complete for
+the one issue type (SHAPE fill color) the current architecture can honestly derive a correction for,
+with the remaining boundary (structural/layout correction) documented rather than faked.**
+
+### E1–E4: compound multi-operation edit planner
+
+- **`packages/agent-planner/src/compound-edit.ts`** (new): deterministic, pure-text clause parsing —
+  splits a prompt like "make the headline larger, move the product slightly right, change the
+  background to orange and add a thin black border" into independently classified clauses
+  (RESIZE/MOVE/RECOLOR_FILL/ADD_BORDER/RENAME), each with a target keyword or, when a clause names
+  none of its own, real anaphora (inherits the previous clause's real resolved target — "border" is
+  deliberately excluded from the target-noun vocabulary since it names a property, not an entity, so
+  "add a ... border" correctly continues from whatever the prior clause targeted).
+- **`packages/agent-planner/src/deterministic.ts`**: new `compoundEditPlan()` builds one shared
+  `document.get` (full projection) READ + one shared `RESOLVE_COMPOUND_EDIT` ANALYZE step, then a
+  real dry-run/write pair per clause (a `token.register` dry-run/write pair first for any clause
+  needing a new color, the node's write depending on it — the real "create/update token → update
+  paint" dependency chain the spec asked for, not two independent, uncoordinated writes).
+  `expectedDocumentVersion` for each write is bound from the PRECEDING write's own real result
+  (`data.resultVersion`), never back to the original read — sequential writes in the same run no
+  longer collide on a stale version the moment an earlier clause's write actually commits (a real
+  bug found and fixed via live testing before this was committed).
+- **`packages/agent-runtime/src/engine.ts`**: new `RESOLVE_COMPOUND_EDIT` analyze-step handler is
+  where document-awareness (E2) actually lives — it resolves each clause's target keyword against
+  the REAL current document (name substring match first, then real type/size-based fallbacks:
+  largest-font TEXT for "headline"/"title", smallest-font TEXT for "text"/"body"/"copy", largest-area
+  IMAGE for "product"/"photo"/etc., largest-area SHAPE/FRAME for "background"/"backdrop") and
+  computes real changes from that node's actual current state (real resize factors, real move
+  deltas, real sampled/named colors registered as fresh COLOR tokens). Throws honestly — before any
+  write in the run — when a clause's real target can't support the requested operation (e.g.
+  recoloring a FRAME, which has no fill), so a partially-valid compound edit makes zero writes, not
+  some. Also fixes a second real bug found via live testing: the existing rich-approval-context
+  helper (`findPrecedingNodeSnapshot`, from Block D cleanup) only understood a node-subtree read's
+  array shape, not the full-document projection's record shape compound edits use — it crashed every
+  approval-gated compound edit until fixed.
+- **Studio**: `AiPanel` now routes to the compound planner when no layer is selected (previously this
+  silently fell back to editing the first root node, despite the UI already saying "Document
+  context"). The dev-fixture in-process MCP transport and `StudioSession` gained
+  `document.get`(full)/`registerToken` support so this works end to end in local Studio too, not only
+  against a real MCP server.
+- **Verified live in Studio** (dev server, not just tests): a multi-clause resize resolving two
+  different real nodes; a recolor producing a real token → real rendered color (`rgb(234, 88, 12)`,
+  confirmed via computed style, matching the named "orange" exactly); an honest failure recoloring a
+  FRAME with no partial writes; a version-conflict regression test proving the sequential-write fix.
+- Tests: `tests/unit/compound-edit.test.ts` (9, pure parser), `tests/unit/agent-planner.test.ts`
+  (+3: plan shape/dependency ordering, ambiguity blocking, honest capability gap),
+  `tests/unit/studio-compound-edit.test.ts` (4, real engine end to end: document-aware resolution +
+  token dependency chain, sequential version threading, no-partial-writes on failure, real approval
+  gating).
+
+### E5: fidelity feedback loop
+
+- **Real per-node regions**: `fidelity.measure` now builds real, node-attributed COLOR regions from
+  the render graph's own SHAPE paint operations — a pixel mismatch is attributed to the exact node
+  responsible, not folded into one opaque whole-document score as before.
+- **A real, previously-missing derivation primitive**: `packages/fidelity/src/pixels.ts`'s new
+  `averageColor()` — nothing in this package had ever extracted a concrete color value from pixels;
+  comparisons only ever produced distance metrics or content hashes, neither usable as a correction
+  target. A COLOR-domain region issue's `expected`/`actual` now carries a real sampled RGB swatch
+  instead of a hash.
+- **The report now actually flows forward**: `fidelity.measure`'s output gained the full, real
+  `FidelityReport` (previously computed, then discarded after being boiled into the ValidationRecord
+  summary) — closing the specific gap that made `fidelity.propose_corrections` require a report from
+  somewhere else entirely.
+- **A real, narrow `autoCorrect` flag** (default off, never attempted under a dry run): when set, a
+  real `FidelityCorrectionAdapter` proposes the top real color-mismatch issue, registers a real COLOR
+  token sampled from the reference image's own pixels at that node's exact region, and applies it via
+  `node.update` — inside the existing, already-built `createFidelityEngine` orchestration
+  (propose → dryRun → apply → re-render → re-measure → regression-check), not a new engine. The
+  correction's real commands and the ValidationRecord commit together in one atomic transaction.
+- **Deliberately not built: structural (layout/crop) auto-correction.** Investigated concretely
+  before deciding: `packages/correction`'s engine (`generateCorrectionCandidates`/
+  `compileCorrectionTransaction`) has no inference logic of its own anywhere — it only ever copies an
+  externally-supplied `expectedValue` onto real node fields. `fidelity.measure` has no independent
+  source for an "expected" layout distinct from the document's own current state (no stored
+  checkpoint of "what the layout should be" exists anywhere), so routing structural issues through
+  that engine today would silently produce empty, no-op proposals for every issue this tool actually
+  generates — a fake connection, not a real one. Left honestly unbuilt rather than wired to produce
+  nothing.
+- New `tests/integration/mcp-fidelity-autocorrect.test.ts`: a real SHAPE filled the wrong color (red)
+  measured against a real reference image genuinely showing blue in that exact region — asserts the
+  plain measurement reports a real node-attributed sampled expected color (not a hash), `autoCorrect`
+  actually changes the node's `fillTokenId` to a new token whose real value is blue (not the
+  original), a re-measurement shows genuine score improvement (not fabricated), and a dry run applies
+  no correction and leaves the document completely untouched.
+
+### Validation
+
+- Targeted: 9 + 3 + 4 (E1-E4) plus 2 (E5) new tests, all passing; full existing fidelity/agent/studio
+  suites re-run clean (no regressions).
+- Full `pnpm validate` (docs, dependency rules, format, lint, typecheck, **496/496 tests** after
+  E1-E4 and **498/498 tests** after E5, build across all 65 packages) passed clean for both commits.
+- **Out of scope, intentionally**: structural/layout auto-correction (see above — no honest data
+  source exists yet); multi-pass convergence beyond one correction attempt per `fidelity.measure`
+  call (the existing orchestrator supports it, this pass only exercises a single real correction);
+  extending the compound-edit target vocabulary beyond the current design-noun set (real node names
+  outside that vocabulary — e.g. "Signal" — are not matched unless they also happen to be a
+  vocabulary word); no LLM, no external AI API of any kind used anywhere in Block E, matching the
+  project's existing deterministic-provider constraint throughout.
+
+---
+
+## 84. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.
 
