@@ -1,4 +1,4 @@
-import { PixelMetricsSchema, type PixelMetrics } from "./schemas.js";
+import { type PixelMetrics, PixelMetricsSchema } from "./schemas.js";
 
 export interface RasterPixels {
   readonly width: number;
@@ -152,6 +152,27 @@ export function cropRaster(
     data.set(source.data.subarray(start, start + width * 4), row * width * 4);
   }
   return { width, height, data, colorSpace: "SRGB" };
+}
+
+/**
+ * The real mean RGB color of a raster region — the actual missing piece a correction needs to
+ * know WHAT color a mismatched region should become. Nothing in this package previously extracted
+ * a concrete color value from pixels; comparisons only ever produced distance metrics (comparePixels)
+ * or content hashes, neither of which is a usable correction target.
+ */
+export function averageColor(raster: RasterPixels): { readonly r: number; readonly g: number; readonly b: number } {
+  assertRaster(raster);
+  const pixels = raster.width * raster.height;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  for (let pixel = 0; pixel < pixels; pixel += 1) {
+    const offset = pixel * 4;
+    r += raster.data[offset] ?? 0;
+    g += raster.data[offset + 1] ?? 0;
+    b += raster.data[offset + 2] ?? 0;
+  }
+  return { r: r / pixels, g: g / pixels, b: b / pixels };
 }
 
 export function compareVisibleCrop(

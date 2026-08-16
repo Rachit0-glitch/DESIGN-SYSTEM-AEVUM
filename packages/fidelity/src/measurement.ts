@@ -1,15 +1,15 @@
 import type { RenderGraph } from "@aevum/renderer-2d";
-import { FidelityDomainSchema, type FidelityDomain, type FidelityProfile } from "./profiles.js";
-import { comparePixels, cropRaster, type RasterPixels } from "./pixels.js";
+import { averageColor, comparePixels, cropRaster, type RasterPixels } from "./pixels.js";
+import { type FidelityDomain, FidelityDomainSchema, type FidelityProfile } from "./profiles.js";
+import type { RasterOutput } from "./raster.js";
 import {
-  FidelityDomainEvidenceSchema,
-  FidelityMeasurementSchema,
   type FidelityDomainEvidence,
+  FidelityDomainEvidenceSchema,
   type FidelityDomainScore,
   type FidelityIssue,
   type FidelityMeasurement,
+  FidelityMeasurementSchema,
 } from "./schemas.js";
-import type { RasterOutput } from "./raster.js";
 import { fidelityFingerprint, fidelityId } from "./stable.js";
 import { compareStructuralFidelity, type StructuralExpectation } from "./structure.js";
 
@@ -111,7 +111,16 @@ export function measureFidelity(input: {
       });
       measured.set(region.domain, (measured.get(region.domain) ?? 0) + 1);
       const score = Math.max(0, Math.min(1, 0.5 * (1 - local.mae) + 0.5 * local.ssim));
-      if (score < input.profile.domainThresholds[region.domain])
+      if (score < input.profile.domainThresholds[region.domain]) {
+        // A real, usable correction target — not a content hash — for a plain COLOR region whose
+        // caller didn't already supply one: the actual mean RGB the reference image shows in this
+        // exact region, sampled from the real decoded reference pixels. Without this, "the color is
+        // wrong" was measurable but never told anyone WHAT color it should become.
+        const sampledExpected =
+          region.domain === "COLOR" && region.expected === undefined
+            ? averageColor(cropRaster(input.reference, region.region))
+            : undefined;
+        const sampledActual = sampledExpected ? averageColor(cropRaster(input.target, region.region)) : undefined;
         addIssue({
           domain: region.domain,
           code: `${region.domain}_REGION_MISMATCH`,
@@ -119,13 +128,14 @@ export function measureFidelity(input: {
           ...(region.nodeId ? { nodeId: region.nodeId } : {}),
           region: region.region,
           property: region.property,
-          expected: region.expected ?? input.referenceHash,
-          actual: region.actual ?? input.target.fingerprint,
+          expected: region.expected ?? sampledExpected ?? input.referenceHash,
+          actual: region.actual ?? sampledActual ?? input.target.fingerprint,
           measurement: 1 - score,
           confidence: region.confidence,
           supported: true,
           message: `${region.domain} evidence differs in region ${region.id}.`,
         });
+      }
     } catch {
       addIssue({
         domain: region.domain,

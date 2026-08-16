@@ -1,59 +1,52 @@
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { assetIdFromHash, computeSha256, createDerivative, findAssetByHash, registerAsset } from "@aevum/assets";
+import { evaluateCamera, validateCinematics } from "@aevum/camera-cinematics";
 import {
   beginTransaction,
+  type Command,
   CURRENT_COMMAND_VERSION,
   createCommandId,
   createTransactionId,
   dryRunCommand,
   executeCommand,
-  type Command,
 } from "@aevum/command-engine";
-import { evaluateCamera, validateCinematics } from "@aevum/camera-cinematics";
 import {
-  CURRENT_SCHEMA_VERSION,
-  createEntityId,
-  ValidationRecordSchema,
   type AssetRecord,
   type CanonicalDesignDocument,
+  CURRENT_SCHEMA_VERSION,
+  createEntityId,
   type DesignNode,
+  TokenSchema,
+  ValidationRecordSchema,
 } from "@aevum/document-model";
 import {
   createFidelityEngine,
   createPlaywrightRasterBackend,
+  type FidelityCorrectionAdapter,
+  type FidelityView,
   normalizeReference,
   prioritizeFidelityIssues,
-  resolveFidelityProfile,
   type RasterAssetResolver,
+  type RegionExpectation,
+  resolveFidelityProfile,
 } from "@aevum/fidelity";
-import { buildRenderGraph } from "@aevum/renderer-2d";
-import {
-  MCP_PROTOCOL_VERSION,
-  MCP_TOOL_VERSION,
-  McpProtocolError,
-  TOOL_SCHEMAS,
-  type McpErrorCode,
-  type McpPermission,
-  type McpToolName,
-} from "@aevum/mcp-protocol";
 import {
   LOCAL_BASELINE_PROVIDER_VERSION,
   registerCandidateAsset,
   runReconstructionSession,
 } from "@aevum/geometry-reconstruction";
-import { analyzeMultiView, createMultiViewTask } from "@aevum/multiview-reconstruction";
 import { analyzeReferenceLighting, resolveLighting, validateLighting } from "@aevum/lighting";
-import { compile3DImportTransaction, create3DImportProposal, create3DRenderPlan } from "@aevum/renderer-3d";
-import { createRuntimeViewport, project3DScene, projectScene, type RuntimeViewport } from "@aevum/scene-runtime";
 import {
-  createHumanoidSemanticMapping,
-  evaluatePose,
-  retargetPose,
-  type PoseDelta,
-  type RetargetMapping,
-} from "@aevum/rigging";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import sharp from "sharp";
-import { assetIdFromHash, computeSha256, createDerivative, findAssetByHash, registerAsset } from "@aevum/assets";
+  MCP_PROTOCOL_VERSION,
+  MCP_TOOL_VERSION,
+  type McpErrorCode,
+  type McpPermission,
+  McpProtocolError,
+  type McpToolName,
+  TOOL_SCHEMAS,
+} from "@aevum/mcp-protocol";
+import { analyzeMultiView, createMultiViewTask } from "@aevum/multiview-reconstruction";
 import {
   createAssetRegistryResolver,
   createReconstructionEngine,
@@ -62,13 +55,25 @@ import {
   type ReconstructionManifestRegion,
 } from "@aevum/reconstruction";
 import { buildManifestFromImage } from "@aevum/reconstruction-vision";
-import { VisionProviderError, visionAnalysisToManifest, type VisionProvider } from "@aevum/vision";
+import { buildRenderGraph, type PaintOperation } from "@aevum/renderer-2d";
+import { compile3DImportTransaction, create3DImportProposal, create3DRenderPlan } from "@aevum/renderer-3d";
+import {
+  createHumanoidSemanticMapping,
+  evaluatePose,
+  type PoseDelta,
+  type RetargetMapping,
+  retargetPose,
+} from "@aevum/rigging";
+import { createRuntimeViewport, project3DScene, projectScene, type RuntimeViewport } from "@aevum/scene-runtime";
+import { type VisionProvider, VisionProviderError, visionAnalysisToManifest } from "@aevum/vision";
+import sharp from "sharp";
 
 // A stable, explicit path (not tesseract.js's cwd-relative default) so the OCR trained-data file
 // downloads once per deployment instead of once per request, and never lands in the repo/cwd.
 function reconstructionVisionOcrCacheDir(): string {
   return join(tmpdir(), "aevum-reconstruction-vision-ocr-cache");
 }
+
 import type {
   AssetBytesResolver,
   AssetStorageAdapter,
@@ -366,6 +371,24 @@ function commandBase(context: ToolExecutionContext, document: CanonicalDesignDoc
   } as const;
 }
 
+interface RgbColor {
+  readonly r: number;
+  readonly g: number;
+  readonly b: number;
+}
+
+function isRgbColor(value: unknown): value is RgbColor {
+  const candidate = value as Partial<RgbColor> | undefined;
+  return (
+    typeof candidate?.r === "number" &&
+    typeof candidate?.g === "number" &&
+    typeof candidate?.b === "number" &&
+    Number.isFinite(candidate.r) &&
+    Number.isFinite(candidate.g) &&
+    Number.isFinite(candidate.b)
+  );
+}
+
 async function executeWrite(
   context: ToolExecutionContext,
   input: { expectedDocumentVersion: number },
@@ -500,7 +523,9 @@ export function registerInitialTools(
       "fidelity.measure",
       "Compute a real Maximum Fidelity measurement of the current document against a registered " +
         "reference image (real headless-browser rasterization + pixel comparison, no fabricated " +
-        "scores), and persist the result as a canonical ValidationRecord.",
+        "scores), and persist the result as a canonical ValidationRecord. Optionally (autoCorrect) " +
+        "attempts one real, narrow correction — a SHAPE node's fill resampled from the reference " +
+        "image's own pixels — and re-measures to confirm real improvement before returning.",
       ["document.read", "asset.read", "document.write", "fidelity.read"],
       "WRITE",
       async (raw, context) => {
@@ -572,9 +597,40 @@ export function registerInitialTools(
         };
         // The real, unmodified Scene Runtime + Renderer 2D pipeline — the exact same projection and
         // render graph Studio's own canvas and D6's sushi-poster acceptance test use, not a
-        // fidelity-specific reimplementation.
-        const projection = projectScene(document, viewport, { strictMode: false });
-        const graph = buildRenderGraph(projection);
+        // fidelity-specific reimplementation. Reused for both the initial measurement and (if a
+        // correction is applied) the post-correction re-render, so both go through identical code.
+        const buildViews = (target: CanonicalDesignDocument): readonly FidelityView[] => {
+          const targetGraph = buildRenderGraph(projectScene(target, viewport, { strictMode: false }));
+          return [
+            {
+              reference: normalized.reference,
+              referenceRaster: normalized.raster,
+              graph: targetGraph,
+              // Real, node-attributed COLOR regions — every SHAPE's own real render bounds — so a
+              // pixel mismatch is attributed to the exact node responsible, not just one opaque
+              // whole-document score (Block E, E5).
+              regions: [...targetGraph.operations.values()]
+                .filter((operation): operation is PaintOperation => operation.kind === "PAINT")
+                .filter((operation) => operation.nodeType === "SHAPE")
+                .filter((operation) => operation.dimensions?.width.value && operation.dimensions.height.value)
+                .map(
+                  (operation): RegionExpectation => ({
+                    id: `region:${operation.canonicalNodeId}`,
+                    nodeId: operation.canonicalNodeId,
+                    region: {
+                      x: operation.worldTransform.position.x,
+                      y: operation.worldTransform.position.y,
+                      width: operation.dimensions?.width.value ?? 0,
+                      height: operation.dimensions?.height.value ?? 0,
+                    },
+                    domain: "COLOR",
+                    property: "fill",
+                    confidence: 1,
+                  }),
+                ),
+            },
+          ];
+        };
 
         const rasterAssetResolver: RasterAssetResolver = {
           id: "aevum.mcp-asset-bytes",
@@ -588,7 +644,123 @@ export function registerInitialTools(
           },
         };
         const rasterBackend = createPlaywrightRasterBackend({ assetResolver: rasterAssetResolver });
-        const engine = createFidelityEngine({ rasterBackend });
+
+        // Real, narrow auto-correction (Block E, E5): a real, non-fabricated fix exists only for a
+        // SHAPE's plain fill color — sampled from the reference image's OWN pixels in that node's
+        // own region (measurement.ts), never invented. Off by default and never attempted under a
+        // dry run (nothing should be committed to preview). No structural (layout/crop) correction
+        // is attempted: those would need an independently known "expected" layout this call has no
+        // source for — see docs/11_ROADMAP_AND_STATUS.md for the honest boundary.
+        const transactionId = createTransactionId();
+        let appliedCorrectionCommands: readonly Command[] | undefined;
+        const correctionStash = new Map<string, { readonly nodeId: string; readonly color: RgbColor }>();
+        const correctionAdapter: FidelityCorrectionAdapter | undefined =
+          input.autoCorrect && !context.request.dryRun
+            ? {
+                id: "aevum.color-region-correction",
+                version: "1.0.0",
+                async propose({ measurements, protectedNodeIds }) {
+                  const candidates = measurements
+                    .flatMap((measurement) => measurement.issues)
+                    .filter(
+                      (issue) =>
+                        issue.domain === "COLOR" &&
+                        issue.property === "fill" &&
+                        issue.nodeId &&
+                        !protectedNodeIds.includes(issue.nodeId) &&
+                        isRgbColor(issue.expected),
+                    );
+                  const top = prioritizeFidelityIssues(candidates)[0];
+                  if (!top?.nodeId || !isRgbColor(top.expected)) return [];
+                  const node = document.nodes[top.nodeId];
+                  if (node?.type !== "SHAPE" || node.locked) return [];
+                  const fingerprint = computeSha256(
+                    new TextEncoder().encode(JSON.stringify({ issueId: top.id, nodeId: top.nodeId })),
+                  );
+                  correctionStash.set(fingerprint, { nodeId: top.nodeId, color: top.expected });
+                  return [
+                    {
+                      fingerprint,
+                      issueIds: [top.id],
+                      affectedNodeIds: [top.nodeId],
+                      affectedProperties: ["fillTokenId"],
+                      expectedDocumentVersion: document.documentVersion,
+                      priority: 0,
+                    },
+                  ];
+                },
+                async dryRun({ document: candidateDocument, proposal }) {
+                  const stashed = correctionStash.get(proposal.fingerprint);
+                  if (!stashed) return { valid: false, message: "The correction candidate is no longer available." };
+                  const node = candidateDocument.nodes[stashed.nodeId];
+                  if (node?.type !== "SHAPE")
+                    return { valid: false, message: "The target node is no longer a real SHAPE." };
+                  if (proposal.expectedDocumentVersion !== candidateDocument.documentVersion)
+                    return { valid: false, message: "Document version changed since the correction was proposed." };
+                  return { valid: true, message: "A real, sampled-color correction is applicable." };
+                },
+                async apply({ document: candidateDocument, proposal }) {
+                  const stashed = correctionStash.get(proposal.fingerprint);
+                  if (!stashed)
+                    return {
+                      status: "REJECTED",
+                      document: candidateDocument,
+                      message: "The correction candidate is no longer available.",
+                    };
+                  const node = candidateDocument.nodes[stashed.nodeId];
+                  if (node?.type !== "SHAPE")
+                    return {
+                      status: "REJECTED",
+                      document: candidateDocument,
+                      message: "The target node is no longer a real SHAPE.",
+                    };
+                  const token = TokenSchema.parse({
+                    id: createEntityId("token"),
+                    name: `color.fidelity-correction.${stashed.nodeId.slice(-8)}`,
+                    type: "COLOR",
+                    value: {
+                      r: stashed.color.r / 255,
+                      g: stashed.color.g / 255,
+                      b: stashed.color.b / 255,
+                      a: 1,
+                      colorSpace: "SRGB",
+                    },
+                    description: "Sampled from the real reference image's own pixels during fidelity auto-correction.",
+                  });
+                  const base = { ...commandBase(context, candidateDocument), transactionId };
+                  const tokenCommand: Command = { ...base, type: "token.register", payload: { token } };
+                  const nodeCommand: Command = {
+                    ...base,
+                    id: createCommandId(),
+                    type: "node.update",
+                    payload: { nodeId: stashed.nodeId, changes: { fillTokenId: token.id } },
+                  };
+                  let commit: ReturnType<typeof executeCommand>;
+                  try {
+                    commit = beginTransaction(candidateDocument, { transactionId })
+                      .execute(tokenCommand)
+                      .execute(nodeCommand)
+                      .commit();
+                  } catch (error) {
+                    return {
+                      status: "REJECTED",
+                      document: candidateDocument,
+                      message: error instanceof Error ? error.message : "Correction transaction failed.",
+                    };
+                  }
+                  appliedCorrectionCommands = commit.commands;
+                  return {
+                    status: "APPLIED",
+                    document: commit.newDocument,
+                    views: buildViews(commit.newDocument),
+                    correctionFingerprint: proposal.fingerprint,
+                    message: "Applied a real color sampled from the reference image's own pixels.",
+                  };
+                },
+              }
+            : undefined;
+
+        const engine = createFidelityEngine({ rasterBackend, ...(correctionAdapter ? { correctionAdapter } : {}) });
         const { projectId } = requireScope(context);
         const task = engine.createTask({
           projectId,
@@ -606,7 +778,7 @@ export function registerInitialTools(
           measured = await engine.run({
             task,
             document,
-            views: [{ reference: normalized.reference, referenceRaster: normalized.raster, graph, regions: [] }],
+            views: buildViews(document),
             timestamp: context.timestamp,
           });
         } catch (error) {
@@ -620,6 +792,11 @@ export function registerInitialTools(
         }
 
         const report = measured.report;
+        // True only when a real correction transaction actually committed in-memory during this
+        // run (report.passes[].correctionFingerprint is only ever set by the orchestrator after a
+        // correction was applied AND kept — never on a rejected/regressed attempt or a plain
+        // NO_CORRECTIONS stop, which is an honest non-fabricated outcome, not a failure).
+        const correctionApplied = Boolean(appliedCorrectionCommands?.length) && Boolean(measured.document !== document);
         const recordStatus =
           report.status === "PASS"
             ? ("PASSED" as const)
@@ -643,16 +820,29 @@ export function registerInitialTools(
             overallScore: report.overallScore,
             coverage: report.coverage,
             confidence: report.confidence,
+            ...(correctionApplied ? { autoCorrected: true } : {}),
           },
         });
 
-        const base = commandBase(context, document);
-        const command: Command = {
-          ...base,
+        // Both the (optional, real) correction and the validation record land in ONE atomic
+        // transaction against the ORIGINAL pre-measurement document — the framework persists a
+        // single before/after transition per tool call, so the correction's already-computed real
+        // commands (from apply(), above) are replayed here rather than persisted twice.
+        const validationCommand: Command = {
+          ...commandBase(context, document),
+          transactionId,
           type: "validation.record",
           payload: { record },
         };
-        const commit = context.request.dryRun ? dryRunCommand(document, command) : executeCommand(document, command);
+        let transaction = beginTransaction(document, { transactionId });
+        if (correctionApplied) {
+          for (const command of appliedCorrectionCommands ?? []) transaction = transaction.execute(command);
+        }
+        transaction = transaction.execute(validationCommand);
+        const commit = context.request.dryRun ? dryRunCommand(document, validationCommand) : transaction.commit();
+        const commandIds = correctionApplied
+          ? [...(appliedCorrectionCommands ?? []).map((command) => command.id), validationCommand.id]
+          : [validationCommand.id];
 
         return {
           data: {
@@ -660,8 +850,8 @@ export function registerInitialTools(
             baseVersion: document.documentVersion,
             resultVersion: context.request.dryRun ? document.documentVersion : commit.newDocument.documentVersion,
             ...(context.request.dryRun ? { predictedDocumentVersion: commit.newDocument.documentVersion } : {}),
-            transactionId: command.transactionId,
-            commandIds: [command.id],
+            transactionId,
+            commandIds,
             validationRecordId: record.id,
             status: record.status,
             scores: record.scores,
@@ -669,6 +859,8 @@ export function registerInitialTools(
             coverage: report.coverage,
             confidence: report.confidence,
             stopReason: report.stopReason,
+            report,
+            correctionApplied,
           },
           mutation: { commit, sourceDocument: document },
         };

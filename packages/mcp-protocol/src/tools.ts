@@ -1,14 +1,15 @@
-import { CURRENT_COMMAND_VERSION, type ChangeSet } from "@aevum/command-engine";
+import { CameraValidationReportSchema, ResolvedCameraSchema } from "@aevum/camera-cinematics";
+import { type ChangeSet, CURRENT_COMMAND_VERSION } from "@aevum/command-engine";
 import {
   AssetSchema,
   Bounds3DSchema,
   CameraPathSchema,
   CameraSchema,
-  CURRENT_SCHEMA_VERSION,
   CanonicalDesignDocumentSchema,
   CinematicSequenceSchema,
   CinematicShotSchema,
   CoordinateSystem3DSchema,
+  CURRENT_SCHEMA_VERSION,
   DesignNodeSchema,
   EntityIdSchema,
   JsonValueSchema,
@@ -17,15 +18,14 @@ import {
   TokenSchema,
   TransformSchema,
 } from "@aevum/document-model";
-import { CameraValidationReportSchema, ResolvedCameraSchema } from "@aevum/camera-cinematics";
 import { FidelityProfileNameSchema, FidelityReportSchema } from "@aevum/fidelity/contracts";
-import { WorkspaceIdSchema } from "@aevum/project-store";
 import {
   LightingEstimateSchema,
+  LightingValidationReportSchema,
   ReferenceLightingInputSchema,
   ResolvedLightingSchema,
-  LightingValidationReportSchema,
 } from "@aevum/lighting";
+import { WorkspaceIdSchema } from "@aevum/project-store";
 import { z } from "zod";
 import { McpPermissionSchema } from "./permissions.js";
 import { MCP_PROTOCOL_VERSION } from "./version.js";
@@ -627,6 +627,12 @@ export const FidelityInspectOutputSchema = z.strictObject({
 export const FidelityMeasureInputSchema = WriteBaseSchema.extend({
   referenceAssetId: EntityIdSchema,
   profile: FidelityProfileNameSchema.default("STANDARD"),
+  // Block E (E5): when true, a real, narrow correction (currently: resampling a SHAPE node's real
+  // fill color from the reference image's actual pixels in that node's own region, and applying it
+  // as a real Paint via token.register + node.update) is attempted for the highest-priority
+  // correctable issue, then the document is re-measured to confirm real improvement before
+  // returning. Off by default — measurement behavior is unchanged unless explicitly requested.
+  autoCorrect: z.boolean().default(false),
 });
 export const FidelityMeasureOutputSchema = z.strictObject({
   dryRun: z.boolean(),
@@ -642,6 +648,16 @@ export const FidelityMeasureOutputSchema = z.strictObject({
   coverage: z.number().min(0).max(1),
   confidence: z.number().min(0).max(1),
   stopReason: z.string(),
+  // The full, real, already-computed FidelityReport (bounded — metrics and structured issues, no
+  // raw pixel buffers) — previously discarded after being boiled down into the ValidationRecord's
+  // summary fields, so a caller could never chain a fresh measurement into
+  // fidelity.propose_corrections/fidelity.apply_correction in the same run. Real input bindings can
+  // now bind this straight forward (Block E, E5).
+  report: FidelityReportSchema,
+  // True only when autoCorrect was requested AND a real correction was actually applied this call
+  // (never true for a dry run, and never true when no correctable issue existed — an honest
+  // NO_CORRECTIONS stop is not a fabricated success).
+  correctionApplied: z.boolean(),
 });
 export const FidelityValidateReportInputSchema = z.strictObject({ report: FidelityReportSchema });
 export const FidelityValidateReportOutputSchema = z.strictObject({
