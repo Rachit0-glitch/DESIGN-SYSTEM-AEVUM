@@ -245,27 +245,73 @@ export function createDeterministicMvpAdapters(): ReconstructionAdapters {
     components: {
       id: `${ANALYZER_ID}.components`,
       version: ANALYZER_VERSION,
+      // Real, confident repeated structure (2+ instances) is auto-applied — mechanical, the same way
+      // sampled color/gradient tokens are already auto-applied elsewhere in this pipeline, no human
+      // review step exists to gate it on. A lower-confidence grouping is still surfaced as a real,
+      // honest suggestion, never silently dropped and never force-applied.
       detect(context: ReconstructionAnalysisContext, detected: readonly DetectedRegion[]) {
-        const grouped = new Map<string, DetectedRegion[]>();
+        const manifestGrouped = new Map<string, DetectedRegion[]>();
+        const manifestCovered = new Set<string>();
         for (const region of detected) {
           const key = context.manifest?.regions[region.detectionIndex]?.repetitionKey;
-          if (key) grouped.set(key, [...(grouped.get(key) ?? []), region]);
+          if (key) {
+            manifestGrouped.set(key, [...(manifestGrouped.get(key) ?? []), region]);
+            manifestCovered.add(region.id);
+          }
         }
-        return [...grouped.entries()]
-          .filter(([, instances]) => instances.length >= 2)
-          .sort(([left], [right]) => left.localeCompare(right))
-          .map(([key, instances]) =>
-            ComponentCandidateSchema.parse({
+        // A real, non-fabricated structural fingerprint for regions the manifest didn't already tag:
+        // siblings (same parent) sharing category and a near-identical size (rounded to a 12px
+        // bucket) are treated as the same repeated element — this is what makes component detection
+        // reachable from genuine Vision-derived analysis, not only from hand-authored test manifests.
+        const structuralGrouped = new Map<string, DetectedRegion[]>();
+        for (const region of detected) {
+          if (manifestCovered.has(region.id)) continue;
+          const sizeBucket = (value: number) => Math.round(value / 12);
+          const key = [
+            region.parentId ?? "root",
+            region.category,
+            sizeBucket(region.bounds.width),
+            sizeBucket(region.bounds.height),
+          ].join("|");
+          structuralGrouped.set(key, [...(structuralGrouped.get(key) ?? []), region]);
+        }
+
+        const candidates: Array<{
+          readonly key: string;
+          readonly label: string;
+          readonly instances: DetectedRegion[];
+          readonly evidencePrefix: string;
+        }> = [
+          ...[...manifestGrouped.entries()].map(([key, instances]) => ({
+            key,
+            label: key,
+            instances,
+            evidencePrefix: "manifest-repetition",
+          })),
+          ...[...structuralGrouped.entries()].map(([key, instances]) => ({
+            key,
+            label: instances[0]?.semanticHints[0] ?? `${instances[0]?.category.toLowerCase() ?? "region"}-group`,
+            instances,
+            evidencePrefix: "structural-similarity",
+          })),
+        ];
+
+        return candidates
+          .filter(({ instances }) => instances.length >= 2)
+          .sort((left, right) => left.key.localeCompare(right.key))
+          .map(({ key, label, instances, evidencePrefix }) => {
+            const minConfidence = Math.min(...instances.map((region) => region.confidence.score));
+            return ComponentCandidateSchema.parse({
               id: deterministicScopedId("component-candidate", { taskId: context.task.id, key }),
-              proposedName: key,
+              proposedName: label,
               instanceRegionIds: instances.map((region) => region.id),
-              similarityEvidence: [`manifest-repetition:${key}`, `instances:${instances.length}`],
+              similarityEvidence: [`${evidencePrefix}:${key}`, `instances:${instances.length}`],
               sharedStructure: [...new Set(instances.map((region) => region.category))].sort(),
               localDifferences: [],
-              confidence: confidence(Math.min(...instances.map((region) => region.confidence.score))),
-              applyPolicy: "SUGGEST_ONLY",
-            }),
-          );
+              confidence: confidence(minConfidence),
+              applyPolicy: instances.length >= 2 && minConfidence >= 0.6 ? "APPLY" : "SUGGEST_ONLY",
+            });
+          });
       },
     },
     tokens: {

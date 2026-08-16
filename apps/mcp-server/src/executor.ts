@@ -1,3 +1,4 @@
+import { CommandEngineError } from "@aevum/command-engine";
 import { ZodError } from "zod";
 import {
   MCP_PROTOCOL_VERSION,
@@ -118,6 +119,18 @@ function normalizeError(error: unknown, request: Partial<McpRequestEnvelope> & {
   if (error instanceof ZodError) {
     return errorValue(request, "MCP_INPUT_INVALID", "MCP input validation failed.", {
       details: { issues: error.issues.map((issue) => ({ path: issue.path.join("."), message: issue.message })) },
+    });
+  }
+  // Every real Command Engine rejection (validation, conflict, duplicate id, locked entity, missing
+  // reference, ...) is a CommandEngineError — check the real type directly rather than pattern-
+  // matching the message text, which silently misclassified any rejection whose message didn't
+  // happen to contain one of a few magic keywords (e.g. "Component X already exists.") as
+  // MCP_INTERNAL_ERROR — indistinguishable from a genuine server crash to a caller, and with no
+  // real signal about whether retrying makes sense.
+  if (error instanceof CommandEngineError) {
+    return errorValue(request, "MCP_COMMAND_FAILED", error.message, {
+      retryable: false,
+      details: { code: error.code, ...error.details },
     });
   }
   if (error instanceof Error && /command|transaction|version|node|document/i.test(error.message)) {

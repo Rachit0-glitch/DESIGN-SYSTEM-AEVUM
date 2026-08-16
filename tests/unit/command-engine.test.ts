@@ -12,6 +12,7 @@ import {
 } from "@aevum/command-engine";
 import {
   type CanonicalDesignDocument,
+  ComponentSchema,
   createAsset,
   createDocument,
   createEntityId,
@@ -58,6 +59,7 @@ describe("Command Engine", () => {
       "camera.create",
       "camera.update",
       "cinematic.apply_sequence",
+      "component.register",
       "document.create",
       "document.rename",
       "light.update",
@@ -119,6 +121,157 @@ describe("Command Engine", () => {
     expect(result.newDocument.nodes[frame.id]).toEqual(frame);
     expect(result.newDocument.documentVersion).toBe(document.documentVersion + 1);
     expect(validateDocument(result.newDocument).success).toBe(true);
+  });
+
+  it("materializes a real FRAME subtree into a document.components entry, pointing at the unmodified real node (Block H1)", () => {
+    const document = fixtures.landingPage();
+    const pageId = document.pages[0];
+    if (!pageId) throw new Error("Landing fixture requires a page.");
+    const frame = createFrame(pageId, "Card");
+    const created = executeCommand(document, {
+      ...base(document),
+      type: "node.create",
+      payload: { node: frame },
+    }).newDocument;
+
+    const component = ComponentSchema.parse({
+      id: createEntityId("component"),
+      name: "Card",
+      rootNodeId: frame.id,
+      variants: [],
+      slots: [],
+      defaultOverrides: {},
+    });
+    const result = executeCommand(created, {
+      ...base(created),
+      type: "component.register",
+      payload: { component },
+    });
+
+    expect(result.newDocument.components[component.id]).toEqual(component);
+    // The root node is untouched — still real type FRAME with all its real fields (layout etc.)
+    // intact; scene-runtime's projector resolves component.rootNodeId regardless of node type.
+    expect(result.newDocument.nodes[frame.id]).toEqual(frame);
+    expect(validateDocument(result.newDocument).success).toBe(true);
+  });
+
+  it("rejects component.register for a duplicate component id, a locked root, a re-registered root, or a PAGE/COMPONENT_INSTANCE root", () => {
+    const document = fixtures.landingPage();
+    const pageId = document.pages[0];
+    if (!pageId) throw new Error("Landing fixture requires a page.");
+    const frame = createFrame(pageId, "Card");
+    const secondFrame = createFrame(pageId, "Second card");
+    const lockedFrame = { ...createFrame(pageId, "Locked card"), locked: true };
+    const withFrame = executeCommand(document, {
+      ...base(document),
+      type: "node.create",
+      payload: { node: frame },
+    }).newDocument;
+    const withSecondFrame = executeCommand(withFrame, {
+      ...base(withFrame),
+      type: "node.create",
+      payload: { node: secondFrame },
+    }).newDocument;
+    const withNodes = executeCommand(withSecondFrame, {
+      ...base(withSecondFrame),
+      type: "node.create",
+      payload: { node: lockedFrame },
+    }).newDocument;
+
+    const component = ComponentSchema.parse({
+      id: createEntityId("component"),
+      name: "Card",
+      rootNodeId: frame.id,
+      variants: [],
+      slots: [],
+      defaultOverrides: {},
+    });
+    const registered = executeCommand(withNodes, {
+      ...base(withNodes),
+      type: "component.register",
+      payload: { component },
+    }).newDocument;
+
+    // Duplicate component id.
+    expectCommandError(
+      () =>
+        executeCommand(registered, {
+          ...base(registered),
+          type: "component.register",
+          payload: { component: { ...component, rootNodeId: secondFrame.id } },
+        }),
+      "DUPLICATE_ID",
+    );
+
+    // Locked root.
+    const lockedComponent = ComponentSchema.parse({
+      ...component,
+      id: createEntityId("component"),
+      rootNodeId: lockedFrame.id,
+    });
+    expectCommandError(
+      () =>
+        executeCommand(registered, {
+          ...base(registered),
+          type: "component.register",
+          payload: { component: lockedComponent },
+        }),
+      "LOCKED_ENTITY",
+    );
+
+    // The same node cannot become the root of a second, different component.
+    const secondComponentSameRoot = ComponentSchema.parse({ ...component, id: createEntityId("component") });
+    expectCommandError(
+      () =>
+        executeCommand(registered, {
+          ...base(registered),
+          type: "component.register",
+          payload: { component: secondComponentSameRoot },
+        }),
+      "CONFLICT_ERROR",
+    );
+
+    // A PAGE root is rejected.
+    const pageComponent = ComponentSchema.parse({ ...component, id: createEntityId("component"), rootNodeId: pageId });
+    expectCommandError(
+      () =>
+        executeCommand(registered, {
+          ...base(registered),
+          type: "component.register",
+          payload: { component: pageComponent },
+        }),
+      "COMMAND_VALIDATION_ERROR",
+    );
+  });
+
+  it("rejects node.create for a COMPONENT_INSTANCE whose componentId does not resolve to a real document.components entry", () => {
+    const document = fixtures.landingPage();
+    const pageId = document.pages[0];
+    if (!pageId) throw new Error("Landing fixture requires a page.");
+    expectCommandError(
+      () =>
+        executeCommand(document, {
+          ...base(document),
+          type: "node.create",
+          payload: {
+            node: {
+              id: createEntityId("node"),
+              name: "Ghost instance",
+              parentId: pageId,
+              childIds: [],
+              visible: true,
+              locked: false,
+              transform: createFrame(pageId).transform,
+              sourceLinks: [],
+              metadata: { tags: [], customData: {} },
+              type: "COMPONENT_INSTANCE",
+              componentId: createEntityId("component"),
+              overrides: {},
+            },
+          },
+        }),
+      "REFERENCE_MISSING",
+    );
   });
 
   it("serializes, deserializes, and freezes validated commands", () => {

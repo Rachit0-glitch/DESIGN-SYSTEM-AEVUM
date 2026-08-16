@@ -26,6 +26,10 @@ export interface CommandPlanDraft {
   readonly viewport: ReconstructionProposal["proposedDocumentMetadata"]["viewport"];
   readonly proposedNodes: ReconstructionProposal["proposedNodes"];
   readonly proposedAssets: ReconstructionProposal["proposedAssets"];
+  // Only real, applied components (a confident, real repeated-structure candidate) are registered
+  // here — a merely suggested component (applied: false) stays advisory and produces no command, the
+  // same pattern already used for proposedTokens above.
+  readonly proposedComponents: ReconstructionProposal["proposedComponents"];
   // Only real, applied tokens (e.g. sampled color tokens referenced by a node's fillTokenId) are
   // registered here — merely suggested tokens (applied: false) stay advisory and are never
   // committed, so a node can never end up referencing a token that doesn't exist in the document.
@@ -142,7 +146,18 @@ export function buildCommandPlan(draft: CommandPlanDraft): ProposedCommandPlan {
     >);
   }
 
-  for (const proposed of draft.proposedNodes) {
+  // Component instances must be created strictly after component.register, which itself must run
+  // strictly after the real node that becomes the definition's root — both node.create's own
+  // canExecute (componentId must resolve) and the full-document validator (component.rootNodeId must
+  // resolve to a real node) would otherwise reject the transaction. Every other node — including each
+  // applied component's own real definition root and its real children — keeps its original creation
+  // order, so this only reorders instance nodes relative to everything else.
+  const nonInstanceProposedNodes = draft.proposedNodes.filter(
+    (proposed) => proposed.node.type !== "COMPONENT_INSTANCE",
+  );
+  const instanceProposedNodes = draft.proposedNodes.filter((proposed) => proposed.node.type === "COMPONENT_INSTANCE");
+
+  for (const proposed of nonInstanceProposedNodes) {
     if (proposed.node.type === "PAGE") {
       commandDrafts.push({
         ...base,
@@ -156,6 +171,20 @@ export function buildCommandPlan(draft: CommandPlanDraft): ProposedCommandPlan {
         payload: { node: proposed.node, index: proposed.childOrder },
       });
     }
+  }
+  for (const proposed of draft.proposedComponents) {
+    if (!proposed.applied) continue;
+    const alreadyRegistered = draft.existingDocument?.components[proposed.component.id];
+    if (!alreadyRegistered) {
+      commandDrafts.push({ ...base, type: "component.register", payload: { component: proposed.component } });
+    }
+  }
+  for (const proposed of instanceProposedNodes) {
+    commandDrafts.push({
+      ...base,
+      type: "node.create",
+      payload: { node: proposed.node, index: proposed.childOrder },
+    });
   }
 
   const commands = commandDrafts.map(
@@ -191,6 +220,9 @@ export function buildCommandPlan(draft: CommandPlanDraft): ProposedCommandPlan {
           .filter((entry) => entry.applied && !draft.existingDocument?.tokens[entry.token.id])
           .map((entry) => entry.token.id),
         ...(!draft.existingDocument?.references[draft.reference.id] ? [draft.reference.id] : []),
+        ...draft.proposedComponents
+          .filter((entry) => entry.applied && !draft.existingDocument?.components[entry.component.id])
+          .map((entry) => entry.component.id),
         ...draft.proposedNodes.map((entry) => entry.node.id),
       ],
       commandPlanFingerprint,

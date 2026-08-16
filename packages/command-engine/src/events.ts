@@ -22,6 +22,7 @@ export type CommandEventType =
   | "AssetRegistered"
   | "AssetRemoved"
   | "TokenRegistered"
+  | "ComponentRegistered"
   | "ReferenceRegistered"
   | "ReferenceUpdated"
   | "TimelineCreated"

@@ -76,6 +76,11 @@ registerCommand<CreateNodeCommand>({
     const source = requireDocument(document);
     const node = command.payload.node;
     if (node.type === "PAGE") throw commandError("CONFLICT_ERROR", "PAGE nodes must use page.create.");
+    if (node.type === "COMPONENT_INSTANCE" && !source.components[node.componentId]) {
+      throw commandError("REFERENCE_MISSING", `Component ${node.componentId} does not exist.`, {
+        componentId: node.componentId,
+      });
+    }
     if (source.nodes[node.id])
       throw commandError("DUPLICATE_ID", `Node ${node.id} already exists.`, { nodeId: node.id });
     if (node.childIds.length > 0)

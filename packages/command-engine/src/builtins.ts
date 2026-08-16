@@ -1,4 +1,5 @@
 import "./commands/asset.js";
+import "./commands/component.js";
 import "./commands/document.js";
 import "./commands/entity3d.js";
 import "./commands/camera.js";

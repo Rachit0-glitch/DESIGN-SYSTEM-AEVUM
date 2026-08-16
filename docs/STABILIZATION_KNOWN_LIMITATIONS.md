@@ -703,6 +703,82 @@ disclosed in Block F.
 
 ---
 
+## Block H — Component Materialization + Page/Asset Lifecycle Surface (2026-08-16, IN PROGRESS)
+
+Governing instruction: "BLOCK H + FINAL — COMPLETE THE SYSTEM + FINAL FORENSIC ACCEPTANCE," 16
+sub-items (H1–H16). **This pass closed H1 (the CRITICAL item) and H2/H3 (HIGH). H4–H16 have not
+been started — listed honestly below, not silently dropped.**
+
+**H1 — Component materialization: CLOSED.** See `docs/11_ROADMAP_AND_STATUS.md`'s new "Block H"
+entry for full detail. Summary: reconstruction's component candidates now really materialize into
+`document.components` with real `COMPONENT_INSTANCE` nodes, proven end to end against a real image
+(not a hand-authored fixture) through the real `asset.register`/`reconstruction.import_reference` MCP
+path, including real renderer output for the projected instances.
+
+**H2/H3 — Page and asset lifecycle MCP surface: CLOSED.** `page.create`/`page.delete`/`page.rename`/
+`asset.remove` are now real MCP tools with real tests through the MCP layer (stale-version rejection,
+dry-run, cross-reference rejection with zero partial write). Documented as honest
+`NOT_YET_AVAILABLE` Studio capabilities — the MCP surface is real, Studio's UI for it is not.
+
+**A real, incidentally-found bug fixed**: `apps/mcp-server/src/executor.ts`'s `normalizeError` used a
+regex over the error message to detect Command Engine rejections, silently misclassifying any
+rejection whose message didn't contain a magic keyword (found via `"Component X already exists."`)
+as `MCP_INTERNAL_ERROR` — indistinguishable from a real server crash to a caller. Fixed to check
+`instanceof CommandEngineError` directly.
+
+**H4–H16 — NOT STARTED THIS PASS. Honest scope of what remains:**
+- 🔴 **H4 (distributed rate limiting, MEDIUM)** — real Redis-backed rate limit provider; Redis is
+  provisioned (`docker-compose.yml`) but unused (already disclosed in Block G's section above).
+- 🔴 **H5 (Studio panel test coverage, MEDIUM)** — render-and-interact tests for AiPanel,
+  FidelityWorkspace, ReferencesPanel, and the MCP capability/gateway layer (already disclosed in
+  Block G's section above).
+- 🔴 **H6 (typography/line-wrap fidelity)** — investigate whether real captured text-layout data
+  (line breaks, baseline, wrap width) exists anywhere in the reconstruction pipeline to compare
+  against; if not, document the exact missing data rather than fake an expected line-break structure
+  (Block F already left this open for the same reason).
+- 🔴 **H7 (crop/stroke/gradient fidelity attribution)** — domain-specific fidelity attribution for
+  gradient type/direction/stops, stroke width/color/style, and crop bounds, beyond the generic
+  region-pixel-mismatch detection Block F already provides.
+- 🔴 **H8 (repo-wide honesty/fabrication audit)** — a fresh, broad sweep beyond Block G's scoped
+  sweep (which covered `apps/mcp-server/src`, `apps/studio/src`, `packages/fidelity/src`,
+  `packages/reconstruction/src` for `TODO`/`FIXME`/`placeholder` and found nothing beyond two already
+  -honest dry-run placeholders) — H8 asks for a much broader keyword list (`mock`, `fake`, `demo`,
+  `disabled`, `bypass`, `setTimeout`, `@ts-ignore`, `biome-ignore`, etc.) across the entire repo.
+- 🔴 **H9 (MCP/command/capability consistency matrix)** — a full command → MCP tool → capability
+  registry → Studio UI → test → status matrix for every command type, beyond what Block G's forensic
+  audit already found (the Blender-tool disable gate, the page/asset gap this pass closed).
+- 🔴 **H10 (security/authorization forensic pass)** — Block G's forensic audit already covered auth
+  mode selection, permission enforcement, and workspace isolation in depth and found no bypass; H10
+  asks for a fresh, independent pass rather than reusing that finding.
+- 🔴 **H11 (transaction/failure/recovery forensics)** — Block G already found and fixed one
+  `execute()`/`commit()` asymmetry in `TransactionController`; H11 asks for a systematic sweep for
+  the same class of defect across every other mutation pathway (repository commit failure, MCP
+  disconnect mid-transaction, asset storage failure, etc.), which has not been done.
+- 🔴 **H12 (full real pipeline integration through autocorrect)** — a single real test exercising
+  register → vision → reconstruction → component materialization → render → fidelity.measure →
+  correction proposal → autocorrect → render again → fidelity.measure again, all in one real chain.
+  Block E5/F/H1 each proved pieces of this real and working independently; they have not been chained
+  into one single end-to-end real test.
+- 🔴 **H13 (performance/resource safety)** — Block G measured one real timing snapshot (register/
+  import/measure latency, heap across 3 rounds, no growth found). H13 asks specifically about
+  duplicated-asset/duplicated-component/duplicate-event-listener/stale-timer growth across *repeated*
+  operations, which has not been separately investigated.
+- 🔴 **H14 (final parallel forensic audit)** — not run this pass; Block G's three-part forensic audit
+  is the most recent one, and is now one real engineering pass out of date (doesn't know about
+  H1–H3's changes).
+- 🔴 **H15 (missing phase/block detection)** — not performed as its own dedicated comparison pass
+  this time.
+- 🔴 **H16 (final acceptance gate)** — `pnpm validate` passed clean with H1–H3's changes
+  (515/515 tests, 77 files, 65 packages), but the live-Studio 15-point checklist H16 specifies
+  (component materialization, gradient/stroke/image/text rendering, correction/autocorrect, approval
+  flow, repeated operations, etc.) was not run against the current dev server this pass.
+
+None of H4–H16 were silently skipped or claimed done — they are unstarted, and this section exists so
+a future pass (or this same session, continued) has an accurate, non-overlapping starting point rather
+than re-deriving what Block G already covered.
+
+---
+
 ## Is the annotated poster image editable?
 
 **No — the annotated PNG sent in this conversation is a static diagnostic visualization only.**

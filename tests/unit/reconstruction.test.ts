@@ -104,11 +104,35 @@ describe("Phase 6 reconstruction contracts", () => {
     expect(analysis.layoutCandidates.some((entry) => entry.type === "HORIZONTAL_ROW")).toBe(true);
   });
 
-  it("suggests components and exact repeated-value tokens without applying them", () => {
-    const { analysis, proposal } = workflow();
+  it("suggests exact repeated-value tokens without applying them, while a confident repeated component candidate is real, applied, and materializes into document.components (Block H1)", () => {
+    const { analysis, proposal, task } = workflow();
     expect(analysis.componentCandidates).toHaveLength(1);
     expect(analysis.tokenCandidates).toHaveLength(1);
-    expect(proposal.proposedComponents.every((entry) => !entry.applied)).toBe(true);
+    // The fixture's two "feature-card" instances (min confidence 0.89) are a confident, real
+    // repeated structure — real applyPolicy, real materialization, not a fabricated shortcut.
+    expect(analysis.componentCandidates[0]?.applyPolicy).toBe("APPLY");
+    expect(proposal.proposedComponents).toHaveLength(1);
+    expect(proposal.proposedComponents[0]?.applied).toBe(true);
+
+    const outcome = applyReconstructionProposal(proposal, task);
+    expect(outcome.success, outcome.success ? undefined : JSON.stringify(outcome.diagnostics)).toBe(true);
+    if (!outcome.success) return;
+    const document = outcome.result.resultingDocument;
+    const component = proposal.proposedComponents[0]?.component;
+    if (!component) throw new Error("Expected a real proposed component.");
+    expect(document.components[component.id]).toEqual(component);
+    // The definition's real root node keeps its real type/geometry — never retyped or hollowed out.
+    expect(document.nodes[component.rootNodeId]?.type).toBe("FRAME");
+    // Exactly one of the two "feature-card" regions becomes a real COMPONENT_INSTANCE node
+    // referencing the definition; its own descendant regions (background/title/etc.) are never
+    // independently created, since scene-runtime projects the definition's real children instead.
+    const instances = Object.values(document.nodes).filter(
+      (node): node is Extract<(typeof document.nodes)[string], { type: "COMPONENT_INSTANCE" }> =>
+        node.type === "COMPONENT_INSTANCE",
+    );
+    expect(instances).toHaveLength(1);
+    expect(instances[0]?.componentId).toBe(component.id);
+
     // Suggested repeated-value tokens (keyed by analysis.tokenCandidates) stay unapplied — distinct
     // from the real, applied per-node color tokens the proposal builder now also creates from
     // sampled SHAPE fill/TEXT ink color, which are intentionally applied: true.

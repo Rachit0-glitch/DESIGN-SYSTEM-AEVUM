@@ -215,11 +215,27 @@ describe("Studio capability registry (Block D1)", () => {
   });
 
   it("returns undefined for a command type with no documented capability at all", () => {
-    // page.delete has a real Command Engine command type but no MCP tool, no Studio UI (no page
-    // management UI exists at all), and — unlike node.reparent below — was never even audited or
-    // considered for one: genuinely undocumented, not a deliberate NOT_YET_AVAILABLE exclusion.
-    expect(findStudioCapability("page.delete")).toBeUndefined();
-    expect(isGatewayRoutable("page.delete")).toBe(false);
+    // camera.create has a real Command Engine command type and MCP tool, but Studio has no
+    // camera-editing UI at all — the module doc's own example of a capability deliberately left
+    // undocumented rather than added speculatively ahead of any real Studio use case.
+    expect(findStudioCapability("camera.create")).toBeUndefined();
+    expect(isGatewayRoutable("camera.create")).toBe(false);
+  });
+
+  it("documents page.create/delete/rename and asset.remove as deliberate NOT_YET_AVAILABLE exclusions (Block H2/H3), not gaps", () => {
+    // Block G's forensic audit found these had real Command Engine commands (and, for asset.remove,
+    // a real cross-reference guard) but no MCP tool and no disclosure anywhere. Block H2/H3 added
+    // real MCP tools for all four; Studio still has no page-management or asset-deletion UI to call
+    // them from, so they're documented here the same honest way node.reparent already was.
+    for (const commandType of ["page.create", "page.delete", "page.rename", "asset.remove"] as const) {
+      const capability = findStudioCapability(commandType);
+      expect(capability?.status, commandType).toBe("NOT_YET_AVAILABLE");
+      if (capability?.status === "NOT_YET_AVAILABLE") {
+        expect(capability.unavailableReason.length).toBeGreaterThan(0);
+        expect("mcpTool" in capability).toBe(false);
+      }
+      expect(isGatewayRoutable(commandType)).toBe(false);
+    }
   });
 
   it("documents node.reparent as a deliberate NOT_YET_AVAILABLE exclusion (Block D cleanup, Issue 3), not a gap", () => {

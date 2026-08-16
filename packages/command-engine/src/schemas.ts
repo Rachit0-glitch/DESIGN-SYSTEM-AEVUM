@@ -6,6 +6,7 @@ import {
   CanonicalDesignDocumentSchema,
   CinematicSequenceSchema,
   CinematicShotSchema,
+  ComponentSchema,
   DesignNodeSchema,
   EntityIdSchema,
   LightSchema,
@@ -135,6 +136,11 @@ export const RegisterTokenCommandSchema = z.strictObject({
   type: z.literal("token.register"),
   payload: z.strictObject({ token: TokenSchema }),
 });
+export const RegisterComponentCommandSchema = z.strictObject({
+  ...BaseCommandShape,
+  type: z.literal("component.register"),
+  payload: z.strictObject({ component: ComponentSchema }),
+});
 export const RegisterReferenceCommandSchema = z.strictObject({
   ...BaseCommandShape,
   type: z.literal("reference.register"),
@@ -245,6 +251,7 @@ export type UpdateNodeCommand = z.infer<typeof UpdateNodeCommandSchema>;
 export type RegisterAssetCommand = z.infer<typeof RegisterAssetCommandSchema>;
 export type RemoveAssetCommand = z.infer<typeof RemoveAssetCommandSchema>;
 export type RegisterTokenCommand = z.infer<typeof RegisterTokenCommandSchema>;
+export type RegisterComponentCommand = z.infer<typeof RegisterComponentCommandSchema>;
 export type RegisterReferenceCommand = z.infer<typeof RegisterReferenceCommandSchema>;
 export type UpdateReferenceCommand = z.infer<typeof UpdateReferenceCommandSchema>;
 export type CreateTimelineCommand = z.infer<typeof CreateTimelineCommandSchema>;
@@ -275,6 +282,7 @@ export type Command =
   | RegisterAssetCommand
   | RemoveAssetCommand
   | RegisterTokenCommand
+  | RegisterComponentCommand
   | RegisterReferenceCommand
   | CreateTimelineCommand
   | UpdateTimelineCommand
@@ -306,6 +314,7 @@ export const CommandSchema: z.ZodType<Command> = z.discriminatedUnion("type", [
   RegisterAssetCommandSchema,
   RemoveAssetCommandSchema,
   RegisterTokenCommandSchema,
+  RegisterComponentCommandSchema,
   RegisterReferenceCommandSchema,
   CreateTimelineCommandSchema,
   UpdateTimelineCommandSchema,

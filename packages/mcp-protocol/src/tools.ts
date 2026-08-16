@@ -8,6 +8,7 @@ import {
   CanonicalDesignDocumentSchema,
   CinematicSequenceSchema,
   CinematicShotSchema,
+  ComponentSchema,
   CoordinateSystem3DSchema,
   CURRENT_SCHEMA_VERSION,
   DesignNodeSchema,
@@ -110,7 +111,12 @@ export const McpToolNameSchema = z.enum([
   "node.move",
   "node.duplicate",
   "token.register",
+  "component.register",
   "reference.update",
+  "page.create",
+  "page.delete",
+  "page.rename",
+  "asset.remove",
 ]);
 
 export const McpToolDescriptorSchema = z.strictObject({
@@ -612,7 +618,18 @@ export const NodeDuplicateInputSchema = WriteBaseSchema.extend({
   name: z.string().trim().min(1).max(255).optional(),
 });
 export const TokenRegisterInputSchema = WriteBaseSchema.extend({ token: TokenSchema });
+export const ComponentRegisterInputSchema = WriteBaseSchema.extend({ component: ComponentSchema });
 export const ReferenceUpdateInputSchema = WriteBaseSchema.extend({ reference: ReferenceRecordSchema });
+export const PageCreateInputSchema = WriteBaseSchema.extend({
+  page: DesignNodeSchema,
+  index: z.number().int().nonnegative().optional(),
+});
+export const PageDeleteInputSchema = WriteBaseSchema.extend({ pageId: EntityIdSchema });
+export const PageRenameInputSchema = WriteBaseSchema.extend({
+  pageId: EntityIdSchema,
+  name: z.string().trim().min(1).max(255),
+});
+export const AssetRemoveInputSchema = WriteBaseSchema.extend({ assetId: EntityIdSchema });
 export const FidelityInspectInputSchema = z.strictObject({ profile: FidelityProfileNameSchema });
 export const FidelityInspectOutputSchema = z.strictObject({
   profile: FidelityProfileNameSchema,
@@ -1150,7 +1167,12 @@ export const TOOL_SCHEMAS = Object.freeze({
   "node.move": { input: NodeMoveInputSchema, output: WriteToolOutputSchema },
   "node.duplicate": { input: NodeDuplicateInputSchema, output: WriteToolOutputSchema },
   "token.register": { input: TokenRegisterInputSchema, output: WriteToolOutputSchema },
+  "component.register": { input: ComponentRegisterInputSchema, output: WriteToolOutputSchema },
   "reference.update": { input: ReferenceUpdateInputSchema, output: WriteToolOutputSchema },
+  "page.create": { input: PageCreateInputSchema, output: WriteToolOutputSchema },
+  "page.delete": { input: PageDeleteInputSchema, output: WriteToolOutputSchema },
+  "page.rename": { input: PageRenameInputSchema, output: WriteToolOutputSchema },
+  "asset.remove": { input: AssetRemoveInputSchema, output: WriteToolOutputSchema },
   "three.update_node_transform": {
     input: ThreeUpdateNodeTransformInputSchema,
     output: WriteToolOutputSchema,

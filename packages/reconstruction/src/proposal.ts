@@ -561,12 +561,38 @@ export function createReconstructionProposal(
   ];
 
   const regionsById = new Map(analysis.regions.map((region) => [region.id, region]));
+
+  // Real component materialization: a candidate only ever becomes "APPLY" (analyzer.ts) for a
+  // confident, real repeated structure. The FIRST instance region's real node subtree becomes the
+  // single component definition; every OTHER instance region collapses into a real COMPONENT_INSTANCE
+  // node instead of its own duplicated subtree — its descendant regions are never independently
+  // proposed at all, since scene-runtime's projector already knows how to project the definition's
+  // real children for every instance (packages/scene-runtime/src/projector.ts).
+  const appliedComponentCandidates = analysis.componentCandidates.filter(
+    (candidate) => candidate.applyPolicy === "APPLY",
+  );
+  const shadowInstanceCandidateByRegionId = new Map<string, string>();
+  for (const candidate of appliedComponentCandidates) {
+    const [, ...shadowRegionIds] = candidate.instanceRegionIds;
+    for (const shadowRegionId of shadowRegionIds) shadowInstanceCandidateByRegionId.set(shadowRegionId, candidate.id);
+  }
+  function descendantRegionIds(regionId: string): string[] {
+    const children = analysis.regions.filter((region) => region.parentId === regionId);
+    return children.flatMap((child) => [child.id, ...descendantRegionIds(child.id)]);
+  }
+  const suppressedDescendantRegionIds = new Set(
+    [...shadowInstanceCandidateByRegionId.keys()].flatMap((regionId) => descendantRegionIds(regionId)),
+  );
+
   const nodeIdsByRegion = new Map<string, string>();
   for (const region of analysis.regions) {
     if (region.id === pageRegion.id || region.category === "PAGE") continue;
+    if (suppressedDescendantRegionIds.has(region.id)) continue;
     nodeIdsByRegion.set(
       region.id,
-      deterministicEntityId(nodePrefix(region.category), { taskId: task.id, regionId: region.id }),
+      shadowInstanceCandidateByRegionId.has(region.id)
+        ? deterministicEntityId("component", { taskId: task.id, regionId: region.id })
+        : deterministicEntityId(nodePrefix(region.category), { taskId: task.id, regionId: region.id }),
     );
   }
   const proposedAssets = new Map<string, ReconstructionProposal["proposedAssets"][number]>([
@@ -606,7 +632,28 @@ export function createReconstructionProposal(
     let fallbackStatus: ProposedNode["fallbackStatus"] = "NATIVE";
     const unsupportedFeatureNotes: string[] = [];
 
-    if (region.category === "TEXT" && text) {
+    const shadowCandidateId = shadowInstanceCandidateByRegionId.get(region.id);
+    if (shadowCandidateId) {
+      // This region is a real repeated-structure instance (Block H1): rather than proposing its own
+      // duplicated subtree, it becomes a real COMPONENT_INSTANCE referencing the definition built
+      // from the candidate's first instance region — the same real position/sourceLinks as any other
+      // node, so fidelity's BOUNDS comparison still works against this instance's own real bounds.
+      node = DesignNodeSchema.parse({
+        ...baseNode(
+          id,
+          "COMPONENT_INSTANCE",
+          regionName(region),
+          parentId,
+          region,
+          parentRegion,
+          referenceId,
+          "NATIVE",
+        ),
+        type: "COMPONENT_INSTANCE",
+        componentId: deterministicEntityId("component", { taskId: task.id, candidateId: shadowCandidateId }),
+        overrides: {},
+      });
+    } else if (region.category === "TEXT" && text) {
       const content = text.content ?? "";
       const fillTokenId = isSampledColor(text.sampledColor) ? colorTokens.resolve(text.sampledColor) : undefined;
       const textStyle = fillTokenId ? { ...text.style, fillTokenId } : text.style;
@@ -824,7 +871,7 @@ export function createReconstructionProposal(
           defaultOverrides: {},
         }),
         candidateId: candidate.id,
-        applied: false,
+        applied: candidate.applyPolicy === "APPLY",
       },
     ];
   });
@@ -885,6 +932,7 @@ export function createReconstructionProposal(
     documentName,
     proposedNodes,
     proposedAssets: [...proposedAssets.values()],
+    proposedComponents,
     proposedTokens,
     reference,
     ...(existing ? { existingDocument: existing } : {}),

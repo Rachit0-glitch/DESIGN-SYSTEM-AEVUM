@@ -2263,6 +2263,96 @@ export function registerInitialTools(
 
   registry.registerTool(
     definition(
+      "component.register",
+      "Register a real component definition pointing at an already-materialized node subtree, so it can be shared by real COMPONENT_INSTANCE nodes instead of duplicating structure.",
+      ["document.write"],
+      "WRITE",
+      async (raw, context) => {
+        const input = TOOL_SCHEMAS["component.register"].input.parse(raw);
+        return executeWrite(context, input, (base) => ({
+          ...base,
+          type: "component.register",
+          payload: { component: input.component },
+        }));
+      },
+      config,
+    ),
+  );
+
+  registry.registerTool(
+    definition(
+      "page.create",
+      "Create one canonical PAGE node in the document.",
+      ["document.write"],
+      "WRITE",
+      async (raw, context) => {
+        const input = TOOL_SCHEMAS["page.create"].input.parse(raw);
+        return executeWrite(context, input, (base) => ({
+          ...base,
+          type: "page.create",
+          payload: { page: input.page, ...(input.index !== undefined ? { index: input.index } : {}) },
+        }));
+      },
+      config,
+    ),
+  );
+
+  registry.registerTool(
+    definition(
+      "page.delete",
+      "Delete one canonical PAGE and its entire subtree.",
+      ["document.write"],
+      "WRITE",
+      async (raw, context) => {
+        const input = TOOL_SCHEMAS["page.delete"].input.parse(raw);
+        return executeWrite(context, input, (base) => ({
+          ...base,
+          type: "page.delete",
+          payload: { pageId: input.pageId },
+        }));
+      },
+      config,
+    ),
+  );
+
+  registry.registerTool(
+    definition(
+      "page.rename",
+      "Rename one canonical PAGE.",
+      ["document.write"],
+      "WRITE",
+      async (raw, context) => {
+        const input = TOOL_SCHEMAS["page.rename"].input.parse(raw);
+        return executeWrite(context, input, (base) => ({
+          ...base,
+          type: "page.rename",
+          payload: { pageId: input.pageId, name: input.name },
+        }));
+      },
+      config,
+    ),
+  );
+
+  registry.registerTool(
+    definition(
+      "asset.remove",
+      "Remove one canonical asset. Rejected if the asset is still referenced by any node or reference.",
+      ["document.write", "asset.write"],
+      "WRITE",
+      async (raw, context) => {
+        const input = TOOL_SCHEMAS["asset.remove"].input.parse(raw);
+        return executeWrite(context, input, (base) => ({
+          ...base,
+          type: "asset.remove",
+          payload: { assetId: input.assetId },
+        }));
+      },
+      config,
+    ),
+  );
+
+  registry.registerTool(
+    definition(
       "three.update_node_transform",
       "Update one canonical 3D node transform in local meter space.",
       ["document.write", "three.write"],

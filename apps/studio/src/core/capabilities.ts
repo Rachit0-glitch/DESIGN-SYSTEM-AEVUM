@@ -161,6 +161,45 @@ export const STUDIO_CAPABILITIES: readonly StudioCapability[] = [
       "and canvas drag only changes a node's position, never its parentId. Add a real node.reparent MCP tool and " +
       "wire it here only once Studio grows an actual cross-parent move interaction, not speculatively ahead of it.",
   },
+  {
+    status: "NOT_YET_AVAILABLE",
+    commandType: "component.register",
+    studioUseCase: "Turn a selected node subtree into a reusable component definition from the layers panel.",
+    unavailableReason:
+      "Block H1 added a real component.register MCP tool and Command Engine command — reconstruction now uses " +
+      "it internally to materialize detected repeated structure into document.components — but Studio has no " +
+      "'Create component' UI action to call it manually from a user selection yet.",
+  },
+  {
+    status: "NOT_YET_AVAILABLE",
+    commandType: "page.create",
+    studioUseCase: "Add a new page from the layers panel or a page tab bar.",
+    unavailableReason:
+      "The Command Engine has always had real page.create/delete/rename commands, and Block H2 added matching " +
+      "MCP tools for all three — but Studio's layers panel has no page-management UI (add/delete/rename page) " +
+      "to call them from yet; today pages are only ever created by reconstruction import.",
+  },
+  {
+    status: "NOT_YET_AVAILABLE",
+    commandType: "page.delete",
+    studioUseCase: "Delete a page (and its entire subtree) from the layers panel or a page tab bar.",
+    unavailableReason: "Same gap as page.create — see that entry.",
+  },
+  {
+    status: "NOT_YET_AVAILABLE",
+    commandType: "page.rename",
+    studioUseCase: "Rename a page from the layers panel or a page tab bar.",
+    unavailableReason: "Same gap as page.create — see that entry.",
+  },
+  {
+    status: "NOT_YET_AVAILABLE",
+    commandType: "asset.remove",
+    studioUseCase: "Remove an unused asset from the Assets panel.",
+    unavailableReason:
+      "The Command Engine has always had a real asset.remove command (Block G added a real cross-reference " +
+      "guard to it), and Block H3 added a matching MCP tool — but Studio's Assets panel has no delete action " +
+      "to call it from yet.",
+  },
 ];
 
 /** Looks up the capability, if any, documented for a given Command Engine command type. */

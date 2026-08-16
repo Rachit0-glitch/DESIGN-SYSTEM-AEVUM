@@ -29,8 +29,9 @@ describe("MCP protocol", () => {
     registerInitialTools(registry, mcpTestConfig);
     const tools = registry.listTools();
 
-    // 77 pre-existing tools + reference.update (Block D completeness).
-    expect(tools).toHaveLength(78);
+    // 78 pre-existing tools + component.register, page.create, page.delete, page.rename, and
+    // asset.remove (Block H1/H2/H3).
+    expect(tools).toHaveLength(83);
     expect(tools.every((tool) => tool.version === MCP_TOOL_VERSION)).toBe(true);
     expect(tools.map((tool) => tool.name)).toEqual(Object.keys(TOOL_SCHEMAS).sort());
     expect(() => registerInitialTools(registry, mcpTestConfig)).toThrow(/already registered/);

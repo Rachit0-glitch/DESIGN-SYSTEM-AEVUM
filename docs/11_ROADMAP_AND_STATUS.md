@@ -5354,7 +5354,88 @@ findings; CRITICAL and two MEDIUM findings are proposed as scoped future phases 
 
 ---
 
-## 87. Final Roadmap Statement
+## 88. Block H: Component Materialization + Page/Asset Lifecycle Surface (2026-08-16, IN PROGRESS)
+
+Closes Block G's single CRITICAL forensic finding — reconstruction's component candidates never
+materialized into `document.components` — plus the two HIGH page/asset-lifecycle MCP gaps. **Status:
+H1 (CRITICAL), H2, and H3 (HIGH) are complete and real-fixture-tested; H4–H16 have not been started
+this pass — see `docs/STABILIZATION_KNOWN_LIMITATIONS.md`'s new "Block H" section for the exact
+remaining scope.**
+
+- **H1 — Component materialization (CRITICAL, closed).** Investigated the existing model first:
+  `ComponentSchema`/`ComponentNodeSchema`/`ComponentInstanceNodeSchema` and scene-runtime's real
+  component-instance projector (`packages/scene-runtime/src/projector.ts`) already existed and were
+  already tested generically — the gap was entirely on the reconstruction side, which built a fully
+  real `ProposedComponentSchema.component` but hardcoded `applied: false` and never emitted a command
+  for it. Closed with the smallest correct fix, not a new architecture:
+  - New `component.register` command (`packages/command-engine/src/commands/component.ts`):
+    registers a real `ComponentSchema` entry pointing at an **already-materialized, unmodified** real
+    node (its root is never retyped — document-model's id-prefix validator requires a `component_`
+    id for a literal `COMPONENT` node, and `ComponentNodeSchema` has no type-specific fields at all,
+    so retyping a leaf TEXT/SHAPE/IMAGE root would destroy its real content; scene-runtime's projector
+    only ever does `document.nodes[component.rootNodeId]`, never requiring that node be type
+    `COMPONENT`). Rejects duplicate ids, locked roots, PAGE/COMPONENT_INSTANCE roots, and re-use of
+    a node already owned by another component.
+  - `packages/reconstruction/src/analyzer.ts`'s `components.detect` now also computes a real
+    structural-similarity fingerprint (sibling regions sharing category + a rounded size bucket) —
+    not just the old manifest-only `repetitionKey` — so component detection is reachable from **real
+    Vision-derived analysis**, not only hand-authored test manifests. A confident (2+ instances, min
+    confidence ≥ 0.6) candidate is now real `applyPolicy: "APPLY"`.
+  - `packages/reconstruction/src/proposal.ts`: for an applied candidate, the first instance region's
+    real subtree still becomes the definition; every other instance region's entire descendant
+    subtree is never independently proposed at all — it collapses into one real `COMPONENT_INSTANCE`
+    node (own real position/sourceLinks, `overrides: {}`) instead, so the definition is never
+    duplicated per instance.
+  - `packages/reconstruction/src/commands.ts`: emits `component.register` after its root's
+    `node.create` and before any `COMPONENT_INSTANCE` `node.create` referencing it, inside the same
+    reconstruction transaction — atomic with everything else.
+  - `packages/command-engine/src/commands/node.ts`: `node.create` now rejects a `COMPONENT_INSTANCE`
+    whose `componentId` doesn't resolve to a real `document.components` entry.
+  - **Real, non-synthetic acceptance test**
+    (`tests/integration/mcp-component-materialization.test.ts`): a real PNG with three visually
+    repeated "cards", run through the actual `asset.register` (real local shape detection, no paid
+    API) → `reconstruction.import_reference` pipeline — no hand-authored analyzer fixture, no mocked
+    component object — proves `document.components` populated, real `COMPONENT_INSTANCE` nodes
+    referencing it, and the real renderer (`buildRenderGraph`/`projectScene`) genuinely producing
+    paint operations for the projected instance children. `tests/unit/reconstruction.test.ts`'s
+    existing hand-authored two-"feature-card" fixture (min confidence 0.89) gives a second, precise
+    proof: exactly one real component, exactly one real instance, descendant regions genuinely
+    suppressed. Six new/updated tests total across command-engine, reconstruction, and MCP layers.
+- **H2/H3 — Page and asset lifecycle MCP surface (HIGH, closed).** `page.create`/`page.delete`/
+  `page.rename` and `asset.remove` already had real Command Engine logic (asset.remove's real
+  cross-reference guard added in Block G) but no MCP tool at all. Added all four as real MCP tools
+  (`apps/mcp-server/src/tools.ts`, mirroring `document.rename`/`node.create`'s exact pattern —
+  `["document.write"]`/`["document.write","asset.write"]` permissions, `executeWrite`, dry-run,
+  optimistic concurrency), and documented all four (plus `component.register`) as honest
+  `NOT_YET_AVAILABLE` Studio capabilities (`apps/studio/src/core/capabilities.ts`) — the MCP tool is
+  real, Studio simply has no page-management or asset-deletion UI yet to call it from. Real
+  integration tests (`tests/integration/mcp-page-asset-component-lifecycle.test.ts`): page
+  create/rename/delete through MCP with stale-version rejection and dry-run; asset removal with
+  cross-reference rejection reached through the real MCP layer, zero partial write on rejection.
+- **A real, incidentally-found bug fixed along the way**: `apps/mcp-server/src/executor.ts`'s
+  `normalizeError` classified any `CommandEngineError` whose message didn't happen to contain one of
+  a few magic keywords (`command|transaction|version|node|document`) as `MCP_INTERNAL_ERROR` —
+  indistinguishable from a genuine server crash to a real caller. `"Component X already exists."`
+  hit exactly this gap. Fixed to check `instanceof CommandEngineError` directly, so every real
+  Command Engine rejection now reliably reports `MCP_COMMAND_FAILED` with its real code/details.
+- Tests: 6 new/updated across `tests/unit/command-engine.test.ts` (+2),
+  `tests/unit/reconstruction.test.ts` (1 rewritten), `tests/integration/mcp-component-materialization.test.ts`
+  (new, 1), `tests/integration/mcp-page-asset-component-lifecycle.test.ts` (new, 3), plus 2
+  pre-existing tool-count assertions updated (`tests/unit/mcp-protocol.test.ts`,
+  `tests/integration/mcp-server.test.ts`) and `tests/unit/studio-production.test.ts` updated for the
+  new capability entries.
+- Full `pnpm validate` (docs, dependency rules, format, lint, typecheck, **515/515 tests** across 77
+  files, build across all 65 packages) passed clean.
+- **H4–H16 not started this pass.** Distributed rate limiting, Studio panel test coverage,
+  typography/line-wrap fidelity, crop/stroke/gradient attribution, the repo-wide honesty audit, the
+  MCP/command/capability consistency matrix, the security forensic pass, transaction forensics beyond
+  the one bug found above, the full autocorrect-loop pipeline integration test, performance/resource
+  investigation, the final parallel forensic audit, missing-phase detection, and the final acceptance
+  gate all remain — see `docs/STABILIZATION_KNOWN_LIMITATIONS.md` for the honest, itemized list.
+
+---
+
+## 89. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.
 
