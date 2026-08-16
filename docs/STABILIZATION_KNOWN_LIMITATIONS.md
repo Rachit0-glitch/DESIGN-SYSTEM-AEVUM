@@ -706,8 +706,9 @@ disclosed in Block F.
 ## Block H — Component Materialization + Page/Asset Lifecycle Surface (2026-08-16, IN PROGRESS)
 
 Governing instruction: "BLOCK H + FINAL — COMPLETE THE SYSTEM + FINAL FORENSIC ACCEPTANCE," 16
-sub-items (H1–H16). **This pass closed H1 (the CRITICAL item) and H2/H3 (HIGH). H4–H16 have not
-been started — listed honestly below, not silently dropped.**
+sub-items (H1–H16), executed in batches per explicit user instruction. **H1 (CRITICAL), H2/H3
+(HIGH), and Batch 1 (H4/H5, MEDIUM) are closed. H6–H16 have not been started — listed honestly
+below, not silently dropped.**
 
 **H1 — Component materialization: CLOSED.** See `docs/11_ROADMAP_AND_STATUS.md`'s new "Block H"
 entry for full detail. Summary: reconstruction's component candidates now really materialize into
@@ -726,12 +727,17 @@ rejection whose message didn't contain a magic keyword (found via `"Component X 
 as `MCP_INTERNAL_ERROR` — indistinguishable from a real server crash to a caller. Fixed to check
 `instanceof CommandEngineError` directly.
 
-**H4–H16 — NOT STARTED THIS PASS. Honest scope of what remains:**
-- 🔴 **H4 (distributed rate limiting, MEDIUM)** — real Redis-backed rate limit provider; Redis is
-  provisioned (`docker-compose.yml`) but unused (already disclosed in Block G's section above).
-- 🔴 **H5 (Studio panel test coverage, MEDIUM)** — render-and-interact tests for AiPanel,
-  FidelityWorkspace, ReferencesPanel, and the MCP capability/gateway layer (already disclosed in
-  Block G's section above).
+**H4 — Distributed rate limiting: CLOSED (Batch 1).** Real Redis-backed provider, atomic sliding
+window via Lua EVAL, wired into production runtime, fails closed on backing-store error. Real
+distributed-enforcement test dynamically skips (not fabricated) since no live Redis is reachable in
+this sandbox — see `docs/11_ROADMAP_AND_STATUS.md`'s "Block H Batch 1" entry.
+
+**H5 — Studio panel test coverage: substantially closed (Batch 1).** Real render tests for AiPanel
+(7 tests, driving the real deterministic planner/engine/approval flow) and FidelityWorkspace (3
+tests, empty/success/failure states) — the two highest-value, previously-untested panels. The MCP
+capability/gateway layer was already covered by `studio-production.test.ts`.
+
+**H6–H16 — NOT STARTED THIS PASS. Honest scope of what remains:**
 - 🔴 **H6 (typography/line-wrap fidelity)** — investigate whether real captured text-layout data
   (line breaks, baseline, wrap width) exists anywhere in the reconstruction pipeline to compare
   against; if not, document the exact missing data rather than fake an expected line-break structure
@@ -768,14 +774,15 @@ as `MCP_INTERNAL_ERROR` — indistinguishable from a real server crash to a call
   H1–H3's changes).
 - 🔴 **H15 (missing phase/block detection)** — not performed as its own dedicated comparison pass
   this time.
-- 🔴 **H16 (final acceptance gate)** — `pnpm validate` passed clean with H1–H3's changes
-  (515/515 tests, 77 files, 65 packages), but the live-Studio 15-point checklist H16 specifies
-  (component materialization, gradient/stroke/image/text rendering, correction/autocorrect, approval
-  flow, repeated operations, etc.) was not run against the current dev server this pass.
+- 🔴 **H16 (final acceptance gate)** — `pnpm validate` passed clean with H1–H5's changes
+  (530/531 tests, 1 dynamically skipped for the disclosed live-Redis reason, 80 files, 65 packages),
+  but the live-Studio 19-point checklist H16 specifies (component materialization, gradient/stroke/
+  image/text rendering, correction/autocorrect, approval flow, repeated operations, etc.) was not run
+  against the current dev server this pass.
 
-None of H4–H16 were silently skipped or claimed done — they are unstarted, and this section exists so
+None of H6–H16 were silently skipped or claimed done — they are unstarted, and this section exists so
 a future pass (or this same session, continued) has an accurate, non-overlapping starting point rather
-than re-deriving what Block G already covered.
+than re-deriving what Blocks G/H Batch 1 already covered.
 
 ---
 

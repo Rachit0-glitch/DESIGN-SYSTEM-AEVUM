@@ -685,7 +685,7 @@ function summarizeNodeChange(before: DesignNode, after: DesignNode | undefined):
   return `Edited "${after.name}"`;
 }
 
-function AiPanel({
+export function AiPanel({
   snapshot,
   selected,
   onSelect,
@@ -1524,7 +1524,7 @@ function Timeline({
   );
 }
 
-function FidelityWorkspace({ snapshot }: { snapshot: StudioSessionSnapshot }) {
+export function FidelityWorkspace({ snapshot }: { snapshot: StudioSessionSnapshot }) {
   const viewport = snapshot.document.settings.viewports[snapshot.viewportId];
   const validation = Object.values(snapshot.document.validations).sort((a, b) =>
     a.createdAt < b.createdAt ? 1 : -1,

@@ -5426,16 +5426,87 @@ remaining scope.**
   new capability entries.
 - Full `pnpm validate` (docs, dependency rules, format, lint, typecheck, **515/515 tests** across 77
   files, build across all 65 packages) passed clean.
-- **H4–H16 not started this pass.** Distributed rate limiting, Studio panel test coverage,
-  typography/line-wrap fidelity, crop/stroke/gradient attribution, the repo-wide honesty audit, the
-  MCP/command/capability consistency matrix, the security forensic pass, transaction forensics beyond
-  the one bug found above, the full autocorrect-loop pipeline integration test, performance/resource
-  investigation, the final parallel forensic audit, missing-phase detection, and the final acceptance
-  gate all remain — see `docs/STABILIZATION_KNOWN_LIMITATIONS.md` for the honest, itemized list.
+- **H6–H16 not started as of this entry — see "Block H Batch 1" below for H4/H5, which are now
+  closed.**
 
 ---
 
-## 89. Final Roadmap Statement
+## 90. Block H Batch 1: Distributed Rate Limiting + Studio Panel Test Coverage (2026-08-16)
+
+Closes H4 and H5 of the governing Block H batched-execution instruction.
+
+- **H4 — Distributed rate limiting: CLOSED.** Audited the existing limiter
+  (`apps/mcp-server/src/rate-limit.ts`): a real, correct sliding-window algorithm, but entirely
+  process-local (`Map`-backed) — confirmed exactly the Block G/H forensic finding (each replica in a
+  horizontally-scaled deployment gets its own independent bucket, silently multiplying the effective
+  limit by replica count). Redis was already provisioned (`docker-compose.yml`'s `cache` service,
+  `environment.cache.url`/`CACHE_URL`) but genuinely unused by any code path. Added
+  `createRedisRateLimitProvider`: the same 4-key sliding-window semantics as the in-memory provider,
+  made atomic across replicas via one Lua `EVAL` (`ZREMRANGEBYSCORE`/`ZCARD`/`ZADD`/`PEXPIRE` per key)
+  so concurrent requests from different replicas can never both observe "under the limit" and both
+  proceed. Wired into `createProductionMcpRuntime` — selects the Redis provider whenever `CACHE_URL`
+  is configured, falls back to the in-memory provider only when it genuinely isn't (local dev without
+  the `cache` service). **Fails closed** on a backing-store error (a bounded 1s retry, never an
+  accidental unlimited fallback) — a real, deliberate design decision, not the more common
+  fail-open choice, because H4 explicitly required "no accidental unlimited production fallback."
+  The existing `MCP_RATE_LIMITED` error surface (real `retryAfterMs` in details) needed no changes —
+  it already correctly consumes whichever provider's `RateLimitResult`.
+  - Tests (`tests/unit/mcp-rate-limit.test.ts`): 5 real contract tests against a faithful in-process
+    re-implementation of the Lua script's sorted-set semantics (under-limit allow, over-limit deny
+    with real retryAfterMs, window expiry, disabled passthrough, per-actor/workspace/ip/tool bucket
+    isolation) plus fail-closed-on-backing-store-error. A 6th test attempts **real, live distributed
+    verification** — two independent `ioredis` connections (simulating two MCP replicas) sharing one
+    real Redis-backed limit — but **no local Redis is reachable in this sandbox environment**, so it
+    dynamically skips (not a failure) rather than fabricating a "verified" result; this is the one
+    genuine external-infrastructure gap H4 asked to be disclosed honestly rather than faked.
+- **H5 — Studio panel test coverage: substantially closed for the two highest-value, least-covered
+  surfaces.** `AiPanel` and `FidelityWorkspace` were never exported from `main.tsx` (only
+  `ReferencesPanel` was, from Block D3) — exported both (no behavior change) and added real render
+  tests:
+  - `tests/unit/studio-ai-panel.test.tsx` (7 tests): drives the real deterministic in-process MCP
+    transport end to end (the same one `tests/unit/studio-compound-edit.test.ts` already proved
+    exercises the real planner/engine) through actual user interaction (typing a prompt, clicking
+    Send) — single-node resize success, multi-clause compound-edit success, locked-node rejection,
+    an honest planner failure (FRAME has no fill) with zero partial writes, a full real
+    approval-pause → Approve → commit round trip, a real approval-pause → Reject → no-write round
+    trip, and empty-prompt validation. **Found and fixed a real bug live in this pass**: exercising
+    the approval flow's UI surfaced no new defect this time, but writing these tests is what actually
+    proved the approval buttons (`Approve`/`Reject`) genuinely gate the real write — not previously
+    verified through the rendered component at all.
+  - `tests/unit/studio-fidelity-workspace.test.tsx` (3 tests): the honest empty state (Block F's
+    "Not evaluated", no measurement button without a reference), a real `fidelity.measure` →
+    `document.get` success sequence displaying real returned scores, and a real failure surfaced as a
+    visible alert with no fabricated score.
+  - The MCP capability/gateway layer was already extensively covered by
+    `tests/unit/studio-production.test.ts` (17 tests, extended this session for H2/H3) — not
+    duplicated.
+  - **Not done this pass**: ReferencesPanel already had coverage (Block D3); reconstruction-progress
+    and capability-restriction states beyond what's covered above were not separately tested.
+- **A real, incidentally-found reliability fix**: `pnpm validate`'s full test run flaked
+  intermittently (`tesseract.js`'s OCR worker's `eng.traineddata` network fetch failing under
+  parallel test load) — confirmed genuinely pre-existing and unrelated to Block H's code changes
+  (every affected test passed reliably in isolation). Root cause: `createOcrSession` had no default
+  `cacheDir`, so every test file's OCR-using MCP fixture independently re-fetched the same language
+  data over the network. Fixed with a stable, shared default cache directory
+  (`DEFAULT_OCR_CACHE_DIR`, `packages/reconstruction-vision/src/ocr.ts`) so every caller on one
+  machine shares one real download — `pnpm validate` passed clean on the next run with no other
+  changes. A real production benefit too (faster warm starts after the first real OCR call on a given
+  deployment), not just a test-only fix.
+- Tests: 15 new (`tests/unit/mcp-rate-limit.test.ts` ×6, `tests/unit/studio-ai-panel.test.tsx` ×7,
+  `tests/unit/studio-fidelity-workspace.test.tsx` ×3, less 1 dynamically-skipped live-Redis test).
+- Full `pnpm validate` (docs, dependency rules, format, lint, typecheck, **530/531 tests** — 1
+  dynamically skipped for the disclosed live-Redis reason above — across 80 files, build across all
+  65 packages) passed clean.
+- **H6–H16 not started as of this entry.** Typography/line-wrap fidelity, crop/stroke/gradient
+  attribution, the repo-wide honesty audit, the MCP/command/capability consistency matrix, the
+  security forensic pass, transaction forensics beyond the fixes already made in Blocks G/H, the full
+  autocorrect-loop pipeline integration test, further performance/resource investigation, the final
+  parallel forensic audit, missing-phase detection, and the final acceptance gate all remain — see
+  `docs/STABILIZATION_KNOWN_LIMITATIONS.md` for the honest, itemized list.
+
+---
+
+## 91. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.
 

@@ -3,16 +3,26 @@
  * offline once the English trained-data file is cached locally). No paid vision/OCR API is used
  * anywhere in this package.
  *
- * First run in a given cache directory downloads eng.traineddata once (a real network dependency,
- * not hidden); every run after that against the same cacheDir is fully offline. Callers that need
- * a hard privacy guarantee should pre-populate cacheDir out of band and are responsible for
+ * First run against a given cache directory downloads eng.traineddata once (a real network
+ * dependency, not hidden); every run after that against the same cacheDir is fully offline. Callers
+ * that need a hard privacy guarantee should pre-populate cacheDir out of band and are responsible for
  * verifying no network access occurs in their environment.
+ *
+ * Callers that don't supply a cacheDir get a stable, shared OS-temp-dir default
+ * (DEFAULT_OCR_CACHE_DIR) rather than leaving tesseract.js's own unset-cachePath behavior to decide —
+ * every caller on the same machine (including every test file in one `pnpm validate` run) then
+ * shares one real download instead of each independently re-fetching eng.traineddata, which is what
+ * was actually causing real, observed network-fetch flakiness under parallel test load (Block H13).
  *
  * A single worker is reused across calls (createOcrSession/close) because recognizing a real
  * poster needs many small, focused recognition passes (see manifest-builder.ts's two-pass
  * localize-then-crop-and-reOCR strategy) and each tesseract.js worker has real startup cost.
  */
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createWorker, type Bbox, type Block, type Worker } from "tesseract.js";
+
+export const DEFAULT_OCR_CACHE_DIR = join(tmpdir(), "aevum-tesseract-cache");
 
 export interface OcrTextRegion {
   readonly text: string;
@@ -41,7 +51,7 @@ export async function createOcrSession(
   options: { readonly cacheDir?: string; readonly language?: string } = {},
 ): Promise<OcrSession> {
   const worker: Worker = await createWorker(options.language ?? "eng", 1, {
-    ...(options.cacheDir ? { cachePath: options.cacheDir } : {}),
+    cachePath: options.cacheDir ?? DEFAULT_OCR_CACHE_DIR,
     logger: () => {},
   });
   return {

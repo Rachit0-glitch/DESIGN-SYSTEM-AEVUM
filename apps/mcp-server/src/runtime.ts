@@ -1,19 +1,20 @@
 import { createSupabaseAssetStorage, createSupabaseProjectRepository } from "@aevum/project-store";
-import { env, type AevumEnvironment, type AevumLogger, createLogger } from "@aevum/shared";
+import { type AevumEnvironment, type AevumLogger, createLogger, env } from "@aevum/shared";
 import {
   createInMemoryVisionQuotaTracker,
   createVisionProvider,
-  withVisionQuota,
   type VisionProvider,
+  withVisionQuota,
 } from "@aevum/vision";
+import { Redis } from "ioredis";
 import {
+  type AuthVerifier,
   createDevelopmentAuthVerifier,
   createDisabledAuthVerifier,
   createSupabaseAuthVerifier,
-  type AuthVerifier,
 } from "./auth.js";
 import { createMcpExecutor } from "./executor.js";
-import { createInMemoryRateLimitProvider } from "./rate-limit.js";
+import { createInMemoryRateLimitProvider, createRedisRateLimitProvider, type RateLimitProvider } from "./rate-limit.js";
 import { createToolRegistry, type McpServerRuntimeConfig } from "./registry.js";
 import { registerInitialTools } from "./tools.js";
 
@@ -53,6 +54,29 @@ function visionProviderForEnvironment(environment: AevumEnvironment): (workspace
           },
   });
   return withVisionQuota(base, createInMemoryVisionQuotaTracker(), environment.vision.maxCallsPerWorkspacePerDay);
+}
+
+// Rate limiting must be real across every MCP server replica in a horizontally-scaled deployment —
+// an in-memory-only limiter gives each replica its own independent bucket, silently multiplying the
+// effective limit by replica count (a real Block G/H forensic finding). Redis is already provisioned
+// (docker-compose.yml's `cache` service, CACHE_URL/`environment.cache.url`) but was never actually
+// used by any real code path before this. Falls back to the in-memory limiter only when no Redis URL
+// is configured at all (local dev without the `cache` service running) — never a silent behavior
+// change in a real deployment that does set CACHE_URL.
+function rateLimitProviderForEnvironment(environment: AevumEnvironment, logger: AevumLogger): RateLimitProvider {
+  if (!environment.cache.url) return createInMemoryRateLimitProvider(environment.mcp.rateLimit);
+  const redis = new Redis(environment.cache.url, { maxRetriesPerRequest: 1, lazyConnect: false });
+  redis.on("error", (error) =>
+    logger.error("RATE_LIMIT_REDIS_ERROR", "Redis rate-limit connection error.", { error: String(error) }),
+  );
+  return createRedisRateLimitProvider({
+    ...environment.mcp.rateLimit,
+    redis,
+    onBackingStoreError: (error) =>
+      logger.error("RATE_LIMIT_REDIS_ERROR", "Redis rate-limit check failed; request denied (fail-closed).", {
+        error: String(error),
+      }),
+  });
 }
 
 function timeoutFetch(timeoutMs: number): typeof fetch {
@@ -121,7 +145,7 @@ export function createProductionMcpRuntime(environment: AevumEnvironment = env, 
     authVerifier: authVerifier(environment),
     repository,
     registry,
-    rateLimiter: createInMemoryRateLimitProvider(environment.mcp.rateLimit),
+    rateLimiter: rateLimitProviderForEnvironment(environment, logger),
     logger,
   });
 }

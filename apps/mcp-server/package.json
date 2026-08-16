@@ -24,8 +24,8 @@
     "@aevum/document-model": "workspace:*",
     "@aevum/fidelity": "workspace:*",
     "@aevum/geometry-reconstruction": "workspace:*",
-    "@aevum/mcp-protocol": "workspace:*",
     "@aevum/lighting": "workspace:*",
+    "@aevum/mcp-protocol": "workspace:*",
     "@aevum/multiview-reconstruction": "workspace:*",
     "@aevum/project-store": "workspace:*",
     "@aevum/reconstruction": "workspace:*",
@@ -37,6 +37,7 @@
     "@aevum/shared": "workspace:*",
     "@aevum/vision": "workspace:*",
     "@supabase/supabase-js": "2.111.0",
+    "ioredis": "5.4.1",
     "jose": "6.2.7",
     "sharp": "0.34.4",
     "zod": "4.4.3"
