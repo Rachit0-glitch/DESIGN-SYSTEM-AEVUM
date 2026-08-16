@@ -1,27 +1,27 @@
 import {
+  type CanonicalDesignDocument,
   createEntityId,
   createTransform,
-  fixtures,
-  type CanonicalDesignDocument,
   type DesignNode,
+  fixtures,
 } from "@aevum/document-model";
+import {
+  buildRenderGraph,
+  createRenderer,
+  type ImageOperation,
+  type RenderGraphNode,
+  render,
+  resolveEffects,
+  resolvePaintOrder,
+  type TextOperation,
+  type VectorOperation,
+} from "@aevum/renderer-2d";
 import {
   createRuntimeViewport,
   projectScene,
   sceneRuntimeFixtures,
   serializeSceneProjection,
 } from "@aevum/scene-runtime";
-import {
-  buildRenderGraph,
-  createRenderer,
-  render,
-  resolveEffects,
-  resolvePaintOrder,
-  type ImageOperation,
-  type RenderGraphNode,
-  type TextOperation,
-  type VectorOperation,
-} from "@aevum/renderer-2d";
 import { describe, expect, it } from "vitest";
 
 const px = (value: number) => ({ value, unit: "PX" as const, mode: "FIXED" as const });
@@ -384,6 +384,45 @@ describe("Hybrid 2D Renderer", () => {
         (diagnostic) => diagnostic.code === "UNRESOLVED_STYLE" && diagnostic.runtimeNodeId === shapeRuntimeNode.id,
       ),
     ).toBe(false);
+  });
+
+  it("falls back to SHAPE.geometry.cornerRadius/stroke.width when no aevum.renderer2d metadata is set (Block G forensic fix — reconstruction writes real sampled values here, and Studio's own canvas already reads them the same way)", () => {
+    const document = fixtures.assetDemo();
+    const frame = requireNode(Object.values(document.nodes).find((node) => node.type === "FRAME"));
+    const strokeTokenId = createEntityId("token");
+    document.tokens[strokeTokenId] = { id: strokeTokenId, name: "Border", type: "COLOR", value: color(0, 0, 0) };
+    const shape: DesignNode = {
+      ...baseNode(frame.id, "Reconstructed rounded shape"),
+      type: "SHAPE",
+      shapeType: "RECTANGLE",
+      geometry: { width: 150, height: 100, cornerRadius: 12, stroke: { width: 3 } },
+      strokeTokenId,
+    };
+    append(document, frame, shape);
+
+    const projection = project(document);
+    const graph = buildRenderGraph(projection);
+    const shapeRuntimeNode = [...projection.nodes.values()].find((node) => node.name === "Reconstructed rounded shape");
+    if (!shapeRuntimeNode) throw new Error("Shape runtime node is missing.");
+    const shapePaint = operationsOf(graph, "PAINT").find(
+      (operation) => operation.runtimeNodeId === shapeRuntimeNode.id,
+    );
+
+    expect(shapePaint?.style.cornerRadii).toEqual({ topLeft: 12, topRight: 12, bottomRight: 12, bottomLeft: 12 });
+    expect(shapePaint?.style.strokes[0]?.width).toBe(3);
+  });
+
+  it("prefers explicit aevum.renderer2d metadata over geometry-sampled values when both are present", () => {
+    const document = createVisualFixture();
+    const projection = project(document);
+    const graph = buildRenderGraph(projection);
+    const panel = [...projection.nodes.values()].find((node) => node.name === "Gradient panel");
+    if (!panel) throw new Error("Gradient panel runtime node is missing.");
+    const panelPaint = operationsOf(graph, "PAINT").find((operation) => operation.runtimeNodeId === panel.id);
+
+    // "Gradient panel" has explicit aevum.renderer2d cornerRadii (8) and geometry has no cornerRadius
+    // at all — this just re-confirms the explicit metadata path still wins when set.
+    expect(panelPaint?.style.cornerRadii).toEqual({ topLeft: 8, topRight: 8, bottomRight: 8, bottomLeft: 8 });
   });
 
   it("renders nested groups in stable parent-before-child order", () => {

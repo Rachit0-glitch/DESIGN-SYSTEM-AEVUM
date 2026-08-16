@@ -190,43 +190,55 @@ class TransactionController implements CommandTransaction {
     const lastCommand = this.#commands.at(-1);
     if (!working || !lastCommand) throw commandError("TRANSACTION_ERROR", "Cannot commit an empty transaction.");
 
-    const newDocument = finalizeDocument(this.#initial, working, lastCommand);
-    const merged = mergeChanges(this.#applications.map((application) => application.changes));
-    const changeSet: ChangeSet = deepFreeze({
-      ...merged,
-      metadata: {
-        commandIds: this.#commands.map((command) => command.id),
+    // finalizeDocument's post-commit validation can throw (e.g. a command's individual writes were
+    // each valid but leave the document invalid as a whole). Without this guard the transaction was
+    // left stuck in "OPEN" holding the fully-mutated #working document — indistinguishable from a
+    // live transaction, so a caller that didn't separately catch and call rollback() could keep
+    // executing further commands against already-corrupted state. Mirrors execute()'s own
+    // fail-fast/reset-to-#initial behavior so commit() failures are never weaker than execute() ones.
+    try {
+      const newDocument = finalizeDocument(this.#initial, working, lastCommand);
+      const merged = mergeChanges(this.#applications.map((application) => application.changes));
+      const changeSet: ChangeSet = deepFreeze({
+        ...merged,
+        metadata: {
+          commandIds: this.#commands.map((command) => command.id),
+          transactionId: this.id,
+          fromVersion: this.#initial?.documentVersion ?? 0,
+          toVersion: newDocument.documentVersion,
+        },
+      });
+      const affectedEntityIds = [...new Set([...merged.added, ...merged.removed, ...merged.updated, ...merged.moved])];
+      const events = deepFreeze(createEvents(this.#eventDrafts, newDocument));
+      const auditRecord: AuditRecord = deepFreeze({
+        id: `${this.id}:audit`,
         transactionId: this.id,
+        commandIds: this.#commands.map((command) => command.id),
+        commandTypes: this.#commands.map((command) => command.type),
+        documentId: newDocument.metadata.id,
+        actor: lastCommand.actor,
+        timestamp: lastCommand.timestamp,
         fromVersion: this.#initial?.documentVersion ?? 0,
         toVersion: newDocument.documentVersion,
-      },
-    });
-    const affectedEntityIds = [...new Set([...merged.added, ...merged.removed, ...merged.updated, ...merged.moved])];
-    const events = deepFreeze(createEvents(this.#eventDrafts, newDocument));
-    const auditRecord: AuditRecord = deepFreeze({
-      id: `${this.id}:audit`,
-      transactionId: this.id,
-      commandIds: this.#commands.map((command) => command.id),
-      commandTypes: this.#commands.map((command) => command.type),
-      documentId: newDocument.metadata.id,
-      actor: lastCommand.actor,
-      timestamp: lastCommand.timestamp,
-      fromVersion: this.#initial?.documentVersion ?? 0,
-      toVersion: newDocument.documentVersion,
-      affectedEntityIds,
-      result: "SUCCEEDED",
-    });
-    this.#working = newDocument;
-    this.#state = "COMMITTED";
-    this.#options.publisher?.publish(events);
-    return Object.freeze({
-      oldDocument: this.#initial,
-      newDocument,
-      commands: deepFreeze([...this.#commands]),
-      changeSet,
-      events,
-      auditRecord,
-    });
+        affectedEntityIds,
+        result: "SUCCEEDED",
+      });
+      this.#working = newDocument;
+      this.#state = "COMMITTED";
+      this.#options.publisher?.publish(events);
+      return Object.freeze({
+        oldDocument: this.#initial,
+        newDocument,
+        commands: deepFreeze([...this.#commands]),
+        changeSet,
+        events,
+        auditRecord,
+      });
+    } catch (error) {
+      this.#working = this.#initial;
+      this.#state = "FAILED";
+      throw error;
+    }
   }
 
   public rollback(): CanonicalDesignDocument | null {

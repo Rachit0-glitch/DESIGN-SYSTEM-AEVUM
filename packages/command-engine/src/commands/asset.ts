@@ -1,12 +1,33 @@
+import type { CanonicalDesignDocument } from "@aevum/document-model";
 import { commandError } from "../errors.js";
 import { requireDocument } from "../immutable.js";
 import { registerCommand } from "../registry.js";
 import {
-  RegisterAssetCommandSchema,
-  RemoveAssetCommandSchema,
   type RegisterAssetCommand,
+  RegisterAssetCommandSchema,
   type RemoveAssetCommand,
+  RemoveAssetCommandSchema,
 } from "../schemas.js";
+
+// A best-effort, structural scan rather than an enumerated field list: assets are referenced from
+// many places (IMAGE.assetId, SVG.assetId, Reference.assetId, 3D geometry/material/rig fields, ...)
+// and a hand-maintained list would silently go stale as new node types are added. Any occurrence of
+// the literal asset id anywhere under document.nodes or document.references is treated as "in use".
+function assetIsReferenced(document: CanonicalDesignDocument, assetId: string): boolean {
+  const seen = new Set<unknown>();
+  const scan = (value: unknown): boolean => {
+    if (value === assetId) return true;
+    if (value === null || typeof value !== "object") return false;
+    if (seen.has(value)) return false;
+    seen.add(value);
+    if (Array.isArray(value)) return value.some(scan);
+    return Object.values(value as Record<string, unknown>).some(scan);
+  };
+  return (
+    Object.values(document.nodes).some((node) => scan(node)) ||
+    Object.values(document.references).some((reference) => scan(reference))
+  );
+}
 
 registerCommand<RegisterAssetCommand>({
   type: "asset.register",
@@ -49,6 +70,13 @@ registerCommand<RemoveAssetCommand>({
       throw commandError("REFERENCE_MISSING", `Asset ${command.payload.assetId} does not exist.`, {
         assetId: command.payload.assetId,
       });
+    }
+    if (assetIsReferenced(source, command.payload.assetId)) {
+      throw commandError(
+        "CONFLICT_ERROR",
+        `Asset ${command.payload.assetId} is still referenced by at least one node or reference and cannot be removed.`,
+        { assetId: command.payload.assetId },
+      );
     }
   },
   apply(document, command) {

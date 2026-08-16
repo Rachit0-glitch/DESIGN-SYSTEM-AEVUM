@@ -104,12 +104,46 @@ export function resolveStyle(node: RuntimeNode): StyleResolution {
         metadata.metadata.strokes.length > 0
           ? metadata.metadata.strokes
           : stroke
-            ? [{ paint: stroke, width: 1, alignment: "CENTER", join: "MITER", cap: "BUTT", dashArray: [] }]
+            ? [
+                {
+                  paint: stroke,
+                  width: geometryStrokeWidth(source) ?? 1,
+                  alignment: "CENTER",
+                  join: "MITER",
+                  cap: "BUTT",
+                  dashArray: [],
+                },
+              ]
             : [],
-      cornerRadii: metadata.metadata.cornerRadii,
+      cornerRadii: hasCornerRadii(metadata.metadata.cornerRadii)
+        ? metadata.metadata.cornerRadii
+        : geometryCornerRadii(source),
       blendMode: metadata.metadata.blendMode,
       isolated,
     },
     diagnostics,
   });
+}
+
+function hasCornerRadii(radii: { topLeft: number; topRight: number; bottomRight: number; bottomLeft: number }) {
+  return radii.topLeft !== 0 || radii.topRight !== 0 || radii.bottomRight !== 0 || radii.bottomLeft !== 0;
+}
+
+// Reconstruction samples real cornerRadius/stroke-width values directly onto SHAPE.geometry
+// (packages/reconstruction/src/proposal.ts) rather than the "aevum.renderer2d" metadata key, since
+// no canonical Radius/Stroke field exists yet (see that file's "migrationTarget" note). Studio's own
+// canvas already reads geometry.cornerRadius/geometry.stroke.width directly for the same reason
+// (apps/studio/src/main.tsx) — this mirrors that fallback so the rasterizer used by
+// fidelity.measure agrees with what Studio actually renders, instead of always defaulting to 0/1.
+function geometryCornerRadii(source: RuntimeNode["resolvedNode"]) {
+  if (source.type !== "SHAPE") return { topLeft: 0, topRight: 0, bottomRight: 0, bottomLeft: 0 };
+  const radius = (source.geometry as { cornerRadius?: unknown }).cornerRadius;
+  const value = typeof radius === "number" && Number.isFinite(radius) ? radius : 0;
+  return { topLeft: value, topRight: value, bottomRight: value, bottomLeft: value };
+}
+
+function geometryStrokeWidth(source: RuntimeNode["resolvedNode"]): number | undefined {
+  if (source.type !== "SHAPE") return undefined;
+  const width = (source.geometry as { stroke?: { width?: unknown } }).stroke?.width;
+  return typeof width === "number" && Number.isFinite(width) ? width : undefined;
 }

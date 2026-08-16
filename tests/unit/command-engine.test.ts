@@ -1,6 +1,7 @@
 import {
-  CURRENT_COMMAND_VERSION,
+  type Command,
   CommandEngineError,
+  CURRENT_COMMAND_VERSION,
   createCommandId,
   createTransactionId,
   deserializeCommand,
@@ -8,18 +9,17 @@ import {
   listCommands,
   serializeCommand,
   validateCommand,
-  type Command,
 } from "@aevum/command-engine";
 import {
+  type CanonicalDesignDocument,
   createAsset,
   createDocument,
   createEntityId,
   createFrame,
   fixtures,
   serialize,
-  validateDocument,
   ValidationRecordSchema,
-  type CanonicalDesignDocument,
+  validateDocument,
 } from "@aevum/document-model";
 import { buildMechanicalChainTemplate, buildRigNodes } from "@aevum/rigging";
 import { describe, expect, it } from "vitest";
@@ -178,6 +178,46 @@ describe("Command Engine", () => {
 
     expect(registered.assets[asset.id]).toEqual(asset);
     expect(removed.assets[asset.id]).toBeUndefined();
+  });
+
+  it("rejects asset.remove for an asset still referenced by a real Reference record (Block G forensic fix — no dangling assetId pointers)", () => {
+    const document = fixtures.empty();
+    const asset = createAsset({
+      type: "IMAGE",
+      name: "In-use asset",
+      hash: `sha256:${"d".repeat(64)}`,
+      uri: "assets/in-use.png",
+      mimeType: "image/png",
+    });
+    const withAsset = executeCommand(document, {
+      ...base(document),
+      type: "asset.register",
+      payload: { asset },
+    }).newDocument;
+    const reference = {
+      id: createEntityId("reference"),
+      assetId: asset.id,
+      type: "IMAGE" as const,
+      role: "PRIMARY" as const,
+      regions: [],
+      metadata: {},
+    };
+    const withReference = executeCommand(withAsset, {
+      ...base(withAsset),
+      type: "reference.register",
+      payload: { reference },
+    }).newDocument;
+
+    expectCommandError(
+      () =>
+        executeCommand(withReference, {
+          ...base(withReference),
+          type: "asset.remove",
+          payload: { assetId: asset.id },
+        }),
+      "CONFLICT_ERROR",
+    );
+    expect(withReference.assets[asset.id]).toEqual(asset);
   });
 
   it("records a real fidelity ValidationRecord into document.validations (Block D8)", () => {

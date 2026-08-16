@@ -5286,7 +5286,75 @@ than faked.**
 
 ---
 
-## 85. Final Roadmap Statement
+## 86. Block G: Final End-to-End Acceptance + Production Hardening (2026-08-16)
+
+Final acceptance pass over the whole A→F pipeline (real reference image → asset registration →
+vision/reconstruction analysis → reconstruction → renderer → Studio → fidelity measurement →
+correction), followed by a mandatory, independent forensic audit of the entire repository run as
+three parallel background investigations with no access to each other's conclusions or this
+session's prior findings. **Status: acceptance passed with one real bug found and fixed live; forensic
+audit found one CRITICAL, five HIGH (four fixed, one documentation-only), and several MEDIUM/LOW
+findings; CRITICAL and two MEDIUM findings are proposed as scoped future phases rather than faked.**
+
+- **G1–G4 (reconstruction/fidelity/correction/failure-recovery acceptance)**: mostly already covered
+  by existing tests from Blocks C–F; closed the one genuine remaining gap — repeated reference
+  imports (`tests/integration/mcp-reconstruction-repeated-import.test.ts`) — and three real
+  failure-recovery gaps (`tests/integration/mcp-failure-recovery.test.ts`): page-merge fallback for a
+  wrong-type `targetPageId`, graceful degradation for a blank/featureless reference, and
+  `autoCorrect`'s stale-version rejection matching every other write path's safety net.
+- **G5 (live Studio acceptance)**: verified against the actual dev server — a real two-clause
+  compound edit committed with the canonical document version advancing by two real writes; a real
+  FRAME-recolor failure left the document version completely unchanged (zero partial writes); the
+  Fidelity workspace's honest empty state and References panel's honest capability-gap error both
+  reproduced live. **Found and fixed a real bug live**: the AI panel's activity log used
+  `key={action}` on a list of operation-result strings, producing a genuine React duplicate-key
+  warning whenever a compound edit emitted repeated identical strings (e.g. two "node.update —
+  succeeded" entries) — fixed to a stable `${index}:${action}` key (`apps/studio/src/main.tsx`),
+  verified fixed by reproducing the same edit again.
+- **G6 (real, measured performance)**: timed against the real sushi poster fixture — `asset.register`
+  with real local vision analysis ≈ 9.0–9.4s, `reconstruction.import_reference` ≈ 80–270ms,
+  `fidelity.measure` (STANDARD) ≈ 7.5–8.2s; heap usage stabilized at 675MB after a one-time
+  round-1 warm-up, no continued growth across 3 repeated rounds.
+- **G7 + forensic audit (Part 2/3)**: three independent, citation-required background audits covering
+  MCP/Command-Engine reachability, the full reconstruction→renderer→fidelity→correction data
+  lifecycle, and security/production-readiness/docs-consistency. Findings and disposition — full
+  detail in `docs/STABILIZATION_KNOWN_LIMITATIONS.md`'s new "Block G" section:
+  - **CRITICAL (not fixed — proposed future phase)**: reconstruction's own component-detection and
+    advisory-token candidates are validated but never emitted as commands, so `document.components`
+    is always empty — `COMPONENT_INFERENCE` has zero real document effect today.
+  - **HIGH (fixed)**: `packages/renderer-2d` never read reconstruction's real sampled
+    `cornerRadius`/`stroke.width` values, so the fidelity rasterizer disagreed with what Studio's own
+    canvas actually renders — fixed with a geometry-fallback in `styles.ts`, two new regression
+    tests. `asset.remove` had no cross-reference check — fixed with a structural document scan, one
+    new test. `TransactionController.commit()` lacked the same fail-safe reset/rethrow `execute()`
+    has — fixed symmetrically (no live trigger exists under the current schema to regression-test
+    against, disclosed honestly rather than faked).
+  - **HIGH (documentation only)**: the real disabled-Blender-tool count is 40, not the previously
+    documented 14; the Page domain (`page.delete`/`page.rename`) and `asset.remove` are real, tested
+    commands with no MCP tool or Studio UI at all — both now disclosed in
+    `STABILIZATION_KNOWN_LIMITATIONS.md` and proposed as a future phase.
+  - **MEDIUM**: the real, wired rate limiter is single-instance only despite Redis being provisioned
+    and unused (proposed future phase); 8 of 9 interactive Studio panels have no component-level test
+    coverage (proposed future phase); 4 shipped MCP tools were undocumented in both docs (now noted);
+    the roadmap's own prior "500/500 tests" claim was off by one.
+  - **Confirmed NOT A BUG** after direct verification: WRITE-tool validation centralization,
+    LOCAL/REMOTE Studio dispatch parity, auth-mode/permission/workspace-isolation enforcement,
+    optimistic-concurrency coverage across all 43 WRITE-classified tools, deployment config accuracy.
+  - A stale claim in `STABILIZATION_KNOWN_LIMITATIONS.md` ("SHAPE nodes... always a plain rectangle")
+    predating Block C3's real corner-radius/ellipse detection was also found and corrected.
+- Tests: `tests/integration/mcp-reconstruction-repeated-import.test.ts` (1),
+  `tests/integration/mcp-failure-recovery.test.ts` (3), `tests/unit/renderer-2d.test.ts` (+2),
+  `tests/unit/command-engine.test.ts` (+1) — **7 new tests this pass.**
+- Full `pnpm validate` (docs, dependency rules, format, lint, typecheck, **507/507 tests** across 75
+  files, build across all 65 packages) passed clean.
+- Proposed future phases (scoped, not built — see limitations doc for full acceptance criteria):
+  Component Materialization (CRITICAL), Page & Asset Lifecycle Surface (HIGH), Distributed Rate
+  Limiting (MEDIUM), Studio Interactive Panel Test Coverage (MEDIUM), Internationalization
+  (previously wholly unacknowledged).
+
+---
+
+## 87. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.
 

@@ -501,6 +501,208 @@ sushi poster fixture, not a synthetic substitute).
 
 ---
 
+## Block G — Final End-to-End Acceptance + Production Hardening (2026-08-16)
+
+Two parts: (1) a real, evidence-based acceptance pass over the whole A→F pipeline against the real
+sushi poster fixture and the live Studio app, and (2) an independent forensic audit of the entire
+repository across MCP/Command-Engine reachability, the reconstruction→renderer→fidelity→correction
+data lifecycle, and security/production-readiness/docs-consistency — run as three parallel,
+citation-required background investigations with no access to each other's findings or to this
+session's prior conclusions, so they could not simply confirm each other.
+
+### Acceptance results (Part 1)
+
+- **G1 (reconstruction value verification).** Existing tests already assert real value ranges (not
+  just existence) for cornerRadius/ellipse-vs-rectangle detection, gradients, strokes, derived image
+  assets, and token references. The one genuine gap found — repeated imports of the same reference —
+  is now covered: `tests/integration/mcp-reconstruction-repeated-import.test.ts` imports the real
+  sushi poster twice with no `targetPageId` and proves two independent, non-colliding, structurally
+  valid pages result (no corrupted merge, no id collision).
+- **G2/G3 (fidelity + correction acceptance).** Already substantively proven by Block E5/F's real
+  autocorrect and structural-comparison tests against the real fixture; no new gap found in this
+  pass.
+- **G4 (failure/recovery).** An extensive pre-existing failure-mode suite already covers auth
+  rejection, malformed payloads, transaction rollback, locked-node rejection, disabled-tool honesty,
+  and stale-version rejection. Three new tests in `tests/integration/mcp-failure-recovery.test.ts`
+  close the remaining real gaps: (1) a `targetPageId` naming a real-but-wrong-type node gracefully
+  falls back to a new page rather than crashing; (2) a genuinely blank/featureless reference image
+  gracefully degrades to `fallbackManifest()`'s single-region manifest rather than crashing or
+  producing zero regions; (3) `autoCorrect: true` honors the exact same optimistic-concurrency check
+  as every other write path — no weaker safety net for corrections.
+- **G5 (Studio live acceptance).** Run against the actual dev server, not backend tests alone.
+  Verified live: a real two-clause compound edit ("make the headline larger and make the introduction
+  smaller") resolved two distinct real nodes and committed, advancing the canonical document version
+  by two real `node.update` commits; a real, honest `"...targets a FRAME node, which has no fill to
+  recolor."` failure left the document version completely unchanged (zero partial writes); the
+  Fidelity workspace's honest "Not evaluated" empty state and the References panel's honest
+  `asset.register`-unavailable error both reproduced exactly as Block F documented. **A real bug was
+  found and fixed in this pass**: the AI panel's activity log rendered each operational-action string
+  with `key={action}`, so a compound edit producing multiple identical strings (e.g. two
+  `"node.update — succeeded"` entries) triggered a real React duplicate-key warning
+  (`apps/studio/src/main.tsx`). Fixed to key on `${index}:${action}` — safe here because `actions` is
+  always replaced wholesale by `setActions(...)`, never incrementally mutated, verified fixed by
+  reproducing the exact same compound edit again and confirming no new console warning.
+- **G6 (real, measured performance).** Timed against the real sushi poster fixture, 3 repeated
+  rounds, no synthetic data: `asset.register` with `analyzeForReconstruction: true` (real local
+  OCR + color-histogram vision) ≈ 9.0–9.4s; `reconstruction.import_reference` ≈ 80–270ms (fast — the
+  expensive analysis already happened at register time); `fidelity.measure` (STANDARD profile,
+  real raster render + region comparison) ≈ 7.5–8.2s. Heap usage rose from 620MB to 675MB between
+  round 1 and round 2 (one-time warm-up: module init, JIT, caches) and then held flat at 675MB into
+  round 3 — no continued growth observed across repeated calls. A full end-to-end
+  register→import→measure round trip costs roughly 16–17 real seconds today, dominated by local
+  vision analysis and pixel-based fidelity measurement — both real, expected costs of the
+  no-paid-API-beyond-Vision architecture, not something this pass claims to have sped up.
+- **G7 (fabrication/dead-code sweep).** A fresh, repo-wide grep for `TODO`/`FIXME`/`HACK:`/`not
+  implemented`/`placeholder` across `apps/mcp-server/src`, `apps/studio/src`, `packages/fidelity/src`,
+  and `packages/reconstruction/src` found nothing beyond two already-honest, correctly-commented
+  dry-run placeholders in `apps/mcp-server/src/tools.ts` (they never persist bytes and are clearly
+  labeled as such). No new fabrication found beyond what the forensic audit below independently
+  surfaced.
+
+### Forensic audit findings (Part 2) and disposition (Part 3)
+
+Three independent background audits (MCP/Command-Engine surface; data lifecycle across
+reconstruction→renderer→fidelity→correction; security/production-readiness/docs-consistency)
+returned the following real findings, each fixed within the existing architecture unless noted as a
+proposed future phase below.
+
+**CRITICAL**
+- Component and advisory-token candidates that reconstruction's own analyzer detects
+  (`packages/reconstruction/src/analyzer.ts`'s `components.detect` and multi-region-fill token
+  inference) are validated into real `ProposedComponent`/`tokenCandidates` structures by
+  `proposal.ts`, but `commands.ts`'s `buildCommandPlan` never emits any command for them —
+  `document.components` is always empty after reconstruction, and only `applied: true` tokens (a
+  different code path) ever reach `document.tokens`. The whole `COMPONENT_INFERENCE` capability
+  currently has zero document effect. **Not fixed this pass** — closing it needs a real
+  `component.register` command type (none exists today) plus a genuine decision about component
+  identity/instancing semantics, not a mechanical wiring fix. See "Proposed Future Phase: Component
+  Materialization" below.
+
+**HIGH — fixed this pass**
+- `packages/renderer-2d`'s `resolveStyle` never read the real sampled `cornerRadius`/`stroke.width`
+  values reconstruction writes onto `SHAPE.geometry` — only Studio's own CSS canvas read them
+  directly, so the renderer used for `fidelity.measure`'s raster comparison silently disagreed with
+  what Studio actually shows the user. Fixed: `styles.ts` now falls back to
+  `geometry.cornerRadius`/`geometry.stroke.width` when no explicit `aevum.renderer2d` metadata is
+  set, mirroring Studio's own fallback exactly. Verified with two new regression tests
+  (`tests/unit/renderer-2d.test.ts`): the fallback applies when no explicit metadata exists, and
+  explicit `aevum.renderer2d` metadata still wins when both are present.
+- `asset.remove`'s `canExecute` performed no cross-reference check before deleting an asset record,
+  so removing an asset still referenced by a node or `Reference` would have left dangling
+  `assetId` pointers. Fixed with a structural (not enumerated-field-list) scan across
+  `document.nodes` and `document.references` that rejects removal with `CONFLICT_ERROR` if the asset
+  id appears anywhere. (The command itself was already confirmed unreachable from any MCP tool —
+  see below — so this closes a real landmine before it can ever be hit, rather than an active bug.)
+  Verified with a new test in `tests/unit/command-engine.test.ts`.
+- `TransactionController.commit()` had no `try/catch` around `finalizeDocument`'s post-commit
+  validation, unlike `execute()`, which resets state and re-throws symmetrically on any failure. A
+  `commit()`-stage validation failure left the transaction stuck in `"OPEN"` while holding the fully
+  mutated (never persisted) document — indistinguishable from a live transaction to a caller that
+  didn't separately catch and call `rollback()`, three of which (`apps/blender-bridge/src/reconciliation.ts`,
+  `packages/project-store/src/store.ts`, `apps/mcp-server/src/tools.ts`'s fidelity-correction path) do
+  not. Fixed by wrapping `commit()`'s body symmetrically with `execute()`'s existing
+  reset-to-`#initial`/`#state = "FAILED"` pattern. **Not independently regression-tested with a live
+  trigger** — the current `CanonicalDesignDocumentSchema` has no cross-field constraint that
+  `finalizeDocument`'s version/timestamp mutations could plausibly violate given an already-valid
+  working document, so no real path to exercise this branch was found; the fix closes a genuine
+  structural asymmetry in the code (confirmed by direct reading) and the full existing transaction
+  test suite continues to pass with it in place.
+- 40 of the 78 registered MCP tools (all `blender.*`, `camera.create/update`,
+  `cinematic.apply_sequence`, `lighting.*`, and most `three.*` mesh/rig/skin/pose/weight/IK tools) are
+  permanently disabled in production because `createProductionMcpRuntime` never passes a real
+  `blender` adapter — `docs/11_ROADMAP_AND_STATUS.md` previously said "14 disabled-by-default Blender
+  tools," a stale count from before the Three.js/rig/skin tool surface grew. **Documentation only**:
+  the roadmap's disabled-tool count is corrected below; `apps/studio/src/core/capabilities.ts`
+  already has exactly one honestly-documented `NOT_YET_AVAILABLE` capability (`node.reparent`) and
+  should be read as covering the deliberately-disabled Blender-gated surface too, not as an
+  exhaustive list — this doc is the disclosure of record for that gap.
+- The Page domain (`page.delete`, `page.rename`) and `asset.remove` are real, validated, tested
+  command types with **no MCP tool and no Studio affordance** — there is currently no way to delete
+  or rename a page, or hard-remove an asset, through the product at all. Unlike `node.reparent`
+  (honestly documented as `NOT_YET_AVAILABLE`), this gap was previously undisclosed anywhere.
+  **Documentation only this pass** — wiring real MCP tools + Studio UI for page/asset lifecycle
+  management is a genuine, user-facing feature addition, not a mechanical fix; see "Proposed Future
+  Phase: Page & Asset Lifecycle Surface" below.
+
+**MEDIUM — documented, not all fixed**
+- The in-memory rate limiter (`apps/mcp-server/src/executor.ts`) is real and genuinely wired into the
+  request path, but is single-process only; `docker-compose.yml` provisions a Redis cache service
+  that is never actually used anywhere in `apps/`/`packages/`. On any horizontally-scaled deployment
+  each replica has an independent bucket, multiplying the effective limit and resetting on
+  redeploy. **Not fixed this pass** — see "Proposed Future Phase: Distributed Rate Limiting" below.
+- Eight interactive Studio panel components (`AiPanel`, `FidelityWorkspace`, `CanvasNode`,
+  `DesignCanvas`, `LeftPanel`, `PropertiesPanel`, `Timeline`, `ViewportControls`) have zero
+  component-level render-and-assert test coverage; only `ReferencesPanel` does. The underlying
+  session/planner logic these components call into is well-tested, but the components themselves are
+  not. **Not fixed this pass** (would be a substantial standalone test-writing effort across ~8
+  large components) — see "Proposed Future Phase: Studio Panel Test Coverage" below.
+- Four real, registered MCP tools (`three.pose_reset`, `document.get_version`,
+  `document.list_versions`, `three.analyze_web_quality`) have zero mention in either roadmap or
+  limitations docs. **Documentation only**: noted here as shipped-but-previously-undocumented.
+- The roadmap's Block F entry claimed "500/500 tests"; the actual count at the time was 501. This
+  pass's own final count is reported in the roadmap update below rather than left to drift again.
+
+**Everything else the three audits checked was confirmed NOT A BUG** — WRITE-tool validation is
+centralized and real (not duplicated/inconsistent per tool); LOCAL/REMOTE Studio dispatch shares one
+command-engine instance; no silent fallbacks or stubbed handlers were found beyond the disabled-tool
+gate above; optimistic-concurrency checks were verified present on all 43 WRITE-classified MCP tools;
+auth-mode selection, permission enforcement, and workspace isolation are all genuinely layered and
+tested with no bypass found; deployment config accurately reflects "workers not deployed"; the
+older Phase 7/8 validation/correction system's disconnection from real fidelity data was already
+disclosed in Block F.
+
+### Proposed future phases (not built this pass — genuinely new architecture, not mechanical fixes)
+
+- **Component Materialization.** Reason: `document.components` currently has zero real content
+  despite reconstruction detecting real repeated-structure candidates; `COMPONENT_INFERENCE` is a
+  claimed capability with no document effect. Dependency: none blocking, but touches the schema's
+  component/instance model. Problem: no `component.register` command type exists, and component
+  identity/instancing semantics (what makes two detected regions "the same component," how edits to
+  one instance propagate) is a real product decision, not a data-plumbing gap. Proposed solution: design
+  a `component.register`/`component.instantiate` command pair, decide instance-vs-definition
+  propagation semantics, wire `buildCommandPlan` to emit them for `applied`-eligible
+  `ProposedComponent`s. Acceptance criteria: a real, repeated visual structure in a reference image
+  produces a real `document.components` entry and real component-instance nodes, editable and
+  fidelity-measurable the same as any other node. Why not part of A→G: requires a genuine schema/
+  product decision this pass's scope (mechanical fixes within existing architecture) explicitly
+  excludes.
+- **Page & Asset Lifecycle Surface.** Reason: `page.delete`, `page.rename`, and `asset.remove` are
+  real, tested command-engine commands with no way to reach them from the product. Dependency: none.
+  Problem: no MCP tool or Studio UI affordance exists for deleting/renaming a page or removing an
+  asset. Proposed solution: add `page.delete`/`page.rename`/`asset.remove` MCP tools following the
+  exact pattern of `document.rename`/`node.delete`, plus Studio UI entry points (page context menu,
+  asset browser). Acceptance criteria: a user can delete/rename a page and remove an unreferenced
+  asset through Studio, with the same optimistic-concurrency and cross-reference safety already
+  proven in the command layer. Why not part of A→G: user-facing feature/UI work, not a fix to
+  something already wired.
+- **Distributed Rate Limiting.** Reason: the real, wired in-memory rate limiter does not coordinate
+  across replicas; Redis is provisioned but unused. Dependency: none. Problem: horizontal scaling
+  silently multiplies the effective rate limit and resets it on every redeploy, with no current
+  disclosure. Proposed solution: a `RedisRateLimitProvider` implementing the same interface as
+  `createInMemoryRateLimitProvider`, selected by runtime config. Acceptance criteria: two replicas
+  sharing one Redis instance enforce one real, combined limit. Why not part of A→G: a genuine new
+  infrastructure integration and failure-mode surface (Redis unavailable, latency budget), not a
+  same-file fix.
+- **Studio Interactive Panel Test Coverage.** Reason: eight large, user-facing panel components have
+  no render-level test coverage. Dependency: none. Problem: regressions in these components'
+  rendering/interaction logic (as opposed to the session/planner logic they call) would not be
+  caught by the existing test suite — the AiPanel duplicate-key bug found live in this pass is a
+  concrete example of the kind of defect this gap misses. Proposed solution: React Testing Library
+  render-and-interact tests for each panel, starting with `AiPanel` and `FidelityWorkspace`.
+  Acceptance criteria: each panel has at least one test that renders it, drives a real interaction,
+  and asserts on rendered output. Why not part of A→G: substantial standalone test-authoring effort
+  across many large components, not a targeted fix.
+- **Internationalization.** Reason: zero i18n/locale infrastructure exists anywhere in
+  `apps/studio/src`, and — unlike backup/observability/load-testing/accessibility, which are
+  explicitly scoped into the existing "Phase 24 — Production Hardening" roadmap entry — this gap was
+  previously completely unacknowledged. Dependency: none blocking. Problem: no locale library, no
+  externalized strings, no RTL consideration anywhere in the UI. Proposed solution: adopt a standard
+  i18n library, externalize Studio's UI strings, decide locale-detection/switching UX. Acceptance
+  criteria: Studio renders correctly in at least one non-English locale end to end. Why not part of
+  A→G: a genuine new product surface and UX decision, not a fix to existing broken behavior.
+
+---
+
 ## Is the annotated poster image editable?
 
 **No — the annotated PNG sent in this conversation is a static diagnostic visualization only.**
@@ -514,8 +716,12 @@ rename, retype (for TEXT), undo/redo, save, and reload in Studio, using the same
 other canonical node uses. Within that, by node type:
 
 - **TEXT nodes** — fully editable, including retyping the actual recognized string.
-- **SHAPE nodes** — position/size/fill color are real and editable; shape is always a plain
-  rectangle (no corner radius or vector path is ever detected).
+- **SHAPE nodes** — position/size/fill color are real and editable; corner radius and ellipse vs.
+  rectangle are both really detected from pixels (Block C3) and — as of Block G's forensic-audit
+  fixes — really rendered by `packages/renderer-2d` too, not just Studio's own canvas (see
+  `packages/renderer-2d/src/styles.ts`'s `geometryCornerRadii`/`geometryStrokeWidth` fallback); no
+  arbitrary vector path is ever detected, so non-rectangular/non-elliptical shapes still fall back to
+  a bounding rectangle.
 - **IMAGE nodes** — position, size, and crop window are real and editable in every case. For
   regions in a sane size/area range, the pixels are now also a real, independently extracted and
   stored derived asset (`extracted: true`, with real DERIVED lineage back to the source); for

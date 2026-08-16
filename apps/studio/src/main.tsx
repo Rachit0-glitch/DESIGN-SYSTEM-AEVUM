@@ -917,8 +917,14 @@ function AiPanel({
       ) : null}
       <div className="ai-actions" aria-live="polite">
         {actions.length ? (
-          actions.map((action) => (
-            <div key={action}>
+          // `actions` is always replaced wholesale by setActions(...) on each run (never incrementally
+          // appended/reordered), so the index is a genuinely stable identity here; the content alone
+          // isn't unique (e.g. repeated "node.update — succeeded" entries from a multi-clause compound
+          // edit), which is what caused a real React duplicate-key warning found via live Studio
+          // testing (Block G, G5).
+          actions.map((action, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: see comment above the .map() call
+            <div key={`${index}:${action}`}>
               <WandSparkles />
               <span>{action}</span>
             </div>
