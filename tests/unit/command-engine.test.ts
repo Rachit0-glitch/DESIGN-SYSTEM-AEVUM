@@ -74,6 +74,7 @@ describe("Command Engine", () => {
       "page.delete",
       "page.rename",
       "reference.register",
+      "reference.update",
       "rig.create",
       "scene3d.import",
       "timeline.create",
@@ -198,6 +199,114 @@ describe("Command Engine", () => {
 
     expect(result.validations[record.id]).toEqual(record);
     expect(document.validations[record.id]).toBeUndefined();
+  });
+
+  it("replaces an existing reference's underlying asset via reference.update (Block D completeness)", () => {
+    const document = fixtures.empty();
+    const originalAsset = createAsset({
+      type: "IMAGE",
+      name: "Original reference",
+      hash: `sha256:${"1".repeat(64)}`,
+      uri: "assets/original.png",
+      mimeType: "image/png",
+    });
+    const replacementAsset = createAsset({
+      type: "IMAGE",
+      name: "Replacement reference",
+      hash: `sha256:${"2".repeat(64)}`,
+      uri: "assets/replacement.png",
+      mimeType: "image/png",
+    });
+    const withOriginalAsset = executeCommand(document, {
+      ...base(document),
+      type: "asset.register",
+      payload: { asset: originalAsset },
+    }).newDocument;
+    const withAssets = executeCommand(withOriginalAsset, {
+      ...base(withOriginalAsset),
+      type: "asset.register",
+      payload: { asset: replacementAsset },
+    }).newDocument;
+
+    const reference = {
+      id: createEntityId("reference"),
+      assetId: originalAsset.id,
+      type: "IMAGE" as const,
+      role: "PRIMARY" as const,
+      regions: [],
+      metadata: {},
+    };
+    const withReference = executeCommand(withAssets, {
+      ...base(withAssets),
+      type: "reference.register",
+      payload: { reference },
+    }).newDocument;
+
+    const replaced = executeCommand(withReference, {
+      ...base(withReference),
+      type: "reference.update",
+      payload: { reference: { ...reference, assetId: replacementAsset.id } },
+    }).newDocument;
+
+    expect(replaced.references[reference.id]?.assetId).toBe(replacementAsset.id);
+  });
+
+  it("rejects reference.update for a reference that does not exist, or an asset that does not exist", () => {
+    const document = fixtures.empty();
+    const asset = createAsset({
+      type: "IMAGE",
+      name: "Some asset",
+      hash: `sha256:${"3".repeat(64)}`,
+      uri: "assets/some.png",
+      mimeType: "image/png",
+    });
+    const withAsset = executeCommand(document, {
+      ...base(document),
+      type: "asset.register",
+      payload: { asset },
+    }).newDocument;
+
+    expectCommandError(
+      () =>
+        executeCommand(withAsset, {
+          ...base(withAsset),
+          type: "reference.update",
+          payload: {
+            reference: {
+              id: createEntityId("reference"),
+              assetId: asset.id,
+              type: "IMAGE",
+              role: "PRIMARY",
+              regions: [],
+              metadata: {},
+            },
+          },
+        }),
+      "REFERENCE_MISSING",
+    );
+
+    const reference = {
+      id: createEntityId("reference"),
+      assetId: asset.id,
+      type: "IMAGE" as const,
+      role: "PRIMARY" as const,
+      regions: [],
+      metadata: {},
+    };
+    const withReference = executeCommand(withAsset, {
+      ...base(withAsset),
+      type: "reference.register",
+      payload: { reference },
+    }).newDocument;
+    expectCommandError(
+      () =>
+        executeCommand(withReference, {
+          ...base(withReference),
+          type: "reference.update",
+          payload: { reference: { ...reference, assetId: "asset_00000000-0000-4000-8000-000000000000" } },
+        }),
+      "REFERENCE_MISSING",
+    );
   });
 
   it("rejects a ValidationRecord that references a non-existent asset or reference", () => {

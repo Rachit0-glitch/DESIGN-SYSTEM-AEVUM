@@ -18,18 +18,29 @@ Status key: 🟢 solid and tested · 🟡 real but bounded/partial · 🔴 known
 MCP-tool-input match.
 
 **Limitations:**
-- 🟡 **Only 4 command types are mapped**: `node.create`, `node.update`, `node.delete`,
-  `document.rename`. Every other Command Engine type Studio's local session can construct
-  (`node.move`, `node.duplicate`, `material.update`, `light.update`, `page.*`, `lighting.*`,
-  `camera.*`, `scene3d.import`, …) is honestly rejected with "no MCP tool mapping exists for it
-  yet" — not silently dropped, but also not usable remotely. `session.ts`'s `moveNode`/
-  `duplicateNode` already throw explicitly in REMOTE mode for this reason (pre-existing, not new).
-- 🟡 **Capability check is a single snapshot at session bootstrap.** `client.discoverCapabilities()`
-  is called once when `loadProductionStudioProject()` runs. If an admin changes the signed-in
-  user's role mid-session, Studio's local allow/deny check won't reflect it until next reload —
-  the *server* still independently re-checks every write (this is not a security gap), but the
-  client-side pre-check can be stale for the rest of that session.
-- 🔴 **No client-side capability re-fetch / invalidation mechanism** exists at all.
+- 🟢 **Update (Block D completeness, 2026-08-16): this bullet was stale — the "only 4 command
+  types" ceiling no longer exists.** `apps/studio/src/core/capabilities.ts`'s `STUDIO_CAPABILITIES`
+  registry (added after this bullet was originally written) now documents 12 `AVAILABLE` MCP
+  tools — 8 routable through the generic command-shaped gateway (`node.create`, `node.update`,
+  `node.delete`, `document.rename`, `node.move`, `node.duplicate`, `token.register`,
+  `reference.update`) plus 4 invoked directly with tool-specific payloads because their shape
+  doesn't match a single Command Engine payload (`asset.register`, `reconstruction.import_reference`,
+  `document.get`, `fidelity.measure`). Commands with genuinely no MCP tool yet (`material.update`,
+  `light.update`, `page.*`, `lighting.*`, `camera.*`, `scene3d.import`, `node.reparent`, …) are
+  still honestly rejected — `session.ts`'s `moveNode`/`duplicateNode` no longer need to throw for
+  this reason since Block D2, and `findStudioCapability()`/`isGatewayRoutable()` are the current
+  single source of truth for what's routable, not a bare allowlist.
+- 🟢 **Update (Block D completeness, 2026-08-16): fixed.** A capability re-fetch mechanism now
+  exists. `ProductionStudioProject.refreshCapabilities()` (`apps/studio/src/core/production.ts`)
+  re-calls `client.discoverCapabilities()` and swaps the module's capability state (enabled tools +
+  derived actor permissions) in place; `ProductionBootstrap` (`apps/studio/src/main.tsx`) calls it
+  automatically on `document.visibilitychange` whenever the tab becomes visible again. A mid-session
+  role change is now reflected without a full project reload — proven by
+  `tests/unit/studio-production.test.ts`'s "reflects a mid-session role change... without a full
+  project reload" test, which asserts a command is rejected before the refresh and accepted after
+  it, using a fetch mock that changes `enabledTools` between calls. The server still independently
+  re-checks every write regardless (this was never the security boundary); this closes the
+  client-side staleness window instead.
 
 ---
 
@@ -43,23 +54,22 @@ agent architecture — it's the same one `packages/agent-planner`/`packages/agen
 implement, previously only exercised by tests.
 
 **Limitations:**
-- 🟡 **No natural-language understanding anywhere.** `deriveChangesFromPrompt()` is deliberate
-  keyword matching (`rename to "..."`, `center`, `bigger`/`smaller`, `left`/`right`/`up`/`down`
-  with optional `NNpx`) that produces a structured `parameters.changes` object before the real
-  engine ever runs. A prompt it can't map returns `undefined` and the panel says so honestly
-  ("Could not map ... to a supported edit") rather than guessing. This was a deliberate,
-  documented decision (research confirmed zero NLP exists anywhere in this codebase), not an
-  oversight — but it means the AI panel cannot act on open-ended instructions.
+- 🟡 **Update (Block D completeness, 2026-08-16): function name in this bullet was stale, the
+  underlying limitation is not.** The keyword-matching prompt interpreter moved server-side and was
+  renamed to `interpretNodeEditPrompt()` (`packages/agent-runtime/src/engine.ts`, Block D4) — it is
+  still deliberate keyword matching (`rename to "..."`, `center`, `bigger`/`smaller`,
+  `left`/`right`/`up`/`down` with optional `NNpx`, plus delete-intent classification added in
+  Issue 2), not real NLU, and a prompt it can't map still returns honestly rather than guessing.
+  The "AI panel cannot act on open-ended instructions" conclusion still holds.
 - 🟡 **Only ever edits one already-selected node.** `run()` operates on `selected[0]` (or the first
   root node); there is no multi-node selection support, no node creation or deletion via the AI
   panel, no cross-node instructions ("make all headings bold").
-- 🔴 **The approval adapter is a stub that fails closed, with no real UI.**
-  `createDeterministicApprovalAdapter()` is called with no arguments, so its `approvedStepIds`/
-  `approvedTools` sets are always empty — **every** plan step that requires approval is
-  automatically *rejected*, not auto-approved. Today this doesn't bite because `node.update` isn't
-  a `DESTRUCTIVE_WRITE` step, but the moment AI-panel capability grows to include anything that
-  requires approval (e.g. delete), those runs will fail outright with no way for a user to approve
-  them, because there is no approval UI anywhere in Studio yet.
+- 🟢 **Update (Block D5, fixed before this pass): the approval adapter is no longer a stub.**
+  `createInteractiveApprovalAdapter()` (`apps/studio/src/core/approval.ts`) replaced the old
+  `createDeterministicApprovalAdapter()` call that always auto-rejected every approval-gated step.
+  Approval-gated plan steps now surface a real pending-approval UI in Studio
+  (`StudioPendingApproval`) that a user can actually approve or reject, instead of failing closed
+  with no way to respond.
 - 🟢 **Canonical sync is correct**: production-mode writes call
   `session.acknowledgeAgentNodeUpdate()` afterward (STEP 10); dev-fixture mode's in-process
   transport already applies the change via `session.updateNode()` as part of simulating the tool
@@ -93,9 +103,14 @@ not hypothetical:**
 - 🟡 **No rounded corners / vector paths.** Every SHAPE region is a plain axis-aligned rectangle;
   `cornerRadius`, non-rectangular geometry, and gradients/strokes are never detected (the sushi
   poster's rounded price badge becomes a sharp-cornered rectangle).
-- 🟡 **IMAGE regions are never independently extracted.** Every IMAGE-category node is
-  `image: { fit: "COVER", extracted: false }` — a crop-window into the *original* single source
-  asset, not its own standalone image file. See STEP 7 below for what this means for editability.
+- 🟢 **Update (fixed before this pass): qualifying IMAGE regions are now independently extracted.**
+  `extractIndependentImageAssets()` (`apps/mcp-server/src/tools.ts`) crops a real, separately stored
+  DERIVED asset (with full lineage back to the source via `source.originalAssetId` +
+  `provenance.processingChain`) for each IMAGE region big enough and small-enough-relative-to-the-
+  source-image to be a plausible standalone graphic — not a tiny fragment or a near-full-image crop.
+  Regions outside that range still fall back to `extracted: false` (a crop-window into the shared
+  source asset), which is the correct behavior for e.g. a decorative sliver too small to be its own
+  asset. See STEP 7 below for what this means for editability.
 - 🟡 **OCR trained-data caching is a real, disclosed network dependency.** First use in a given
   cache directory downloads `eng.traineddata` from tesseract.js's CDN; every run after that against
   the same cache directory is offline. The MCP server points this at
@@ -143,24 +158,37 @@ wires a real upload button through `asset.register` → `reconstruction.import_r
 `session.resyncDocument()`.
 
 **Limitations:**
-- 🟡 **Every import creates a brand-new PAGE, not a merge into the current layout.**
-  `createReconstructionProposal()` always builds a new `page`/`frame` pair (reusing the *document*
-  if one exists, via `existingDocument`, so it doesn't wipe other pages — but it never intelligently
-  merges reconstructed content into an already-open page/frame). Importing a reference into a
-  project with existing work adds a new page alongside it, it does not overlay/replace content on
-  the page you're looking at.
-- 🟡 **IMAGE nodes reference a crop of the single original source asset, not an extracted file**
-  (same root cause as STEP 5's `extracted: false`). This is real and editable at the *node* level
-  (you can move, resize, or change the crop window), but you cannot independently replace or paint
-  over just that region's pixels without it still reading from the one shared source image. See the
-  direct answer on "is the image editable" below.
+- 🟡 **Update (Block D completeness, 2026-08-16): merging into an existing page is now possible,
+  but opt-in, not automatic.** `reconstruction.import_reference` accepts an optional `targetPageId`;
+  when set and it resolves to a real PAGE already in the target document,
+  `createReconstructionProposal()` (`packages/reconstruction/src/proposal.ts`) parents the new
+  FRAME under that page and skips proposing a `page.create` at all — `addNode()`'s existing
+  parent-`childIds`-append behavior (Command Engine) handles wiring the frame in without any new
+  update command. Verified end to end by
+  `tests/integration/mcp-reconstruction-import.test.ts`'s "merges into an existing page via
+  targetPageId" test (imports twice, second import's `targetPageId` set to the first import's page,
+  asserts exactly one PAGE node and two FRAME children under it). Studio does not yet pass
+  `targetPageId` from the References panel's import flow — the capability exists at the MCP/engine
+  layer, wiring it into a "import into current page" UI control is unbuilt. When `targetPageId` is
+  unset (Studio's current default), behavior is unchanged: a new page is always created.
+- 🟢 **Update (fixed before this pass): IMAGE nodes for qualifying regions now reference a real,
+  independently extracted derived asset, not only a crop of the source.** See STEP 5's corrected
+  IMAGE-extraction bullet above — `extractIndependentImageAssets()` covers regions in a sane
+  size/area range; regions outside that range still fall back to a crop of the shared source asset,
+  which remains real and editable at the node level (move/resize/recrop) but not independently
+  replaceable. See the direct answer on "is the image editable" below for the current, accurate
+  per-node-type breakdown.
 - 🟡 **No response streaming / progress feedback during the import itself.** Studio's References
   panel shows coarse stages (Uploading… / Analyzing… / Creating editable layers…) driven by which
   MCP call is in flight, not real per-region progress from the engine (the engine call itself is
   a single synchronous request-response, consistent with STEP 4's engine also being non-streaming).
-- 🟡 **Reconstructed nodes carry no automatic “fidelity” evaluation.** They land in the document
-  exactly like any other node — nothing computes or stores a `ValidationRecord` for them (see
-  STEP 8 below); "how close is this to the source" is not measured.
+- 🟢 **Corrected framing (Block D completeness, 2026-08-16): this was never a gap to fix, it was
+  always intentional design — the original 🟡 framing here was misleading.** Fidelity evaluation
+  (Block D8's `fidelity.measure`) is deliberately on-demand, not automatic-on-import: reconstruction
+  produces canonical nodes, and a user (or the Fidelity workspace) separately triggers a real
+  measurement against a chosen reference when they want one, persisting a real `ValidationRecord`
+  (see STEP 8's corrected bullet below). Nothing about reconstruction blocks or defers an automatic
+  measurement that was supposed to exist — none was ever designed to run automatically on import.
 - 🟢 **Undo/redo/save/reload work correctly for reconstructed content** because reconstructed nodes
   are ordinary canonical nodes — this relies on already-existing, already-tested Command Engine /
   `ProjectStore` machinery, not anything new built in this block.
@@ -173,15 +201,16 @@ wires a real upload button through `asset.register` → `reconstruction.import_r
 scores when a `ValidationRecord` exists, and an honest "Not evaluated" empty state when it doesn't.
 
 **Limitations:**
-- 🔴 **Nothing in this codebase ever writes a `ValidationRecord`.** No Command Engine command,
-  worker, or MCP tool populates `document.validations` — `fidelity.validate_report`/
-  `fidelity.propose_corrections` are stateless validators that take an externally-supplied report
-  as *input*, they don't compute or persist one. In practice, `FidelityWorkspace` will show "Not
-  evaluated" for every real document today, because there is currently no path that ever produces
-  a real fidelity report to display. This is the honest, correct behavior per the explicit
-  instruction ("show 'Not available' rather than inventing scores") — but it also means this UI is
-  not yet backed by any live capability, only by the *possibility* of one if a report is ever
-  written.
+- 🟢 **Update (Block D8, fixed before this pass): a real path now writes `ValidationRecord`s.**
+  `fidelity.measure` (`apps/mcp-server/src/tools.ts`) runs a real Maximum Fidelity measurement —
+  rendering the current document via the real Scene Runtime/Renderer 2D/Playwright raster pipeline,
+  comparing it against a registered reference image — and persists the result via a new
+  `validation.record` Command Engine command, so `document.validations` is genuinely populated for
+  any node a user chooses to measure. `fidelity.validate_report`/`fidelity.propose_corrections`
+  remain stateless validators over an externally-supplied report, unrelated to this path.
+  `FidelityWorkspace` still correctly shows "Not evaluated" for any node nobody has measured yet —
+  that empty state is honest, not a bug — but it is no longer true that *no* path exists to produce
+  a real one.
 - 🟡 **The displayed "average" score is a client-side mean of whatever domain scores exist**, not
   a value the fidelity engine itself computed as "overall" — deliberately labeled "Average of N
   domain score(s)" rather than "Overall" to avoid implying more authority than it has.
@@ -201,8 +230,14 @@ scores when a `ValidationRecord` exists, and an honest "Not evaluated" empty sta
   (dimensions, evaluation status) in the left sidebar; there is no "show the original image
   semi-transparently over the canvas for comparison" feature. This was flagged explicitly before
   attempting STEP 11 and is still unbuilt.
-- 🟡 **"Replace reference" is not wired.** Only the new "Import reference" (adds a reference) path
-  works; there is no replace/delete-reference flow.
+- 🟢 **Update (Block D completeness, 2026-08-16): "Replace reference" is now wired.** A new
+  `reference.update` Command Engine command + MCP tool
+  (`packages/command-engine/src/commands/reference.ts`, `apps/mcp-server/src/tools.ts`) replaces an
+  existing reference's underlying `assetId` while preserving the reference's own `id`, so any
+  `ValidationRecord`s that already cite it by `referenceId` stay linked. The panel's "Replace
+  reference" button now uploads a new image and calls it, mirroring the existing "Import reference"
+  flow's upload UX. There is still no delete-reference flow — replacing is covered, removing is
+  not.
 
 ---
 
@@ -336,6 +371,45 @@ reported it as unaddressed; it has since been closed for the solid-color case in
 
 ---
 
+## Block D completeness pass (2026-08-16)
+
+A full re-audit of every limitation recorded above found the list itself had drifted: several
+bullets described gaps that earlier Block D work (D2–D13, already committed) had already closed
+without this document being updated to say so. This pass did two things: corrected every stale
+claim in place (marked 🟢 with an "Update" note above, at STEP 3, 4, 5, 7, 8, and 9), and closed
+the remaining gaps that were genuinely still open and didn't require infrastructure unavailable in
+this environment:
+
+- **"Replace reference" wired** (was unwired in STEP 9) — new `reference.update` command + MCP
+  tool + Studio button wiring.
+- **Client-side capability re-fetch** (was entirely absent in STEP 3) — `refreshCapabilities()`,
+  fired automatically on tab-visibility return.
+- **Reconstruction page-merge** (was always-new-page in STEP 7) — optional `targetPageId` on
+  `reconstruction.import_reference`, opt-in, verified end to end.
+
+**Deliberately left open, with the concrete reason each needs something this environment doesn't
+have:**
+- 🔴 **Live Supabase Storage confirmation** (STEP 6) — `createSupabaseAssetStorage` is still only
+  exercised via `createInMemoryAssetStorage` in tests. Confirming it needs a real
+  `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY`/`SUPABASE_STORAGE_BUCKET` against a live bucket, which
+  this environment does not have credentials for.
+- 🔴 **Malware/content-safety scanning on asset upload** (STEP 6) — every asset still gets
+  `inspector: "NONE"`. This needs integrating a real third-party scanning service; there is no local
+  substitute that would be honest to build, and no such service is wired into this project.
+- 🔴 **Stylized/display typography detection** (STEP 5/11, the "SUSHI" headline) — tesseract's
+  line-level detector fundamentally doesn't propose heavily stylized text as a candidate at all;
+  fixing this needs a dedicated text-region-detection front end (EAST/CRAFT-style), which is new ML
+  engineering, not a fix to what exists.
+- 🔴 **On-canvas reference-image overlay** (STEP 9) — showing the original reference
+  semi-transparently over the canvas for visual comparison is a real, sizeable new Studio UI
+  feature (canvas layering, opacity control, toggle state), not a small wiring gap like the three
+  items closed above.
+
+None of these four required a design decision to skip — each has a concrete, stated reason it
+needs infrastructure or engineering effort beyond what "wire up an existing capability" covers.
+
+---
+
 ## Is the annotated poster image editable?
 
 **No — the annotated PNG sent in this conversation is a static diagnostic visualization only.**
@@ -351,7 +425,9 @@ other canonical node uses. Within that, by node type:
 - **TEXT nodes** — fully editable, including retyping the actual recognized string.
 - **SHAPE nodes** — position/size/fill color are real and editable; shape is always a plain
   rectangle (no corner radius or vector path is ever detected).
-- **IMAGE nodes** — position, size, and crop window are real and editable; the underlying pixels
-  are **not** an independently extracted image file, they're a crop of the one original source
-  asset (`extracted: false`), so you can move/resize/recrop the window but not edit that region's
-  pixel content in isolation from the source photo.
+- **IMAGE nodes** — position, size, and crop window are real and editable in every case. For
+  regions in a sane size/area range, the pixels are now also a real, independently extracted and
+  stored derived asset (`extracted: true`, with real DERIVED lineage back to the source); for
+  regions outside that range (too small, or nearly the whole source image), the pixels remain a
+  crop of the one original source asset (`extracted: false`) — editable in position/size/crop
+  window, but not independently replaceable or exportable in isolation from the source photo.

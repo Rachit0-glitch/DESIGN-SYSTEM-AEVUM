@@ -497,6 +497,14 @@ export function createReconstructionProposal(
     },
   };
 
+  // Block D completeness: merge into an existing page instead of always creating a new one, when
+  // the caller explicitly asked for it and that page genuinely exists. A frame is always created
+  // fresh either way — this only changes which page becomes its parent, and whether a new page
+  // (and its own page.create command, later in buildCommandPlan) is proposed at all.
+  const mergeTargetPage = task.targetPageId ? existing?.nodes[task.targetPageId] : undefined;
+  const mergingIntoExistingPage = mergeTargetPage?.type === "PAGE" ? mergeTargetPage : undefined;
+  const frameParentId = mergingIntoExistingPage?.id ?? pageId;
+
   const page = DesignNodeSchema.parse({
     ...baseNode(
       pageId,
@@ -514,7 +522,7 @@ export function createReconstructionProposal(
   });
   const rootTransform = createTransform();
   const frame = DesignNodeSchema.parse({
-    ...baseNode(frameId, "FRAME", "Reference frame", pageId, pageRegion, pageRegion, referenceId, "NATIVE"),
+    ...baseNode(frameId, "FRAME", "Reference frame", frameParentId, pageRegion, pageRegion, referenceId, "NATIVE"),
     type: "FRAME",
     transform: rootTransform,
     dimensions: {
@@ -526,19 +534,23 @@ export function createReconstructionProposal(
     semanticRole: "reconstructed-reference-root",
   });
   const proposedNodes: ProposedNode[] = [
-    ProposedNodeSchema.parse({
-      node: page,
-      childOrder: existing?.pages.length ?? 0,
-      sourceRegionId: pageRegion.id,
-      sourceAssetId: source.asset.id,
-      confidence: pageRegion.confidence,
-      provenance: pageRegion.provenance,
-      fallbackStatus: "NATIVE",
-      unsupportedFeatureNotes: [],
-    }),
+    ...(mergingIntoExistingPage
+      ? []
+      : [
+          ProposedNodeSchema.parse({
+            node: page,
+            childOrder: existing?.pages.length ?? 0,
+            sourceRegionId: pageRegion.id,
+            sourceAssetId: source.asset.id,
+            confidence: pageRegion.confidence,
+            provenance: pageRegion.provenance,
+            fallbackStatus: "NATIVE",
+            unsupportedFeatureNotes: [],
+          }),
+        ]),
     ProposedNodeSchema.parse({
       node: frame,
-      childOrder: 0,
+      childOrder: mergingIntoExistingPage ? mergingIntoExistingPage.childIds.length : 0,
       sourceRegionId: pageRegion.id,
       sourceAssetId: source.asset.id,
       confidence: pageRegion.confidence,

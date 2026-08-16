@@ -1342,6 +1342,7 @@ export function registerInitialTools(
           targetDocumentId: document.metadata.id,
           expectedDocumentVersion: document.documentVersion,
           ...(input.requestedPageName ? { requestedPageName: input.requestedPageName } : {}),
+          ...(input.targetPageId ? { targetPageId: input.targetPageId } : {}),
           qualityMode: input.qualityMode,
           targetViewport: {
             width: sourceAsset.dimensions.width,
@@ -1974,6 +1975,24 @@ export function registerInitialTools(
           ...base,
           type: "token.register",
           payload: { token: input.token },
+        }));
+      },
+      config,
+    ),
+  );
+
+  registry.registerTool(
+    definition(
+      "reference.update",
+      "Replace an existing reference record's underlying asset (e.g. Studio's 'Replace reference' control) while preserving its identity.",
+      ["document.write"],
+      "WRITE",
+      async (raw, context) => {
+        const input = TOOL_SCHEMAS["reference.update"].input.parse(raw);
+        return executeWrite(context, input, (base) => ({
+          ...base,
+          type: "reference.update",
+          payload: { reference: input.reference },
         }));
       },
       config,

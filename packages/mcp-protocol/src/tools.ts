@@ -12,6 +12,7 @@ import {
   DesignNodeSchema,
   EntityIdSchema,
   JsonValueSchema,
+  ReferenceRecordSchema,
   TimelineSchema,
   TokenSchema,
   TransformSchema,
@@ -109,6 +110,7 @@ export const McpToolNameSchema = z.enum([
   "node.move",
   "node.duplicate",
   "token.register",
+  "reference.update",
 ]);
 
 export const McpToolDescriptorSchema = z.strictObject({
@@ -289,6 +291,10 @@ export const ReconstructionImportReferenceInputSchema = z.strictObject({
   sourceAssetId: EntityIdSchema,
   requestedPageName: z.string().trim().min(1).max(255).optional(),
   qualityMode: z.enum(["DRAFT", "HIGH_QUALITY", "MAXIMUM_FIDELITY"]).default("DRAFT"),
+  // Block D completeness: when set and the id resolves to a real PAGE already in the target
+  // document, the reconstruction attaches its new FRAME to that existing page instead of
+  // always creating a brand-new one. Ignored (falls back to prior behavior) when unset.
+  targetPageId: EntityIdSchema.optional(),
 });
 export const ReconstructionImportReferenceOutputSchema = z.strictObject({
   dryRun: z.boolean(),
@@ -606,6 +612,7 @@ export const NodeDuplicateInputSchema = WriteBaseSchema.extend({
   name: z.string().trim().min(1).max(255).optional(),
 });
 export const TokenRegisterInputSchema = WriteBaseSchema.extend({ token: TokenSchema });
+export const ReferenceUpdateInputSchema = WriteBaseSchema.extend({ reference: ReferenceRecordSchema });
 export const FidelityInspectInputSchema = z.strictObject({ profile: FidelityProfileNameSchema });
 export const FidelityInspectOutputSchema = z.strictObject({
   profile: FidelityProfileNameSchema,
@@ -1127,6 +1134,7 @@ export const TOOL_SCHEMAS = Object.freeze({
   "node.move": { input: NodeMoveInputSchema, output: WriteToolOutputSchema },
   "node.duplicate": { input: NodeDuplicateInputSchema, output: WriteToolOutputSchema },
   "token.register": { input: TokenRegisterInputSchema, output: WriteToolOutputSchema },
+  "reference.update": { input: ReferenceUpdateInputSchema, output: WriteToolOutputSchema },
   "three.update_node_transform": {
     input: ThreeUpdateNodeTransformInputSchema,
     output: WriteToolOutputSchema,

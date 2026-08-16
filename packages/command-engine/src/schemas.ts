@@ -140,6 +140,11 @@ export const RegisterReferenceCommandSchema = z.strictObject({
   type: z.literal("reference.register"),
   payload: z.strictObject({ reference: ReferenceRecordSchema }),
 });
+export const UpdateReferenceCommandSchema = z.strictObject({
+  ...BaseCommandShape,
+  type: z.literal("reference.update"),
+  payload: z.strictObject({ reference: ReferenceRecordSchema }),
+});
 export const CreateTimelineCommandSchema = z.strictObject({
   ...BaseCommandShape,
   type: z.literal("timeline.create"),
@@ -241,6 +246,7 @@ export type RegisterAssetCommand = z.infer<typeof RegisterAssetCommandSchema>;
 export type RemoveAssetCommand = z.infer<typeof RemoveAssetCommandSchema>;
 export type RegisterTokenCommand = z.infer<typeof RegisterTokenCommandSchema>;
 export type RegisterReferenceCommand = z.infer<typeof RegisterReferenceCommandSchema>;
+export type UpdateReferenceCommand = z.infer<typeof UpdateReferenceCommandSchema>;
 export type CreateTimelineCommand = z.infer<typeof CreateTimelineCommandSchema>;
 export type UpdateTimelineCommand = z.infer<typeof UpdateTimelineCommandSchema>;
 export type DeleteTimelineCommand = z.infer<typeof DeleteTimelineCommandSchema>;
@@ -281,7 +287,8 @@ export type Command =
   | UpdateLightCommand
   | ApplyLightingRigCommand
   | RegisterLightingBakeCommand
-  | RecordValidationCommand;
+  | RecordValidationCommand
+  | UpdateReferenceCommand;
 
 export const CommandSchema: z.ZodType<Command> = z.discriminatedUnion("type", [
   CreateDocumentCommandSchema,
@@ -312,6 +319,7 @@ export const CommandSchema: z.ZodType<Command> = z.discriminatedUnion("type", [
   ApplyLightingRigCommandSchema,
   RegisterLightingBakeCommandSchema,
   RecordValidationCommandSchema,
+  UpdateReferenceCommandSchema,
 ]);
 
 export type CommandType = Command["type"];

@@ -18,8 +18,8 @@ describe("MCP server integration", () => {
     const version = await fixture.execute("document.get_version", { version: 1, projection: "summary" });
 
     expect(capabilities.success).toBe(true);
-    // 31 pre-existing tools + node.move, node.duplicate, token.register (Block D2).
-    expect((capabilities.data as { enabledTools: string[] }).enabledTools).toHaveLength(34);
+    // 34 pre-existing tools + reference.update (Block D completeness).
+    expect((capabilities.data as { enabledTools: string[] }).enabledTools).toHaveLength(35);
     expect(project.data).toMatchObject({ projectId: fixture.projectId, currentDocumentVersion: 1 });
     expect(document.data).toMatchObject({ id: fixture.document.metadata.id, documentVersion: 1 });
     expect((hierarchy.data as { nodes: unknown[] }).nodes.length).toBe(Object.keys(fixture.document.nodes).length);

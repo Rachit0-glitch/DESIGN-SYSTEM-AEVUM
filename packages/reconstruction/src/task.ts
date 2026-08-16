@@ -13,6 +13,7 @@ export function createReconstructionTask(input: ReconstructionTaskInput): Recons
     sourceAssetId: input.sourceAssetId,
     sourceReferenceId: input.sourceReferenceId,
     requestedPageName: input.requestedPageName,
+    targetPageId: input.targetPageId,
     qualityMode: input.qualityMode,
     targetViewport: input.targetViewport,
     targetDocumentId: input.targetDocumentId,

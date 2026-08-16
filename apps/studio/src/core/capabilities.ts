@@ -135,6 +135,15 @@ export const STUDIO_CAPABILITIES: readonly StudioCapability[] = [
   },
   {
     status: "AVAILABLE",
+    mcpTool: "reference.update",
+    commandType: "reference.update",
+    supportsDryRun: true,
+    classification: "SAFE_WRITE",
+    studioUseCase:
+      "Replace an existing reference's underlying image (References panel's 'Replace reference' control) while keeping the reference's own id, so any ValidationRecords that already cite it by referenceId stay linked (Block D completeness).",
+  },
+  {
+    status: "AVAILABLE",
     mcpTool: "fidelity.measure",
     supportsDryRun: true,
     classification: "SAFE_WRITE",

@@ -5062,7 +5062,68 @@ alternative hypotheses ruled out with real evidence.**
 
 ---
 
-## 82. Final Roadmap Statement
+## 82. Block D Completeness Pass (2026-08-16)
+
+A full re-audit of `docs/STABILIZATION_KNOWN_LIMITATIONS.md` against current code, prompted by a
+direct request to identify and close remaining Block D (Studio/MCP completeness) gaps. **Status:
+implemented and tested — stale documentation corrected, three genuinely closeable gaps closed, four
+genuinely blocked/large items left open with concrete, stated reasons.**
+
+- **Stale-documentation audit**: several limitation bullets recorded gaps that earlier Block D work
+  (D2–D13, already committed in prior sessions) had already closed without the document being
+  updated — verified against current code before correcting, not assumed. Corrected in place: STEP
+  3's "only 4 command types mapped" (`apps/studio/src/core/capabilities.ts`'s `STUDIO_CAPABILITIES`
+  registry documents 12 today), STEP 4's approval-adapter-is-a-stub claim (replaced by D5's
+  `createInteractiveApprovalAdapter`) and stale `deriveChangesFromPrompt()` reference (renamed/moved
+  server-side to `interpretNodeEditPrompt()` in D4), STEP 5/7's "IMAGE regions are never
+  independently extracted" claim (`extractIndependentImageAssets()` already does this for qualifying
+  regions), and STEP 7/8's "no automatic fidelity evaluation" / "nothing ever writes a
+  ValidationRecord" claims (D8 built real, on-demand measurement and persistence — reframed as
+  intentional on-demand design, not a gap).
+- **"Replace reference" wired**: new `reference.update` Command Engine command
+  (`packages/command-engine/src/commands/reference.ts`) + MCP tool
+  (`apps/mcp-server/src/tools.ts`) replaces an existing reference's underlying `assetId` while
+  preserving its `id`, so `ValidationRecord`s that cite it by `referenceId` stay linked. Studio's
+  References panel button now uploads a replacement image and calls it, mirroring the existing
+  "Import reference" upload UX. Tested at the Command Engine, MCP integration, and capability-
+  registry layers (`tests/unit/command-engine.test.ts`, `tests/integration/mcp-reference-update.test.ts`).
+- **Capability re-fetch mechanism**: `ProductionStudioProject.refreshCapabilities()`
+  (`apps/studio/src/core/production.ts`) re-calls `client.discoverCapabilities()` and swaps the
+  module's capability state (enabled tools + derived actor permissions, now held in a mutable
+  binding behind a getter so the existing `StudioAgentContext` interface shape didn't need to
+  change) in place. `ProductionBootstrap` (`apps/studio/src/main.tsx`) calls it automatically on
+  `document.visibilitychange` whenever the tab becomes visible again. Closes STEP 3's "no
+  client-side capability re-fetch" gap: a mid-session role change is now reflected without a full
+  project reload. Tested in `tests/unit/studio-production.test.ts` via a fetch mock that changes
+  `enabledTools` between calls, asserting a command is rejected before the refresh and accepted
+  after it.
+- **Reconstruction page-merge**: `reconstruction.import_reference` accepts an optional
+  `targetPageId`; when set and it resolves to a real PAGE already in the target document,
+  `createReconstructionProposal()` (`packages/reconstruction/src/proposal.ts`) parents the new
+  FRAME under that page and skips proposing a `page.create` at all, relying on the Command Engine's
+  existing `addNode()` parent-`childIds`-append behavior rather than needing a new update command.
+  Opt-in: when unset (Studio's current default), behavior is unchanged — a new page is always
+  created. Verified end to end by a new test in
+  `tests/integration/mcp-reconstruction-import.test.ts` (imports twice, second import's
+  `targetPageId` set to the first import's page, asserts exactly one PAGE node and two FRAME
+  children under it), plus the full existing reconstruction/sushi-poster/fidelity suite re-run
+  clean to confirm no regression to the unset-`targetPageId` default path.
+- **Out of scope, intentionally, each for a concrete stated reason** (not a design preference):
+  live Supabase Storage confirmation (needs real bucket credentials this environment doesn't have),
+  malware/content-safety scanning on asset upload (needs a real third-party scanning service, no
+  honest local substitute exists), stylized/display typography detection for the sushi poster's
+  "SUSHI" headline (needs a dedicated text-region-detection front end — new ML engineering, not a
+  fix to what exists), on-canvas reference-image overlay (a real, sizeable new Studio UI feature —
+  canvas layering, opacity control, toggle state — not a small wiring gap). All four are recorded
+  with their specific blocking reason in `docs/STABILIZATION_KNOWN_LIMITATIONS.md`'s new "Block D
+  completeness pass" section.
+- Full `pnpm validate` (docs, dependency rules, format, lint, typecheck, tests, build across all
+  packages) run clean for this combined change set — see validation counts in the commit this
+  section accompanies.
+
+---
+
+## 83. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.
 

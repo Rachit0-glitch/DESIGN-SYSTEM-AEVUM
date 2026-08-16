@@ -411,6 +411,10 @@ export function ReferencesPanel({ snapshot }: { snapshot: StudioSessionSnapshot 
   const [importStage, setImportStage] = useState<ReferenceImportStage>("IDLE");
   const [importMessage, setImportMessage] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [replaceStage, setReplaceStage] = useState<"IDLE" | "REPLACING" | "FAILED">("IDLE");
+  const [replaceError, setReplaceError] = useState("");
+  const [replacingReferenceId, setReplacingReferenceId] = useState<string | undefined>(undefined);
+  const replaceFileInputRef = useRef<HTMLInputElement>(null);
 
   const importReference = async (file: File) => {
     setImportStage("UPLOADING");
@@ -468,6 +472,63 @@ export function ReferencesPanel({ snapshot }: { snapshot: StudioSessionSnapshot 
     }
   };
 
+  const replaceReference = async (referenceId: string, file: File) => {
+    const existing = snapshot.document.references[referenceId];
+    if (!existing) return;
+    setReplaceStage("REPLACING");
+    setReplaceError("");
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const dimensions = await readImageDimensions(file);
+      const correlationId = `studio_replace_${crypto.randomUUID()}`;
+      const client = agentContext.createMcpClient(correlationId);
+
+      const registered = await client.invoke(
+        "asset.register",
+        {
+          expectedDocumentVersion: snapshot.document.documentVersion,
+          kind: "IMAGE",
+          bytesBase64: encodeBase64(bytes),
+          originalFilename: file.name,
+          mimeType: file.type || "image/png",
+          width: dimensions.width,
+          height: dimensions.height,
+        },
+        { idempotencyKey: `${correlationId}-register` },
+      );
+      if (!registered.success || registered.data === undefined) {
+        throw new Error(registered.errors[0]?.message ?? "Replacement upload failed.");
+      }
+      const registeredData = registered.data as { assetId: string; resultVersion: number };
+
+      // Real "replace": the reference keeps its own id (and stays linked to any ValidationRecords
+      // that already cite it by referenceId) -- only the asset it points at changes.
+      const updated = await client.invoke(
+        "reference.update",
+        {
+          expectedDocumentVersion: registeredData.resultVersion,
+          reference: { ...existing, assetId: registeredData.assetId },
+        },
+        { idempotencyKey: `${correlationId}-update` },
+      );
+      if (!updated.success || updated.data === undefined) {
+        throw new Error(updated.errors[0]?.message ?? "Reference replacement failed.");
+      }
+
+      const read = await client.invoke("document.get", { projection: "full" });
+      if (!read.success || read.data === undefined) {
+        throw new Error(read.errors[0]?.message ?? "Could not reload the document after replacement.");
+      }
+      session.resyncDocument(CanonicalDesignDocumentSchema.parse(read.data));
+      setReplaceStage("IDLE");
+    } catch (error) {
+      setReplaceStage("FAILED");
+      setReplaceError(error instanceof Error ? error.message : "Reference replacement failed.");
+    } finally {
+      setReplacingReferenceId(undefined);
+    }
+  };
+
   const importControl = (
     <div className="reference-import">
       <input
@@ -503,18 +564,39 @@ export function ReferencesPanel({ snapshot }: { snapshot: StudioSessionSnapshot 
     </div>
   );
 
+  const replaceFileInput = (
+    <input
+      ref={replaceFileInputRef}
+      type="file"
+      accept="image/png,image/jpeg,image/webp"
+      style={{ display: "none" }}
+      onChange={(event) => {
+        const file = event.target.files?.[0];
+        event.target.value = "";
+        if (file && replacingReferenceId) void replaceReference(replacingReferenceId, file);
+      }}
+    />
+  );
+
   const references = Object.values(snapshot.document.references);
   if (references.length === 0) {
     return (
       <div className="reference-panel empty">
         <p>No reference has been imported for this document yet.</p>
         {importControl}
+        {replaceFileInput}
       </div>
     );
   }
   return (
     <div className="reference-panel">
       {importControl}
+      {replaceFileInput}
+      {replaceStage === "FAILED" ? (
+        <p className="reference-replace-error" role="alert">
+          {replaceError}
+        </p>
+      ) : null}
       {references.map((reference) => {
         const asset = snapshot.document.assets[reference.assetId];
         const validation = Object.values(snapshot.document.validations)
@@ -538,8 +620,18 @@ export function ReferencesPanel({ snapshot }: { snapshot: StudioSessionSnapshot 
             <span className="reference-status">
               {validation ? `Last evaluated ${validation.createdAt}` : "Not evaluated"}
             </span>
-            <button type="button" className="secondary-command">
-              Replace reference
+            <button
+              type="button"
+              className="secondary-command"
+              disabled={replaceStage === "REPLACING"}
+              onClick={() => {
+                setReplacingReferenceId(reference.id);
+                replaceFileInputRef.current?.click();
+              }}
+            >
+              {replaceStage === "REPLACING" && replacingReferenceId === reference.id
+                ? "Replacing…"
+                : "Replace reference"}
             </button>
           </div>
         );
@@ -1803,6 +1895,20 @@ export function ProductionBootstrap({ configuration }: { configuration: StudioBr
       removeEventListener("offline", update);
     };
   }, []);
+  useEffect(() => {
+    // The client-side capability pre-check taken at bootstrap was previously a single snapshot for
+    // the whole session (Block D completeness) — a mid-session role change (an admin downgrading
+    // this user) wouldn't show up client-side until the next full reload. Re-fetching on tab return
+    // keeps it fresh without tearing down the whole project the way an identity change does. Never
+    // throws into the render: this is a best-effort background refresh, not a blocking operation,
+    // and the server independently re-checks every write regardless of what this client-side cache
+    // says.
+    const refresh = () => {
+      if (document.visibilityState === "visible") void loaded?.refreshCapabilities().catch(() => undefined);
+    };
+    document.addEventListener("visibilitychange", refresh);
+    return () => document.removeEventListener("visibilitychange", refresh);
+  }, [loaded]);
   useEffect(() => {
     if (!authSession) return;
     setLoading(true);

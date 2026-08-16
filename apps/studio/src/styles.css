@@ -377,6 +377,13 @@ svg {
   flex-direction: column;
   gap: 6px;
 }
+.reference-replace-error {
+  padding: 6px 8px;
+  margin: 0;
+  background: #3a1f1f;
+  color: #f2a3a3;
+  font-size: 9px;
+}
 .reference-thumb {
   aspect-ratio: 16 / 10;
   padding: 8px;

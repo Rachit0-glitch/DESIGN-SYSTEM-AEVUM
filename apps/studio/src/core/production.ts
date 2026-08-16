@@ -1,7 +1,7 @@
-import { createAgentMcpClient, createHttpMcpTransport } from "@aevum/agent-runtime/client";
+import { createAgentMcpClient, createHttpMcpTransport, type AgentMcpClient } from "@aevum/agent-runtime/client";
 import { AgentApprovalPolicySchema } from "@aevum/agent-core";
 import { CanonicalDesignDocumentSchema, type CanonicalDesignDocument } from "@aevum/document-model";
-import { DocumentReadOutputSchema, WriteToolOutputSchema } from "@aevum/mcp-protocol";
+import { DocumentReadOutputSchema, WriteToolOutputSchema, type McpPermission } from "@aevum/mcp-protocol";
 import type { ProjectMetadata } from "@aevum/project-store";
 import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
@@ -60,6 +60,15 @@ export interface ProductionStudioProject {
   readonly accessToken: string;
   readonly commandGateway: StudioCommandGateway;
   readonly agentContext: StudioAgentContext;
+  /**
+   * Re-fetches `system.get_capabilities` and updates the actor's allowed-tool set and permissions
+   * in place (Block D completeness) — the client-side pre-check taken at bootstrap was previously a
+   * single snapshot for the whole session, so a mid-session role change (an admin downgrading this
+   * user, for example) wouldn't show up client-side until the next full reload. The server remains
+   * the real security boundary regardless (every write is re-checked there); this only keeps the
+   * client-side pre-check from going stale.
+   */
+  readonly refreshCapabilities: () => Promise<void>;
 }
 
 export function readStudioBrowserConfiguration(): StudioBrowserConfiguration {
@@ -97,6 +106,24 @@ function scopedClient(input: {
     correlationId: input.correlationId ?? `studio_${crypto.randomUUID()}`,
     timeoutMs: 15_000,
   });
+}
+
+/**
+ * The actor's real allowed-tool set and permissions, derived from a real `system.get_capabilities`
+ * response — never invented client-side. Extracted so both the initial load and a later
+ * `refreshCapabilities()` call compute this identically.
+ */
+function deriveCapabilityState(capabilities: Awaited<ReturnType<AgentMcpClient["discoverCapabilities"]>>): {
+  readonly enabledTools: ReadonlySet<string>;
+  readonly actorPermissions: readonly McpPermission[];
+} {
+  const enabledTools = new Set<string>(capabilities.enabledTools);
+  const actorPermissions = [
+    ...new Set(
+      capabilities.tools.filter((tool) => enabledTools.has(tool.name)).flatMap((tool) => tool.requiredPermissions),
+    ),
+  ];
+  return { enabledTools, actorPermissions };
 }
 
 /**
@@ -138,7 +165,7 @@ export async function loadProductionStudioProject(
   // reason instead of round-tripping to be rejected. The server remains the actual security boundary:
   // every write below still goes through the same dry-run-then-commit path and is re-checked there.
   const capabilities = await client.discoverCapabilities();
-  const enabledTools = new Set<string>(capabilities.enabledTools);
+  let capabilityState = deriveCapabilityState(capabilities);
   const documentResult = DocumentReadOutputSchema.safeParse(read.data);
   if (!documentResult.success)
     throw new Error("The canonical project response is incompatible with this Studio release.");
@@ -160,7 +187,7 @@ export async function loadProductionStudioProject(
     const capability = findStudioCapability(command.type);
     if (capability?.status !== "AVAILABLE") throw new Error(`Studio cannot remotely execute "${command.type}".`);
     const mcpTool = capability.mcpTool;
-    if (!enabledTools.has(mcpTool)) {
+    if (!capabilityState.enabledTools.has(mcpTool)) {
       throw new Error(`Your role does not have permission to execute "${command.type}" through MCP.`);
     }
     const payload = { ...command.payload, expectedDocumentVersion: command.expectedDocumentVersion };
@@ -188,12 +215,9 @@ export async function loadProductionStudioProject(
   };
   // The actor's real permission set, derived the same way the command gateway above derives its
   // allowed-tool set: from what the server already decided in system.get_capabilities, not
-  // invented client-side. Used by the real Agent Planner engine's own capability gate.
-  const actorPermissions = [
-    ...new Set(
-      capabilities.tools.filter((tool) => enabledTools.has(tool.name)).flatMap((tool) => tool.requiredPermissions),
-    ),
-  ];
+  // invented client-side. Used by the real Agent Planner engine's own capability gate. A getter
+  // (not a plain field) so a later refreshCapabilities() call is reflected on every read, not just
+  // the one taken at bootstrap.
   const agentContext: StudioAgentContext = Object.freeze({
     createMcpClient: (correlationId: string) =>
       scopedClient({
@@ -204,7 +228,9 @@ export async function loadProductionStudioProject(
         documentId: record.currentDocumentId,
         correlationId,
       }),
-    actorPermissions,
+    get actorPermissions() {
+      return capabilityState.actorPermissions;
+    },
     workspaceId: workspace.membership.workspaceId,
     projectId: record.id,
     documentId: record.currentDocumentId,
@@ -226,5 +252,9 @@ export async function loadProductionStudioProject(
     accessToken: getAccessToken(),
     commandGateway: Object.freeze({ execute }),
     agentContext,
+    async refreshCapabilities() {
+      const fresh = await client.discoverCapabilities();
+      capabilityState = deriveCapabilityState(fresh);
+    },
   };
 }

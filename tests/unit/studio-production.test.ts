@@ -327,6 +327,48 @@ describe("Studio production MCP command gateway", () => {
     expect(calls).toEqual(["document.get", "system.get_capabilities"]);
   });
 
+  it(
+    "refreshCapabilities() re-fetches system.get_capabilities and reflects a mid-session role " +
+      "change (a command newly permitted after the refresh) without a full project reload (Block D completeness)",
+    async () => {
+      const fixture = createStudioProjectFixture();
+      let capabilitiesCallCount = 0;
+      const calls: string[] = [];
+      const fetchMock = vi.fn(async (requestInput: RequestInfo | URL, init?: RequestInit) => {
+        const url = requestInput.toString();
+        if (url.endsWith("/v1/bootstrap")) return new Response(JSON.stringify(bootstrapBody()));
+        if (url.endsWith("/mcp")) {
+          const body = JSON.parse(String(init?.body)) as { tool: string; dryRun?: boolean };
+          calls.push(body.tool);
+          if (body.tool === "document.get")
+            return new Response(JSON.stringify(successEnvelope(body.tool, fixture.document)));
+          if (body.tool === "system.get_capabilities") {
+            capabilitiesCallCount += 1;
+            const enabledTools = capabilitiesCallCount === 1 ? ["node.update"] : ["node.update", "node.create"];
+            return new Response(JSON.stringify(successEnvelope(body.tool, capabilitiesData(enabledTools))));
+          }
+          return new Response(JSON.stringify(successEnvelope(body.tool, writeOutput(1))));
+        }
+        throw new Error(`Unexpected fetch URL in this test: ${url}`);
+      });
+      global.fetch = fetchMock as unknown as typeof fetch;
+
+      const project = await loadProductionStudioProject(configuration, makeSession("token-1"));
+      const command = testCommand({
+        type: "node.create",
+        payload: { node: fixture.document.nodes[fixture.document.rootNodeIds[0] ?? ""] ?? {} },
+      });
+
+      await expect(project.commandGateway.execute(command)).rejects.toThrow(/does not have permission/i);
+      expect(capabilitiesCallCount).toBe(1);
+
+      await project.refreshCapabilities();
+      expect(capabilitiesCallCount).toBe(2);
+
+      await expect(project.commandGateway.execute(command)).resolves.toBeUndefined();
+    },
+  );
+
   it("dry-runs then commits a mapped, permitted command through MCP", async () => {
     const fixture = createStudioProjectFixture();
     const { fetchMock, calls } = stubTransport({

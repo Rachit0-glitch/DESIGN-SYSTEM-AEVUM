@@ -101,4 +101,103 @@ describe("reconstruction.import_reference MCP tool", () => {
       expect(node.name.length).toBeGreaterThan(0);
     }
   }, 60_000);
+
+  it("merges into an existing page via targetPageId instead of always creating a new one (Block D completeness)", async () => {
+    const storage = createInMemoryAssetStorage();
+    const fixture = createMcpTestFixture({ assetStorageAdapter: storage, toolTimeoutMs: 30_000 });
+    const firstImage = await createSyntheticPoster();
+    const pageIdsBefore = new Set(
+      Object.values(fixture.document.nodes)
+        .filter((node) => node.type === "PAGE")
+        .map((node) => node.id),
+    );
+
+    const firstRegistered = await fixture.execute(
+      "asset.register",
+      {
+        expectedDocumentVersion: fixture.document.documentVersion,
+        kind: "IMAGE",
+        bytesBase64: firstImage.toString("base64"),
+        originalFilename: "poster-a.png",
+        mimeType: "image/png",
+        width: 480,
+        height: 320,
+        alpha: false,
+        analyzeForReconstruction: true,
+      },
+      { idempotencyKey: "register-poster-a" },
+    );
+    expect(firstRegistered.success, JSON.stringify(firstRegistered.errors)).toBe(true);
+    const firstRegisteredData = firstRegistered.data as { assetId: string; resultVersion: number };
+
+    const firstImport = await fixture.execute(
+      "reconstruction.import_reference",
+      { expectedDocumentVersion: firstRegisteredData.resultVersion, sourceAssetId: firstRegisteredData.assetId },
+      { idempotencyKey: "import-a" },
+    );
+    expect(firstImport.success, JSON.stringify(firstImport.errors)).toBe(true);
+    const firstImportData = firstImport.data as { resultVersion: number };
+
+    const afterFirstImport = await fixture.repository.getCurrentDocument(fixture.workspaceId, fixture.projectId);
+    if (!afterFirstImport) throw new Error("Document was not persisted.");
+    const pagesAfterFirstImport = Object.values(afterFirstImport.nodes).filter((node) => node.type === "PAGE");
+    const newPagesAfterFirstImport = pagesAfterFirstImport.filter((node) => !pageIdsBefore.has(node.id));
+    expect(newPagesAfterFirstImport.length, "the first import must create exactly one new page").toBe(1);
+    const firstPage = newPagesAfterFirstImport[0];
+    if (!firstPage) throw new Error("unreachable");
+    const pageCountAfterFirstImport = pagesAfterFirstImport.length;
+
+    // A second, distinct reference image, imported with targetPageId pointing at the page the
+    // first import created — this must NOT create a second page.
+    const secondImage = await sharp({
+      create: { width: 480, height: 320, channels: 3, background: { r: 30, g: 60, b: 90 } },
+    })
+      .png()
+      .toBuffer();
+    const secondRegistered = await fixture.execute(
+      "asset.register",
+      {
+        expectedDocumentVersion: firstImportData.resultVersion,
+        kind: "IMAGE",
+        bytesBase64: secondImage.toString("base64"),
+        originalFilename: "poster-b.png",
+        mimeType: "image/png",
+        width: 480,
+        height: 320,
+        alpha: false,
+        analyzeForReconstruction: true,
+      },
+      { idempotencyKey: "register-poster-b" },
+    );
+    expect(secondRegistered.success, JSON.stringify(secondRegistered.errors)).toBe(true);
+    const secondRegisteredData = secondRegistered.data as { assetId: string; resultVersion: number };
+
+    const secondImport = await fixture.execute(
+      "reconstruction.import_reference",
+      {
+        expectedDocumentVersion: secondRegisteredData.resultVersion,
+        sourceAssetId: secondRegisteredData.assetId,
+        targetPageId: firstPage.id,
+      },
+      { idempotencyKey: "import-b-merged" },
+    );
+    expect(secondImport.success, JSON.stringify(secondImport.errors)).toBe(true);
+
+    const afterSecondImport = await fixture.repository.getCurrentDocument(fixture.workspaceId, fixture.projectId);
+    if (!afterSecondImport) throw new Error("Document was not persisted.");
+    const pagesAfterSecondImport = Object.values(afterSecondImport.nodes).filter((node) => node.type === "PAGE");
+    // Same page count as after the first import: the second import merged into the existing
+    // page instead of creating a second one.
+    expect(pagesAfterSecondImport.length).toBe(pageCountAfterFirstImport);
+
+    const framesUnderFirstPage = Object.values(afterSecondImport.nodes).filter(
+      (node) => node.type === "FRAME" && node.parentId === firstPage.id,
+    );
+    expect(framesUnderFirstPage.length).toBe(2);
+    const mergedPage = afterSecondImport.nodes[firstPage.id];
+    expect(mergedPage).toBeDefined();
+    for (const frame of framesUnderFirstPage) {
+      expect(mergedPage?.childIds).toContain(frame.id);
+    }
+  }, 60_000);
 });
