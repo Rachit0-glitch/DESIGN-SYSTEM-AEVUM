@@ -707,8 +707,9 @@ disclosed in Block F.
 
 Governing instruction: "BLOCK H + FINAL — COMPLETE THE SYSTEM + FINAL FORENSIC ACCEPTANCE," 16
 sub-items (H1–H16), executed in batches per explicit user instruction. **H1 (CRITICAL), H2/H3
-(HIGH), Batch 1 (H4/H5), Batch 2 (H6/H7), and Batch 3 (H8/H9/H10) are closed to the extent honestly
-possible. H11–H16 have not been started — listed honestly below, not silently dropped.**
+(HIGH), Batch 1 (H4/H5), Batch 2 (H6/H7), Batch 3 (H8/H9/H10), and Batch 4 (H11/H12/H13) are closed
+to the extent honestly possible. H14–H16 have not been started — listed honestly below, not silently
+dropped.**
 
 **H1 — Component materialization: CLOSED.** See `docs/11_ROADMAP_AND_STATUS.md`'s new "Block H"
 entry for full detail. Summary: reconstruction's component candidates now really materialize into
@@ -815,34 +816,175 @@ CRITICAL/HIGH found.** One LOW fixed: Redis connection/rate-limit error logging
 utility, inconsistent with the one call site that does (low practical exposure — server-side logs
 only).
 
-**H11–H16 — NOT STARTED THIS PASS. Honest scope of what remains:**
-- 🔴 **H11 (transaction/failure/recovery forensics)** — Block G already found and fixed one
-  `execute()`/`commit()` asymmetry in `TransactionController`; H11 asks for a systematic sweep for
-  the same class of defect across every other mutation pathway (repository commit failure, MCP
-  disconnect mid-transaction, asset storage failure, etc.), which has not been done.
-- 🔴 **H12 (full real pipeline integration through autocorrect)** — a single real test exercising
-  register → vision → reconstruction → component materialization → render → fidelity.measure →
-  correction proposal → autocorrect → render again → fidelity.measure again, all in one real chain.
-  Block E5/F/H1 each proved pieces of this real and working independently; they have not been chained
-  into one single end-to-end real test.
-- 🔴 **H13 (performance/resource safety)** — Block G measured one real timing snapshot (register/
-  import/measure latency, heap across 3 rounds, no growth found). H13 asks specifically about
-  duplicated-asset/duplicated-component/duplicate-event-listener/stale-timer growth across *repeated*
-  operations, which has not been separately investigated.
+**H11 — Transaction/failure/recovery forensics: CLOSED (Batch 4).** A fresh sweep for the same class
+of defect as the already-fixed `TransactionController.commit()` asymmetry (a later stage of a
+multi-stage write failing while an earlier stage's real side effect stands, uncompensated), across
+every other real mutation pathway. Confirmed genuinely safe: the atomic
+`aevum_mcp_commit_document` Postgres RPC (document + audit + version-history + idempotency all in one
+row-locked transaction), `reconstruction.import_reference`'s explicit `rollback()` on mid-sequence
+command failure, and `fidelity.measure`'s report/correction/validation-record sequencing. Two real,
+new findings, both documented rather than fixed this pass — see the standalone entries below
+("Asset storage bytes can be orphaned on a routine VERSION_CONFLICT" and "Blender reconciliation
+commits a placeholder asset URI before the real storage write").
+
+**H12 — Full real pipeline integration: CLOSED (Batch 4).** One single, real, chained test
+(`tests/integration/mcp-full-pipeline-integration.test.ts`) proves every stage the block asked for:
+real `asset.register` (local vision analysis) → real `reconstruction.import_reference` (real
+component materialization, Block H1's exact mechanism) → real renderer projection → real
+`fidelity.measure` (node-attributed mismatch detection) → real `autoCorrect` (reference-pixel-sampled
+correction, Block E5's exact mechanism) → real renderer projection again → real `fidelity.measure`
+again, with a genuinely measured score improvement. Building it surfaced two real, previously-unknown
+characteristics of the correction engine (traced via live, temporary instrumentation of
+`packages/fidelity/src/orchestrator.ts`, not guessed) — see the standalone entry below ("Real
+fidelity/autoCorrect characteristics discovered while building Block H12").
+
+**H13 — Performance/resource safety: CLOSED (Batch 4).** A real investigation measured actual
+repeated-operation loops (50+ iterations) against real Command Engine/`ProjectStore`/session/
+rate-limit/quota code — not estimates. **Fixed**: the in-memory rate-limit provider
+(`apps/mcp-server/src/rate-limit.ts`, the fallback path used only when Redis isn't configured) and the
+in-memory vision quota tracker (`packages/vision/src/quota.ts`) both kept a permanent Map entry for
+every distinct key ever seen, even once its own timestamps had fully expired — unbounded growth over
+a long process lifetime, most concerning for the rate limiter's `ip`-scoped key since distinct client
+IPs aren't bounded by real tenant count. Fixed both to delete the Map key once its pruned entry is
+empty. **Documented, not fixed** (a real product decision, not a memory-safety bug) — see the
+standalone entry below ("ProjectStore undo/redo history grows unbounded"). Confirmed NOT a problem:
+component registration under repetition (real `DUPLICATE_ID`/root-ownership guards reject reuse
+deterministically) and Studio session listener subscribe/unsubscribe (no leak at its one real call
+site).
+
+**H14–H16 — NOT STARTED THIS PASS. Honest scope of what remains:**
 - 🔴 **H14 (final parallel forensic audit)** — not run this pass; Block G's three-part forensic audit
   is the most recent one, and is now several real engineering passes out of date (doesn't know about
-  H1–H10's changes).
+  H1–H13's changes).
 - 🔴 **H15 (missing phase/block detection)** — not performed as its own dedicated comparison pass
   this time.
 - 🔴 **H16 (final acceptance gate)** — `pnpm validate` has passed clean after every batch through
-  Batch 3 (exact current test/file/package counts are stale the moment a new batch adds tests; H16
+  Batch 4 (exact current test/file/package counts are stale the moment a new batch adds tests; H16
   will report the final real count), but the live-Studio 19–20-point checklist H16 specifies
   (component materialization, gradient/stroke/image/text rendering, correction/autocorrect, approval
   flow, repeated operations, etc.) was not run against the current dev server this pass.
 
-None of H11–H16 were silently skipped or claimed done — they are unstarted, and this section exists
+None of H14–H16 were silently skipped or claimed done — they are unstarted, and this section exists
 so a future pass (or this same session, continued) has an accurate, non-overlapping starting point
-rather than re-deriving what Blocks G/H Batches 1–3 already covered.
+rather than re-deriving what Blocks G/H Batches 1–4 already covered.
+
+### Asset storage bytes can be orphaned on a routine VERSION_CONFLICT (H11 finding, documented not fixed)
+
+**What's real**: `asset.register`'s real handler (`apps/mcp-server/src/tools.ts`) writes bytes to
+content-addressed object storage (`adapters.assetStorage.storeOriginal`/`storeDerivative`, a real,
+externally observable side effect) *before* the atomic document commit
+(`repository.commitDocument`, `executor.ts`) runs. If the commit fails — most realistically a
+`VERSION_CONFLICT`, the expected, routine outcome of two clients racing a write against the same
+document, exactly what optimistic concurrency is designed to produce — the request fails cleanly for
+the caller, but the bytes already written to storage in step one are never removed.
+
+**Why it's real and not theoretical**: `AssetStorageAdapter` (`packages/assets/src/storage.ts`) has
+no delete/compensation method at all — there is structurally no way to undo the storage write once
+made. Any concurrent `asset.register` calls against the same document will reliably orphan the
+loser's bytes. Since storage paths are content-hash-addressed, a *successful retry with the same
+bytes* reuses the same path harmlessly — but a retry that never happens (the client gives up, or picks
+different content) leaves a permanent, invisible, unbilled-for-cleanup leak with no record and no
+reconciliation job anywhere in the codebase.
+
+**Why not fixed this pass**: a naive "delete the bytes on commit failure" compensation would be
+actively dangerous, not merely incomplete. Because storage is content-addressed and deduplicated, the
+exact same storage path can legitimately be shared by a *different* asset with identical byte content
+— blind deletion on one caller's failure could silently corrupt another, unrelated caller's
+successfully-committed asset. A safe fix needs real reference counting or a scheduled garbage-
+collection reconciliation pass (delete only objects with zero real document references, on a
+schedule, never inline on a single failed request) — genuine new infrastructure, not a same-file
+patch, and risky to build under this pass's time pressure. Flagging the danger of the "obvious" fix is
+itself part of this finding.
+
+### Blender reconciliation commits a placeholder asset URI before the real storage write (H11 finding, documented not fixed, currently dormant)
+
+**What's real**: `createBlenderReconciliationProposal` (`apps/blender-bridge/src/reconciliation.ts`)
+builds its `asset.register` command with `source.uri` hardcoded to a symbolic
+`blender://${jobId}/result.glb` placeholder, and `applyBlenderReconciliation`
+(`apps/blender-bridge/src/mcp-adapter.ts`) commits that command into the document *before*
+`options.persistArtifact(...)` (the real byte write) is even attempted. `persistArtifact` returns
+`Promise<void>` with no way to hand back a real URI, and nothing patches the committed asset's
+`source.uri` afterward — the document permanently records the placeholder, and
+`packages/project-store/src/supabase.ts`'s `assetStoragePath()` requires a `supabase-storage:`-
+prefixed URI (throwing `PERSISTENCE_ERROR` otherwise), so such an asset would be unreadable through
+the real Supabase-backed storage regardless of whether the bytes were actually written correctly.
+`persistArtifact` is also optional with no production implementation found anywhere in the repo (only
+a test stub) — a genuinely wired deployment could commit the document reference with real bytes never
+written at all.
+
+**Why not fixed this pass**: confirmed currently dormant — every `blender.*` write tool is
+permanently disabled in production (`createProductionMcpRuntime` never passes a real Blender
+adapter), so this path cannot be reached in the shipped product today. Flagged because it would
+become a real, live defect the instant Blender integration is enabled, and the real fix (deferring the
+`asset.register` commit until after a real `persistArtifact` call returns a real URI, or giving
+`persistArtifact` a return value the caller can patch into the command before committing) touches the
+Blender integration's own contract, not something to redesign in passing.
+
+### Real fidelity/autoCorrect characteristics discovered while building Block H12 (documented, not fixed)
+
+Building H12's single chained pipeline test surfaced two real, previously-undocumented
+characteristics of the production correction engine (`packages/fidelity/src/orchestrator.ts`), found
+by live, temporary instrumentation of the actual code (added, run, observed, then reverted — never
+left in place) rather than guessed at from reading alone.
+
+1. **Single-top-candidate selection can be starved by real rendering noise on component instances.**
+   `prioritizeFidelityIssues` sorts candidate mismatches by causal depth, then domain priority, then
+   confidence descending, then an opaque hash-based issue-id comparison as the final tiebreak — never
+   by mismatch magnitude. A COLOR/fill check's `confidence` is always exactly `1.0`, so for any
+   document with more than one real COLOR candidate, the outcome reduces to that hash tiebreak,
+   completely disconnected from which mismatch is actually larger or more real. Worse: when a
+   component's shared root color is perturbed, every real `COMPONENT_INSTANCE` that projects it
+   (carrying no per-instance override) shows the identical mismatch too, multiplying the candidate
+   pool — and `propose()`'s only node-type gate is "the WINNING candidate must be a plain SHAPE, or
+   propose nothing at all," never "try the next-best candidate." Real, inescapable sub-pixel rendering
+   noise on those instances (Playwright's rasterization vs. sharp's, most visible at anti-aliased
+   rounded-corner edges) was consistently enough to win that hash tiebreak over a much larger,
+   deliberately-introduced mismatch on a genuine plain SHAPE, causing `propose()` to reject the whole
+   candidate list and skip correction entirely.
+2. **The correction loop can stop with `TARGET_REACHED` before ever attempting a fix.** The loop's
+   first step each pass re-measures the current document and stops immediately if the aggregate score
+   already clears the active profile's `targetScore`/`domainThresholds` — *before* calling the
+   correction adapter at all. Confirmed by direct instrumentation: against a real, single, isolated,
+   deliberately-wrong SHAPE (no component instances involved at all), the STANDARD profile's
+   comparatively permissive thresholds (target 0.90, domain ~0.86) were still cleared by the aggregate
+   score even with an obvious, visible red-vs-green color error sitting right there — the one bad
+   region's penalty, averaged across all measured regions in its domain, wasn't enough to fail the
+   bar. The correction loop is satisfied and never attempts a fix, even though a real defect exists.
+   This is a genuinely separate mechanism from finding 1 — it never gets far enough to reach candidate
+   selection at all. A stricter profile (HIGH_QUALITY, 0.96/~0.93) is enough to avoid this specific
+   trap for a single, isolated mismatch.
+3. **A related, third, more minor observation**: at MAXIMUM_FIDELITY's much tighter margin
+   (0.985/~0.97), real Playwright raster nondeterminism (sub-pixel/anti-aliasing variance between
+   otherwise-identical renders of the exact same document) was close enough to that margin to flip the
+   pass/fail outcome between repeated runs of the identical test. This is a real rendering-
+   reproducibility characteristic worth knowing about for anyone building tests or tooling near that
+   profile's threshold, not specific to auto-correction.
+
+**Why not fixed this pass**: H12 asked this pass to prove the real pipeline composes end to end, not
+to redesign the correction engine's candidate-selection algorithm (falling through to the next-best
+candidate, or weighting by real magnitude instead of an opaque hash) or its early-stop condition
+(e.g., requiring the correction adapter to be consulted whenever ANY BLOCKING/ERROR-severity issue
+exists, regardless of the aggregate score). Both are genuine, non-trivial algorithm design decisions
+with real behavioral consequences for every other real caller of `fidelity.measure`'s `autoCorrect`
+flag, not a same-file bug fix.
+
+### ProjectStore undo/redo history grows unbounded (H13 finding, documented not fixed)
+
+**What's real**: `ProjectStore`'s own `entries` history array (`packages/project-store/src/store.ts`)
+grows exactly 1:1 with every `execute()`/`transact()` call, forever, with no cap, no truncation, and
+no eviction anywhere in the module — confirmed via a real, measured 50-command loop (50 creates +
+50 deletes → 101 real history entries, one per command). This backs `apps/studio/src/core/session.ts`
+directly, in both LOCAL and REMOTE mode (`executeRemote()` calls `store.execute()` too), so every real
+Studio session accumulates undo history without bound for as long as it stays open. The live document
+itself does not leak (node counts return to baseline correctly after create+delete cycles) — this is
+specifically about the separate undo/redo bookkeeping array, and each entry retains the full commands,
+changeSet, audit record, and events for that transaction.
+
+**Why not fixed this pass**: capping or evicting old entries changes real, user-facing undo/redo
+behavior — specifically, how far back a user (or an agent looping many small edits) can actually undo.
+That is a genuine product decision (how much undo history is enough, and what happens at the boundary:
+silently drop the oldest entry, warn the user, or something else) rather than a memory-safety bug with
+one obviously-correct fix, so it is disclosed here rather than patched unilaterally.
 
 ### Fidelity `overall` score can include unmeasured domains at full weight (H8 finding, documented not fixed)
 

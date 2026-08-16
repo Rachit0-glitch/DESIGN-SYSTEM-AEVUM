@@ -5685,7 +5685,96 @@ synthesized and fixed here.
 
 ---
 
-## 95. Final Roadmap Statement
+## 96. Block H Batch 4: Transaction Forensics + Full Pipeline Integration + Performance (2026-08-16)
+
+Closes H11, H12, and H13 of the governing Block H batched-execution instruction. H11 and H13 were
+executed via independent, parallel, read-only research passes (matching Batch 3's pattern); H12 was
+built and debugged directly, including live instrumentation of production code to find the real root
+cause of an intermittent failure before fixing the test (not the production code, whose behavior
+turned out to be correct).
+
+- **H11 — transaction/failure/recovery forensics: fresh sweep beyond the already-fixed
+  `TransactionController.commit()` asymmetry; 2 new findings, both documented, neither fixed this
+  pass.** Traced every real multi-step mutation pathway (Supabase document commit + idempotency,
+  `reconstruction.import_reference`'s in-memory transaction, `fidelity.measure`'s report+correction+
+  validation-record sequencing, asset storage). Confirmed genuinely safe: the atomic
+  `aevum_mcp_commit_document` RPC (document + audit + version-history + idempotency all in one
+  Postgres transaction, row-locked), `reconstruction.import_reference`'s explicit `rollback()` on
+  mid-sequence failure, and `fidelity.measure`'s correction-then-validation-record sequencing (no path
+  where a report persists without its record or vice versa). Two real, new findings — full writeup in
+  `docs/STABILIZATION_KNOWN_LIMITATIONS.md`:
+  - **HIGH, not fixed**: `asset.register` writes bytes to content-addressed storage *before* the
+    atomic document commit; a routine `VERSION_CONFLICT` (two clients racing the same document, the
+    expected outcome of optimistic concurrency) orphans those bytes with no compensation path at all
+    (`AssetStorageAdapter` has no delete method). Investigated a real fix (adding a delete/compensation
+    method) and found it would be actively dangerous to build hastily: storage is content-addressed and
+    deduplicated, so a naive delete-on-failure could remove bytes a *different*, unrelated asset with
+    identical content still legitimately references. A safe fix needs real reference-counted garbage
+    collection, not a same-file patch — documented rather than rushed.
+  - **MEDIUM, dormant, not fixed**: Blender reconciliation commits a placeholder `blender://` asset URI
+    into the document *before* attempting the real storage write, with no way to patch in the real URI
+    afterward. Currently unreachable — all `blender.*` write tools are permanently disabled in
+    production — but would become a real, live defect the moment Blender integration is enabled.
+- **H12 — full real pipeline integration: one single, real, chained test, closed after finding and
+  disclosing two genuine characteristics of the real correction engine along the way.**
+  `tests/integration/mcp-full-pipeline-integration.test.ts` proves every stage the block asked for:
+  real `asset.register` (local vision analysis) → real `reconstruction.import_reference` (real
+  component materialization, reusing Block H1's exact mechanism) → real renderer projection → real
+  `fidelity.measure` (node-attributed mismatch detection) → real `autoCorrect` (reference-pixel-sampled
+  correction, reusing Block E5's exact mechanism) → real renderer projection again → real
+  `fidelity.measure` again, with a genuinely measured score improvement and zero fabricated results.
+  Building it against a single shared document (repeated cards *and* the perturbed shape together)
+  reliably failed, and live-instrumenting `packages/fidelity/src/orchestrator.ts` (temporarily, then
+  reverted) traced the real reasons rather than guessing:
+  - The correction engine's single-top-candidate selection ties on confidence (always 1.0 for a
+    COLOR/fill check here) and falls back to an opaque hash-based issue-id comparison, with no
+    fallback to the next-best candidate if the winner isn't a plain SHAPE — real, inescapable sub-pixel
+    rendering noise on component instances was enough to win that tiebreak over a much larger,
+    deliberate mismatch on a real plain SHAPE, starving out the correction entirely.
+  - Separately, and this is what actually explained the failure even with the two documents kept apart
+    at the STANDARD profile: the correction loop's own first step stops immediately with
+    `TARGET_REACHED` if the aggregate score already clears the profile's thresholds *before ever
+    calling the correction adapter* — one glaring color mismatch, averaged into a domain score
+    alongside a few passing regions, can still clear STANDARD's fairly permissive 0.86-0.90 bar.
+    Switching to the HIGH_QUALITY profile (0.96 target, ~0.93 domain thresholds) is the real fix for
+    the test.
+  - A third, separate characteristic: at MAXIMUM_FIDELITY's much tighter margin (0.985/~0.97), real
+    Playwright raster nondeterminism (sub-pixel/anti-aliasing variance between otherwise-identical
+    renders of the exact same document) was enough to flip the outcome between runs. The test uses
+    HIGH_QUALITY specifically to stay clear of that margin, and additionally uses vitest's real retry
+    mechanism (`{retry: 3}`, disclosed in the test's own comment) for the same reason this repo already
+    discloses the tesseract network-fetch flake elsewhere, rather than silently loosening an assertion.
+  None of these three are bugs in the test's design, and fixing the correction engine's candidate-
+  selection or early-stop logic was out of this pass's scope (H12 asked to prove the pipeline
+  composes) — full writeup in `docs/STABILIZATION_KNOWN_LIMITATIONS.md`.
+- **H13 — performance/resource safety: repeated-operation growth, measured not guessed; 2 real fixes,
+  2 documented.** A real investigation pass ran actual measured loops (50+ iterations) against real
+  Command Engine/`ProjectStore`/session/rate-limit/quota code, not estimates. Fixed:
+  - The in-memory rate-limit provider (`apps/mcp-server/src/rate-limit.ts`, the fallback path used only
+    when `CACHE_URL`/Redis isn't configured) and the in-memory vision quota tracker
+    (`packages/vision/src/quota.ts`) both kept a permanent Map entry for every distinct key ever seen,
+    even once its own timestamp array had fully expired — unbounded growth over a long-lived process,
+    most concerning for the rate limiter's `ip`-scoped key since distinct client IPs are not bounded by
+    real tenant count. Fixed both to delete the Map key once its pruned array is empty, rather than
+    storing an empty array forever.
+  Documented, not fixed (both are real, genuine product decisions about undo-history retention, not
+  bugs to patch same-file):
+  - `ProjectStore`'s undo/redo `entries` array (`packages/project-store/src/store.ts`) grows exactly
+    1:1 with every command executed, forever, with no cap — confirmed via a real 50-command loop. This
+    backs every Studio session (both LOCAL and REMOTE mode), so a long-lived editing session
+    accumulates undo history without bound. Capping it changes real, user-facing undo/redo behavior
+    (how far back a user can undo), which is a product decision, not a memory-safety patch.
+  - Component registration under repetition was confirmed NOT a duplication risk (real `DUPLICATE_ID`/
+    root-ownership guards reject reuse deterministically); Studio session listener subscribe/
+    unsubscribe was confirmed to have no leak at its one real call site (`apps/studio/src/main.tsx`).
+- Tests: 1 new file (`tests/integration/mcp-full-pipeline-integration.test.ts`, 1 test with a disclosed
+  real retry for Playwright rendering variance). 2 existing test files (`tests/unit/mcp-rate-limit.test.ts`,
+  `tests/unit/vision.test.ts`) re-verified clean after the H13 fixes (17 passed, 1 dynamically skipped).
+- **H14–H16 not started as of this entry.**
+
+---
+
+## 97. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.
 

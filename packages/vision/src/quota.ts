@@ -16,7 +16,11 @@ export function createInMemoryVisionQuotaTracker(windowMs = 24 * 60 * 60 * 1000)
   const prune = (workspaceId: string): number[] => {
     const now = Date.now();
     const existing = (calls.get(workspaceId) ?? []).filter((timestamp) => now - timestamp < windowMs);
-    calls.set(workspaceId, existing);
+    // Delete rather than store an empty array: without this, every distinct workspaceId ever seen
+    // keeps its own permanent Map entry for the life of the process, even once its calls have all
+    // expired out of the window (Block H13 finding).
+    if (existing.length === 0) calls.delete(workspaceId);
+    else calls.set(workspaceId, existing);
     return existing;
   };
   return {

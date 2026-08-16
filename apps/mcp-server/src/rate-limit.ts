@@ -44,7 +44,13 @@ export function createInMemoryRateLimitProvider(options: {
       let retryAfterMs = 0;
       for (const key of keys) {
         const active = (buckets.get(key) ?? []).filter((timestamp) => input.now - timestamp < WINDOW_MS);
-        buckets.set(key, active);
+        // Delete rather than store an empty array: without this, every distinct actor/workspace/ip/
+        // tool combination ever seen keeps its own permanent Map entry for the life of the process —
+        // unbounded growth, most concerning for the ip-scoped key since distinct client IPs (NAT
+        // churn, mobile networks, scanning) are not bounded by real tenant count the way actor/
+        // workspace are (Block H13 finding).
+        if (active.length === 0) buckets.delete(key);
+        else buckets.set(key, active);
         if (active.length >= limit) retryAfterMs = Math.max(retryAfterMs, WINDOW_MS - (input.now - (active[0] ?? 0)));
       }
       if (retryAfterMs > 0) return { allowed: false, retryAfterMs };
