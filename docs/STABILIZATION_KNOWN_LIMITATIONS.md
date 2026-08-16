@@ -707,8 +707,8 @@ disclosed in Block F.
 
 Governing instruction: "BLOCK H + FINAL — COMPLETE THE SYSTEM + FINAL FORENSIC ACCEPTANCE," 16
 sub-items (H1–H16), executed in batches per explicit user instruction. **H1 (CRITICAL), H2/H3
-(HIGH), and Batch 1 (H4/H5, MEDIUM) are closed. H6–H16 have not been started — listed honestly
-below, not silently dropped.**
+(HIGH), Batch 1 (H4/H5), Batch 2 (H6/H7), and Batch 3 (H8/H9/H10) are closed to the extent honestly
+possible. H11–H16 have not been started — listed honestly below, not silently dropped.**
 
 **H1 — Component materialization: CLOSED.** See `docs/11_ROADMAP_AND_STATUS.md`'s new "Block H"
 entry for full detail. Summary: reconstruction's component candidates now really materialize into
@@ -765,18 +765,57 @@ flake is unconfirmed — the flake itself is real, pre-existing, and unrelated t
 changes (every affected test passes reliably in isolation), but it remains a genuinely open,
 disclosed external-dependency reliability issue, not a solved one.
 
-**H8–H16 — NOT STARTED THIS PASS. Honest scope of what remains:**
-- 🔴 **H8 (repo-wide honesty/fabrication audit)** — a fresh, broad sweep beyond Block G's scoped
-  sweep (which covered `apps/mcp-server/src`, `apps/studio/src`, `packages/fidelity/src`,
-  `packages/reconstruction/src` for `TODO`/`FIXME`/`placeholder` and found nothing beyond two already
-  -honest dry-run placeholders) — H8 asks for a much broader keyword list (`mock`, `fake`, `demo`,
-  `disabled`, `bypass`, `setTimeout`, `@ts-ignore`, `biome-ignore`, etc.) across the entire repo.
-- 🔴 **H9 (MCP/command/capability consistency matrix)** — a full command → MCP tool → capability
-  registry → Studio UI → test → status matrix for every command type, beyond what Block G's forensic
-  audit already found (the Blender-tool disable gate, the page/asset gap this pass closed).
-- 🔴 **H10 (security/authorization forensic pass)** — Block G's forensic audit already covered auth
-  mode selection, permission enforcement, and workspace isolation in depth and found no bypass; H10
-  asks for a fresh, independent pass rather than reusing that finding.
+**H8 — Repo-wide honesty/fabrication audit: CLOSED (Batch 3).** A fresh sweep across all of
+`packages/*/src`, `apps/*/src`, `exporters/*/src` (broader than Block G's earlier 4-directory scope)
+found 2 real issues, both fixed:
+- Dead configuration removed: `AEVUM_FEATURE_FLAGS` (`packages/shared/src/env.ts`) was parsed and
+  exposed as `environment.featureFlags` but had zero real consumers anywhere in the repo — removed
+  the env var, schema field, computed value, and its stale test assertion.
+- **A real scoring-honesty issue investigated and documented, not narrowly patched — see the
+  standalone entry below ("Fidelity `overall` score can include unmeasured domains at full weight").**
+
+Everything else traced (26 explicitly self-labeled `PHASE_0_SHELL` packages, the dev-only in-process
+MCP fixture gated behind `import.meta.env.DEV`, capped heuristic confidence values, an intentionally
+-unimplemented `beginNested()` that throws rather than silently no-ops, disclosed AABB-only
+part-overlap diagnostics, a disclosed rig/skin scope boundary, and 3 narrowly-justified
+`biome-ignore` hits) was confirmed already honestly disclosed, not a new finding.
+
+**H9 — MCP/command/capability consistency matrix: CLOSED (Batch 3).** Built the full command-engine
+→ MCP-tool → Studio-capability-registry → Studio-UI → test matrix. Real gaps closed:
+- Added `timeline.create`/`timeline.update`/`timeline.delete` as real MCP tools — the Command Engine
+  had real logic for all three but zero external exposure at all (only the read-only `timeline.get`
+  existed). Real integration test: `tests/integration/mcp-timeline-reference-lifecycle.test.ts`.
+- Added `reference.register` as a real MCP tool, closing an asymmetry versus its sibling
+  reconstruction-internal commands (`page.create`/`component.register`/`asset.register`, which all
+  got standalone tools in Blocks H1–H3) that `reference.register` had been missing. Same test file
+  covers create + dry-run + duplicate rejection.
+- **Fixed a real gateway-bypass bug**: `apps/studio/src/main.tsx`'s References panel called
+  `client.invoke("reference.update", ...)` directly, bypassing `StudioSession`'s command gateway even
+  though the capability registry documents `reference.update` as gateway-routable — skipping the
+  client-side dry-run pre-flight and permission short-circuit every other routable write gets
+  (server-side authorization was never actually bypassed; H10 independently confirmed every write is
+  re-checked server-side regardless of call path). Fixed by adding a real `updateReference` method to
+  `StudioSession` and switching the References panel to use it. Regression test added in
+  `tests/unit/studio-components.test.tsx`.
+- **Corrected two mislabeled capability-registry entries**: `node.create` and `document.rename` were
+  documented `AVAILABLE` despite no real Studio UI ever calling them (the toolbar only sets an
+  `activeTool` state; `StudioSession` has no `renameDocument` method) — directly violating the
+  registry's own "only capabilities Studio's actual UI exercises today are listed" rule. Corrected to
+  `NOT_YET_AVAILABLE` with honest reasons rather than building speculative UI to make the label true.
+- **One further finding investigated and deliberately left as a disclosed limitation — see the
+  standalone entry below ("Canonical delete tools share a permission tier with non-destructive
+  writes").**
+
+**H10 — Security/authorization forensic pass: CLOSED (Batch 3).** A fresh, independent audit (not
+reusing Block G's earlier conclusions) covering the new Redis rate limiter's key-construction safety,
+workspace/project/document scoping at the Supabase query layer, the newer WRITE tools' permission
+gating, the client-vs-server enforcement boundary, and auth/idempotency edge cases. **No
+CRITICAL/HIGH found.** One LOW fixed: Redis connection/rate-limit error logging
+(`apps/mcp-server/src/runtime.ts`) didn't pass error strings through the existing `redactSecrets`
+utility, inconsistent with the one call site that does (low practical exposure — server-side logs
+only).
+
+**H11–H16 — NOT STARTED THIS PASS. Honest scope of what remains:**
 - 🔴 **H11 (transaction/failure/recovery forensics)** — Block G already found and fixed one
   `execute()`/`commit()` asymmetry in `TransactionController`; H11 asks for a systematic sweep for
   the same class of defect across every other mutation pathway (repository commit failure, MCP
@@ -791,19 +830,77 @@ disclosed external-dependency reliability issue, not a solved one.
   duplicated-asset/duplicated-component/duplicate-event-listener/stale-timer growth across *repeated*
   operations, which has not been separately investigated.
 - 🔴 **H14 (final parallel forensic audit)** — not run this pass; Block G's three-part forensic audit
-  is the most recent one, and is now one real engineering pass out of date (doesn't know about
-  H1–H3's changes).
+  is the most recent one, and is now several real engineering passes out of date (doesn't know about
+  H1–H10's changes).
 - 🔴 **H15 (missing phase/block detection)** — not performed as its own dedicated comparison pass
   this time.
-- 🔴 **H16 (final acceptance gate)** — `pnpm validate` passed clean with H1–H5's changes
-  (530/531 tests, 1 dynamically skipped for the disclosed live-Redis reason, 80 files, 65 packages),
-  but the live-Studio 19-point checklist H16 specifies (component materialization, gradient/stroke/
-  image/text rendering, correction/autocorrect, approval flow, repeated operations, etc.) was not run
-  against the current dev server this pass.
+- 🔴 **H16 (final acceptance gate)** — `pnpm validate` has passed clean after every batch through
+  Batch 3 (exact current test/file/package counts are stale the moment a new batch adds tests; H16
+  will report the final real count), but the live-Studio 19–20-point checklist H16 specifies
+  (component materialization, gradient/stroke/image/text rendering, correction/autocorrect, approval
+  flow, repeated operations, etc.) was not run against the current dev server this pass.
 
-None of H6–H16 were silently skipped or claimed done — they are unstarted, and this section exists so
-a future pass (or this same session, continued) has an accurate, non-overlapping starting point rather
-than re-deriving what Blocks G/H Batch 1 already covered.
+None of H11–H16 were silently skipped or claimed done — they are unstarted, and this section exists
+so a future pass (or this same session, continued) has an accurate, non-overlapping starting point
+rather than re-deriving what Blocks G/H Batches 1–3 already covered.
+
+### Fidelity `overall` score can include unmeasured domains at full weight (H8 finding, documented not fixed)
+
+**What's real**: `createValidationReport`'s `scores()` function
+(`packages/validation/src/report.ts`) computes `overall` as a fixed weighted sum of 6 domain scores
+(layout 25%, typography 20%, asset 15%, component 10%, structure 20%, raster 10%). Every domain's
+score itself is computed from real, genuine comparisons wherever content exists to compare.
+
+**What's not honest**: when a document has zero applicable content for a domain — e.g. no `TEXT`
+nodes at all, so there are zero typography checks — `metricAverage` returns `1` (a perfect score) for
+that domain rather than excluding it, and that `1` counts at the domain's full fixed weight toward
+`overall`. A document that never exercises typography gets 20% of its `overall` score "for free" from
+a domain that was never actually measured. The same convention (`X → 1` when not applicable/not
+requested) appears in six further sub-scores inside `compareStructuralRegions`
+(`packages/validation/src/compare.ts`): `hierarchyScore`, `constraintScore`, `renderGraphScore`,
+`componentScore`, `tokenScore`, `paintOrderScore` — all default to "pass" when a caller's
+`requestedMetrics` opts a category out, which is a legitimate, intentional semantic for explicit
+opt-out but indistinguishable in the schema from "there was nothing to check for this document."
+
+**Why not fixed this pass**: correcting only the 3 domains `metricAverage` touches would be a
+half-fix leaving the other 6 sub-scores with the identical behavior. Fixing all 9 consistently
+requires a genuine product decision — does "never measured" mean "excluded from the aggregate
+average (renormalize over what was measured)," "counts as failed (0)," or something else — with real
+blast radius: every existing document lacking some content category (e.g. a pure-shape mockup with
+no text) would see its `overall` fidelity score change, and the current validation/fidelity test
+suite has tests that assert today's "defaults to 1" behavior directly, so fixing this without
+breaking them requires updating those tests' expectations too, which is itself a decision about what
+"correct" now means, not merely a bug fix.
+
+**Recommended fix, not applied**: renormalize `overall` over only the domains/sub-scores that had at
+least one applicable check for this specific measurement, and surface which domains were actually
+measured (e.g. a `measuredDomains: readonly string[]` field) in `ValidationScoreSummary` so UI and
+API consumers can distinguish "matched" from "not evaluated" instead of both reading as a flat `1`.
+
+### Canonical delete tools share a permission tier with non-destructive writes (H9 finding, documented not fixed)
+
+**What's real**: `node.delete`, `page.delete`, and `asset.remove` (`apps/mcp-server/src/tools.ts`)
+all require `["document.write"]` (asset.remove additionally `["asset.write"]`) — real permission
+checks, real enforcement, confirmed by H10 to have no bypass.
+
+**What's inconsistent**: this is the *same* permission tier as non-destructive writes like
+`node.update`/`token.register`. Compare the Blender surface: `blender.delete_object` requires an
+*elevated* `blender.destructive` permission (`tools.ts`), deliberately withheld from the `EDITOR`
+role (`packages/mcp-protocol/src/permissions.ts`) — so an `EDITOR` cannot delete a Blender-managed
+object, but the same `EDITOR` *can* permanently delete a canonical page's entire subtree or a
+canonical node/asset with no additional permission beyond ordinary write access. The concept of "this
+needs extra scrutiny" already exists in the codebase (`StudioCapabilityClassification`'s
+`DESTRUCTIVE_WRITE` value, `apps/studio/src/core/capabilities.ts`) — it was just never wired into the
+real MCP permission model for canonical-document deletes the way it was for Blender.
+
+**Why not fixed this pass**: H10 confirmed this is not an exploitable security gap — `EDITOR` is
+already a trusted role with `document.write`, and no unauthorized actor gains anything from this
+inconsistency. But adding an equivalent elevated permission (e.g. a new `document.destructive`
+requirement) would be a genuine, breaking product decision: every existing `EDITOR` currently can
+delete nodes/pages/assets today, and requiring a new permission would revoke that ability unless the
+role-to-permission mapping is also changed to grant it — a call about who should be trusted with
+destructive canonical operations, which is the user's call to make, not something to silently change
+mid-audit.
 
 ---
 

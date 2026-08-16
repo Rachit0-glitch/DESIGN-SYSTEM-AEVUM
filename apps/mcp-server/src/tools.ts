@@ -2278,6 +2278,78 @@ export function registerInitialTools(
 
   registry.registerTool(
     definition(
+      "reference.register",
+      "Register a brand-new reference record pointing at an already-registered asset.",
+      ["document.write"],
+      "WRITE",
+      async (raw, context) => {
+        const input = TOOL_SCHEMAS["reference.register"].input.parse(raw);
+        return executeWrite(context, input, (base) => ({
+          ...base,
+          type: "reference.register",
+          payload: { reference: input.reference },
+        }));
+      },
+      config,
+    ),
+  );
+
+  registry.registerTool(
+    definition(
+      "timeline.create",
+      "Create one canonical timeline in the document.",
+      ["document.write"],
+      "WRITE",
+      async (raw, context) => {
+        const input = TOOL_SCHEMAS["timeline.create"].input.parse(raw);
+        return executeWrite(context, input, (base) => ({
+          ...base,
+          type: "timeline.create",
+          payload: { timeline: input.timeline },
+        }));
+      },
+      config,
+    ),
+  );
+
+  registry.registerTool(
+    definition(
+      "timeline.update",
+      "Update one canonical timeline's properties.",
+      ["document.write"],
+      "WRITE",
+      async (raw, context) => {
+        const input = TOOL_SCHEMAS["timeline.update"].input.parse(raw);
+        return executeWrite(context, input, (base) => ({
+          ...base,
+          type: "timeline.update",
+          payload: { timeline: input.timeline },
+        }));
+      },
+      config,
+    ),
+  );
+
+  registry.registerTool(
+    definition(
+      "timeline.delete",
+      "Delete one canonical timeline.",
+      ["document.write"],
+      "WRITE",
+      async (raw, context) => {
+        const input = TOOL_SCHEMAS["timeline.delete"].input.parse(raw);
+        return executeWrite(context, input, (base) => ({
+          ...base,
+          type: "timeline.delete",
+          payload: { timelineId: input.timelineId },
+        }));
+      },
+      config,
+    ),
+  );
+
+  registry.registerTool(
+    definition(
       "component.register",
       "Register a real component definition pointing at an already-materialized node subtree, so it can be shared by real COMPONENT_INSTANCE nodes instead of duplicating structure.",
       ["document.write"],

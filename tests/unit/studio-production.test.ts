@@ -175,15 +175,14 @@ describe("Studio capability registry (Block D1)", () => {
     }
   });
 
-  it("documents node.create, node.update, node.delete, document.rename, node.move, node.duplicate, and token.register as gateway-routable", () => {
+  it("documents node.update, node.delete, node.move, node.duplicate, token.register, and reference.update as gateway-routable", () => {
     for (const type of [
-      "node.create",
       "node.update",
       "node.delete",
-      "document.rename",
       "node.move",
       "node.duplicate",
       "token.register",
+      "reference.update",
     ] as const) {
       expect(isGatewayRoutable(type), type).toBe(true);
     }
@@ -228,6 +227,39 @@ describe("Studio capability registry (Block D1)", () => {
     // real MCP tools for all four; Studio still has no page-management or asset-deletion UI to call
     // them from, so they're documented here the same honest way node.reparent already was.
     for (const commandType of ["page.create", "page.delete", "page.rename", "asset.remove"] as const) {
+      const capability = findStudioCapability(commandType);
+      expect(capability?.status, commandType).toBe("NOT_YET_AVAILABLE");
+      if (capability?.status === "NOT_YET_AVAILABLE") {
+        expect(capability.unavailableReason.length).toBeGreaterThan(0);
+        expect("mcpTool" in capability).toBe(false);
+      }
+      expect(isGatewayRoutable(commandType)).toBe(false);
+    }
+  });
+
+  it("documents reference.register and timeline.create/update/delete as deliberate NOT_YET_AVAILABLE exclusions (Block H9), not gaps", () => {
+    for (const commandType of [
+      "reference.register",
+      "timeline.create",
+      "timeline.update",
+      "timeline.delete",
+    ] as const) {
+      const capability = findStudioCapability(commandType);
+      expect(capability?.status, commandType).toBe("NOT_YET_AVAILABLE");
+      if (capability?.status === "NOT_YET_AVAILABLE") {
+        expect(capability.unavailableReason.length).toBeGreaterThan(0);
+        expect("mcpTool" in capability).toBe(false);
+      }
+      expect(isGatewayRoutable(commandType)).toBe(false);
+    }
+  });
+
+  it("corrects node.create and document.rename from a previously mislabeled AVAILABLE to a real NOT_YET_AVAILABLE (Block H9 consistency audit)", () => {
+    // Block H9's MCP/command/capability consistency matrix found these two entries claimed
+    // AVAILABLE despite no real Studio call site ever invoking them -- the toolbar only sets an
+    // activeTool UI state, and StudioSession has no renameDocument method. Corrected rather than
+    // left mislabeled; see the module doc's "only capabilities Studio's actual UI exercises" rule.
+    for (const commandType of ["node.create", "document.rename"] as const) {
       const capability = findStudioCapability(commandType);
       expect(capability?.status, commandType).toBe("NOT_YET_AVAILABLE");
       if (capability?.status === "NOT_YET_AVAILABLE") {
@@ -334,10 +366,7 @@ describe("Studio production MCP command gateway", () => {
     global.fetch = fetchMock as unknown as typeof fetch;
 
     const project = await loadProductionStudioProject(configuration, makeSession("token-1"));
-    const command = testCommand({
-      type: "node.create",
-      payload: { node: fixture.document.nodes[fixture.document.rootNodeIds[0] ?? ""] ?? {} },
-    });
+    const command = testCommand({ type: "node.delete", payload: { nodeId: "heading" } });
 
     await expect(project.commandGateway.execute(command)).rejects.toThrow(/does not have permission/i);
     expect(calls).toEqual(["document.get", "system.get_capabilities"]);
@@ -360,7 +389,7 @@ describe("Studio production MCP command gateway", () => {
             return new Response(JSON.stringify(successEnvelope(body.tool, fixture.document)));
           if (body.tool === "system.get_capabilities") {
             capabilitiesCallCount += 1;
-            const enabledTools = capabilitiesCallCount === 1 ? ["node.update"] : ["node.update", "node.create"];
+            const enabledTools = capabilitiesCallCount === 1 ? ["node.update"] : ["node.update", "node.delete"];
             return new Response(JSON.stringify(successEnvelope(body.tool, capabilitiesData(enabledTools))));
           }
           return new Response(JSON.stringify(successEnvelope(body.tool, writeOutput(1))));
@@ -370,10 +399,7 @@ describe("Studio production MCP command gateway", () => {
       global.fetch = fetchMock as unknown as typeof fetch;
 
       const project = await loadProductionStudioProject(configuration, makeSession("token-1"));
-      const command = testCommand({
-        type: "node.create",
-        payload: { node: fixture.document.nodes[fixture.document.rootNodeIds[0] ?? ""] ?? {} },
-      });
+      const command = testCommand({ type: "node.delete", payload: { nodeId: "heading" } });
 
       await expect(project.commandGateway.execute(command)).rejects.toThrow(/does not have permission/i);
       expect(capabilitiesCallCount).toBe(1);

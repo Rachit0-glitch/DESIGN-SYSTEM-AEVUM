@@ -44,6 +44,9 @@ export const McpToolNameSchema = z.enum([
   "asset.register",
   "reconstruction.import_reference",
   "timeline.get",
+  "timeline.create",
+  "timeline.update",
+  "timeline.delete",
   "three.inspect_asset",
   "three.inspect_scene",
   "three.update_node_transform",
@@ -112,6 +115,7 @@ export const McpToolNameSchema = z.enum([
   "node.duplicate",
   "token.register",
   "component.register",
+  "reference.register",
   "reference.update",
   "page.create",
   "page.delete",
@@ -619,7 +623,11 @@ export const NodeDuplicateInputSchema = WriteBaseSchema.extend({
 });
 export const TokenRegisterInputSchema = WriteBaseSchema.extend({ token: TokenSchema });
 export const ComponentRegisterInputSchema = WriteBaseSchema.extend({ component: ComponentSchema });
+export const ReferenceRegisterInputSchema = WriteBaseSchema.extend({ reference: ReferenceRecordSchema });
 export const ReferenceUpdateInputSchema = WriteBaseSchema.extend({ reference: ReferenceRecordSchema });
+export const TimelineCreateInputSchema = WriteBaseSchema.extend({ timeline: TimelineSchema });
+export const TimelineUpdateInputSchema = WriteBaseSchema.extend({ timeline: TimelineSchema });
+export const TimelineDeleteInputSchema = WriteBaseSchema.extend({ timelineId: EntityIdSchema });
 export const PageCreateInputSchema = WriteBaseSchema.extend({
   page: DesignNodeSchema,
   index: z.number().int().nonnegative().optional(),
@@ -1168,7 +1176,11 @@ export const TOOL_SCHEMAS = Object.freeze({
   "node.duplicate": { input: NodeDuplicateInputSchema, output: WriteToolOutputSchema },
   "token.register": { input: TokenRegisterInputSchema, output: WriteToolOutputSchema },
   "component.register": { input: ComponentRegisterInputSchema, output: WriteToolOutputSchema },
+  "reference.register": { input: ReferenceRegisterInputSchema, output: WriteToolOutputSchema },
   "reference.update": { input: ReferenceUpdateInputSchema, output: WriteToolOutputSchema },
+  "timeline.create": { input: TimelineCreateInputSchema, output: WriteToolOutputSchema },
+  "timeline.update": { input: TimelineUpdateInputSchema, output: WriteToolOutputSchema },
+  "timeline.delete": { input: TimelineDeleteInputSchema, output: WriteToolOutputSchema },
   "page.create": { input: PageCreateInputSchema, output: WriteToolOutputSchema },
   "page.delete": { input: PageDeleteInputSchema, output: WriteToolOutputSchema },
   "page.rename": { input: PageRenameInputSchema, output: WriteToolOutputSchema },

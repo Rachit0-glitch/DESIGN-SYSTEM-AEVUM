@@ -7,13 +7,13 @@
  */
 import sharp from "sharp";
 import { createOcrSession, segmentForeground } from "@aevum/reconstruction-vision";
-import {
-  type VisionAnalysis,
-  type VisionAnalyzeOptions,
-  type VisionObjectRegion,
-  type VisionPoint,
-  type VisionProvider,
-  type VisionTextBlock,
+import type {
+  VisionAnalysis,
+  VisionAnalyzeOptions,
+  VisionObjectRegion,
+  VisionPoint,
+  VisionProvider,
+  VisionTextBlock,
 } from "./types.js";
 import { requestFingerprint } from "./cache.js";
 

@@ -5,7 +5,6 @@ const validEnvironment = {
   NODE_ENV: "test",
   LOG_LEVEL: "debug",
   AEVUM_RUNTIME_MODE: "full",
-  AEVUM_FEATURE_FLAGS: "phase3,local-dev",
   PORT: "8080",
   SUPABASE_URL: "https://example.supabase.co",
   SUPABASE_ANON_KEY: "anon-test-key",
@@ -66,7 +65,6 @@ describe("environment validation", () => {
   it("exposes Supabase-first typed configuration groups", () => {
     const environment = parseAevumEnvironment(validEnvironment);
 
-    expect(environment.featureFlags).toEqual(["phase3", "local-dev"]);
     expect(environment.runtimeMode).toBe("full");
     expect(environment.service).toBe("platform");
     expect(environment.supabase).toMatchObject({

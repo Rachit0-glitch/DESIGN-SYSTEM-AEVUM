@@ -30,8 +30,9 @@ describe("MCP protocol", () => {
     const tools = registry.listTools();
 
     // 78 pre-existing tools + component.register, page.create, page.delete, page.rename, and
-    // asset.remove (Block H1/H2/H3).
-    expect(tools).toHaveLength(83);
+    // asset.remove (Block H1/H2/H3) + reference.register, timeline.create, timeline.update, and
+    // timeline.delete (Block H9).
+    expect(tools).toHaveLength(87);
     expect(tools.every((tool) => tool.version === MCP_TOOL_VERSION)).toBe(true);
     expect(tools.map((tool) => tool.name)).toEqual(Object.keys(TOOL_SCHEMAS).sort());
     expect(() => registerInitialTools(registry, mcpTestConfig)).toThrow(/already registered/);

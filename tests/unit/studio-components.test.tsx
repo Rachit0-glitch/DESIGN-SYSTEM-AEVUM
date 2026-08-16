@@ -7,9 +7,15 @@ import {
   __setStudioSessionForTesting,
   ReferencesPanel,
 } from "../../apps/studio/src/main.js";
-import { createMemoryPersistence, createStudioSession } from "../../apps/studio/src/core/session.js";
+import { createEntityId } from "@aevum/document-model";
+import {
+  createMemoryPersistence,
+  createStudioSession,
+  type StudioCommandGateway,
+} from "../../apps/studio/src/core/session.js";
 import { createStudioProjectFixture } from "../../apps/studio/src/core/fixture.js";
 import type { StudioAgentContext } from "../../apps/studio/src/core/agent.js";
+import type { Command } from "@aevum/command-engine";
 import type { AgentMcpClient } from "@aevum/agent-runtime/client";
 import type { McpResponseEnvelope } from "@aevum/mcp-protocol";
 
@@ -121,4 +127,90 @@ describe("ReferencesPanel (Block D3 — real component tests)", () => {
       expect(screen.getByText(/asset storage is not configured for this workspace/i)).toBeInTheDocument(),
     );
   });
+
+  it(
+    "replaces a reference's asset through the real command gateway (session.updateReference), " +
+      "not a direct reference.update MCP call bypassing it (Block H9 fix regression test)",
+    async () => {
+      const fixture = createStudioProjectFixture();
+      const originalAssetId = Object.keys(fixture.document.assets)[0];
+      if (!originalAssetId) throw new Error("Fixture must contain at least one asset.");
+      const referenceId = createEntityId("reference");
+      const newAssetId = createEntityId("asset");
+      const documentWithReference = {
+        ...fixture.document,
+        references: {
+          [referenceId]: {
+            id: referenceId,
+            assetId: originalAssetId,
+            type: "IMAGE" as const,
+            role: "PRIMARY" as const,
+            regions: [],
+            metadata: {},
+          },
+        },
+      };
+      const gatewayCalls: Command["type"][] = [];
+      const commandGateway: StudioCommandGateway = {
+        execute: async (command) => {
+          gatewayCalls.push(command.type);
+        },
+      };
+      const session = createStudioSession({
+        ...fixture,
+        document: documentWithReference,
+        persistence: createMemoryPersistence(),
+        commandGateway,
+      });
+      __setStudioSessionForTesting(session);
+
+      const calls: string[] = [];
+      __setStudioAgentContextForTesting(
+        fakeAgentContext(async (tool) => {
+          calls.push(tool);
+          if (tool === "asset.register") return envelope(tool, { data: { assetId: newAssetId, resultVersion: 2 } });
+          if (tool === "document.get") {
+            // Simulates the server having really persisted the newly registered asset -- the local
+            // session's store never applied asset.register itself (it was invoked directly, not
+            // through the gateway), so the resync response must carry it for the subsequent
+            // session.updateReference's local optimistic apply to find a real assets[newAssetId].
+            const current = session.getSnapshot().document;
+            return envelope(tool, {
+              data: {
+                ...current,
+                assets: {
+                  ...current.assets,
+                  [newAssetId]: {
+                    id: newAssetId,
+                    type: "IMAGE",
+                    name: "reference.png",
+                    hash: `sha256:${"b".repeat(64)}`,
+                    source: { kind: "UPLOAD", uri: "reference.png" },
+                    mimeType: "image/png",
+                    byteSize: 4,
+                    metadata: {},
+                  },
+                },
+              },
+            });
+          }
+          throw new Error(`Unexpected tool invoked in this test: ${tool}`);
+        }),
+      );
+
+      render(<ReferencesPanel snapshot={session.getSnapshot()} />);
+      fireEvent.click(screen.getByText(/replace reference/i));
+      const fileInputs = document.querySelectorAll('input[type="file"]');
+      const replaceInput = fileInputs[1];
+      if (!replaceInput) throw new Error("Replace-reference file input not found in rendered ReferencesPanel.");
+      fireEvent.change(replaceInput, { target: { files: [pngFile()] } });
+
+      await waitFor(() => expect(gatewayCalls).toContain("reference.update"));
+      // The gateway (production.ts's real dry-run-then-commit execute()) is the only thing that
+      // issues reference.update -- ReferencesPanel itself never calls client.invoke("reference.update",
+      // ...) directly anymore, unlike before the Block H9 fix.
+      expect(calls).toEqual(["asset.register", "document.get"]);
+      expect(session.getSnapshot().document.references[referenceId]?.assetId).toBe(newAssetId);
+    },
+  );
 });

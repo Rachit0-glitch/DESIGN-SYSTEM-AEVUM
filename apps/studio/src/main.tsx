@@ -501,25 +501,22 @@ export function ReferencesPanel({ snapshot }: { snapshot: StudioSessionSnapshot 
       }
       const registeredData = registered.data as { assetId: string; resultVersion: number };
 
-      // Real "replace": the reference keeps its own id (and stays linked to any ValidationRecords
-      // that already cite it by referenceId) -- only the asset it points at changes.
-      const updated = await client.invoke(
-        "reference.update",
-        {
-          expectedDocumentVersion: registeredData.resultVersion,
-          reference: { ...existing, assetId: registeredData.assetId },
-        },
-        { idempotencyKey: `${correlationId}-update` },
-      );
-      if (!updated.success || updated.data === undefined) {
-        throw new Error(updated.errors[0]?.message ?? "Reference replacement failed.");
-      }
-
+      // asset.register was invoked directly above (its payload shape doesn't match the command
+      // gateway, same as the import flow), so the session's local document doesn't know about the
+      // new asset yet. Resync from the server before routing reference.update through the real
+      // command gateway (session.updateReference), since its local optimistic apply requires the
+      // referenced asset to already exist in the local store.
       const read = await client.invoke("document.get", { projection: "full" });
       if (!read.success || read.data === undefined) {
-        throw new Error(read.errors[0]?.message ?? "Could not reload the document after replacement.");
+        throw new Error(read.errors[0]?.message ?? "Could not reload the document after upload.");
       }
       session.resyncDocument(CanonicalDesignDocumentSchema.parse(read.data));
+
+      // Real "replace": the reference keeps its own id (and stays linked to any ValidationRecords
+      // that already cite it by referenceId) -- only the asset it points at changes. Routed through
+      // the real command gateway rather than a direct MCP call (Block H9 fix: this previously
+      // bypassed isGatewayRoutable/dry-run/the client-side permission gate).
+      await session.updateReference({ ...existing, assetId: registeredData.assetId });
       setReplaceStage("IDLE");
     } catch (error) {
       setReplaceStage("FAILED");

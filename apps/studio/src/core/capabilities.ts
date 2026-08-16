@@ -55,14 +55,6 @@ export type StudioCapability = AvailableStudioCapability | UnavailableStudioCapa
 export const STUDIO_CAPABILITIES: readonly StudioCapability[] = [
   {
     status: "AVAILABLE",
-    mcpTool: "node.create",
-    commandType: "node.create",
-    supportsDryRun: true,
-    classification: "SAFE_WRITE",
-    studioUseCase: "Create a new canvas node (shape, text, frame) from the Studio editor.",
-  },
-  {
-    status: "AVAILABLE",
     mcpTool: "node.update",
     commandType: "node.update",
     supportsDryRun: true,
@@ -76,14 +68,6 @@ export const STUDIO_CAPABILITIES: readonly StudioCapability[] = [
     supportsDryRun: true,
     classification: "DESTRUCTIVE_WRITE",
     studioUseCase: "Delete a node from the canvas or layers panel.",
-  },
-  {
-    status: "AVAILABLE",
-    mcpTool: "document.rename",
-    commandType: "document.rename",
-    supportsDryRun: true,
-    classification: "SAFE_WRITE",
-    studioUseCase: "Rename the open project/document.",
   },
   {
     status: "AVAILABLE",
@@ -149,6 +133,55 @@ export const STUDIO_CAPABILITIES: readonly StudioCapability[] = [
     classification: "SAFE_WRITE",
     studioUseCase:
       "Run a real Maximum Fidelity measurement (Fidelity workspace's 'Run fidelity measurement' button) against a registered reference image and persist the resulting ValidationRecord (Block D8). Its input ({ referenceAssetId, profile }) does not match any single Command Engine payload — the server computes the ValidationRecord itself from a real render — so it is invoked directly with tool-specific input rather than through the generic command-shaped gateway.",
+  },
+  {
+    status: "NOT_YET_AVAILABLE",
+    commandType: "node.create",
+    studioUseCase: "Create a new canvas node (shape, text, frame) from the Studio editor.",
+    unavailableReason:
+      "A real node.create MCP tool exists and is gateway-routable, but Studio's toolbar (FRAME/SHAPE/TEXT " +
+      "buttons) only ever sets an activeTool UI state today -- nothing consumes it to actually issue a " +
+      "node.create command, locally or remotely. This entry previously claimed AVAILABLE despite that; " +
+      "corrected during Block H9's capability-registry consistency audit rather than left mislabeled.",
+  },
+  {
+    status: "NOT_YET_AVAILABLE",
+    commandType: "document.rename",
+    studioUseCase: "Rename the open project/document.",
+    unavailableReason:
+      "A real document.rename MCP tool exists and is gateway-routable, but StudioSession has no " +
+      "renameDocument method and no Studio UI calls it. This entry previously claimed AVAILABLE despite " +
+      "that; corrected during Block H9's capability-registry consistency audit rather than left mislabeled.",
+  },
+  {
+    status: "NOT_YET_AVAILABLE",
+    commandType: "reference.register",
+    studioUseCase: "Register a brand-new reference record directly, without going through reconstruction import.",
+    unavailableReason:
+      "Block H9 added a real reference.register MCP tool for symmetry with page.create/component.register/" +
+      "asset.register (all reconstruction-internal commands that also got standalone tools) -- but Studio's " +
+      "References panel only ever creates references via the asset.register + reconstruction.import_reference " +
+      "import flow, never by calling reference.register directly.",
+  },
+  {
+    status: "NOT_YET_AVAILABLE",
+    commandType: "timeline.create",
+    studioUseCase: "Create a new animation timeline.",
+    unavailableReason:
+      "The Command Engine has real timeline.create/update/delete commands, and Block H9 added matching MCP " +
+      "tools for all three -- but Studio has no timeline-editing UI to call them from yet.",
+  },
+  {
+    status: "NOT_YET_AVAILABLE",
+    commandType: "timeline.update",
+    studioUseCase: "Edit an existing animation timeline's properties.",
+    unavailableReason: "Same gap as timeline.create -- see that entry.",
+  },
+  {
+    status: "NOT_YET_AVAILABLE",
+    commandType: "timeline.delete",
+    studioUseCase: "Delete an animation timeline.",
+    unavailableReason: "Same gap as timeline.create -- see that entry.",
   },
   {
     status: "NOT_YET_AVAILABLE",

@@ -14,6 +14,7 @@ import {
   createSupabaseAuthVerifier,
 } from "./auth.js";
 import { createMcpExecutor } from "./executor.js";
+import { redactSecrets } from "./redaction.js";
 import { createInMemoryRateLimitProvider, createRedisRateLimitProvider, type RateLimitProvider } from "./rate-limit.js";
 import { createToolRegistry, type McpServerRuntimeConfig } from "./registry.js";
 import { registerInitialTools } from "./tools.js";
@@ -67,14 +68,16 @@ function rateLimitProviderForEnvironment(environment: AevumEnvironment, logger: 
   if (!environment.cache.url) return createInMemoryRateLimitProvider(environment.mcp.rateLimit);
   const redis = new Redis(environment.cache.url, { maxRetriesPerRequest: 1, lazyConnect: false });
   redis.on("error", (error) =>
-    logger.error("RATE_LIMIT_REDIS_ERROR", "Redis rate-limit connection error.", { error: String(error) }),
+    logger.error("RATE_LIMIT_REDIS_ERROR", "Redis rate-limit connection error.", {
+      error: redactSecrets(String(error)),
+    }),
   );
   return createRedisRateLimitProvider({
     ...environment.mcp.rateLimit,
     redis,
     onBackingStoreError: (error) =>
       logger.error("RATE_LIMIT_REDIS_ERROR", "Redis rate-limit check failed; request denied (fail-closed).", {
-        error: String(error),
+        error: redactSecrets(String(error)),
       }),
   });
 }

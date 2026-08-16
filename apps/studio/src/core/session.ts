@@ -1,8 +1,15 @@
 import { type Command, CURRENT_COMMAND_VERSION } from "@aevum/command-engine";
-import { type CanonicalDesignDocument, deserialize, serialize, type TokenSchema } from "@aevum/document-model";
+import {
+  type CanonicalDesignDocument,
+  deserialize,
+  serialize,
+  type ReferenceRecordSchema,
+  type TokenSchema,
+} from "@aevum/document-model";
 import type { z } from "zod";
 
 type Token = z.infer<typeof TokenSchema>;
+type ReferenceRecord = z.infer<typeof ReferenceRecordSchema>;
 
 import { createProjectStore, type ProjectMetadata, type ProjectStore } from "@aevum/project-store";
 import { type RendererOutput, render } from "@aevum/renderer-2d";
@@ -42,6 +49,13 @@ export interface StudioSession {
   setViewport(viewportId: string, animationTime?: number, reducedMotion?: boolean): void;
   updateNode(nodeId: string, changes: Record<string, unknown>, options?: StudioMutationOptions): void | Promise<void>;
   registerToken(token: Token, options?: StudioMutationOptions): void | Promise<void>;
+  /**
+   * Replaces an existing reference record (e.g. the References panel's "Replace reference"
+   * control, after it has already registered a new asset). Routes through the same
+   * dry-run-then-commit command gateway as every other write, rather than a call site invoking
+   * the MCP tool directly (Block H9 fixed this: it previously bypassed the gateway).
+   */
+  updateReference(reference: ReferenceRecord, options?: StudioMutationOptions): void | Promise<void>;
   /**
    * Reflects a node.update that an external gateway (e.g. the AI panel's agent gateway) has
    * already committed through its own MCP round trip into the local canonical document, without
@@ -271,6 +285,17 @@ export function createStudioSession(input: {
     registerToken(token: Token, options: StudioMutationOptions = {}) {
       const document = store.getDocument();
       const command: Command = { ...commandBase(document, options), type: "token.register", payload: { token } };
+      if (input.commandGateway) return executeRemote(command);
+      execute(command);
+      return undefined;
+    },
+    updateReference(reference: ReferenceRecord, options: StudioMutationOptions = {}) {
+      const document = store.getDocument();
+      const command: Command = {
+        ...commandBase(document, options),
+        type: "reference.update",
+        payload: { reference },
+      };
       if (input.commandGateway) return executeRemote(command);
       execute(command);
       return undefined;

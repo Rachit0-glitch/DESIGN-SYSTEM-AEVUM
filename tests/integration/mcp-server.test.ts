@@ -19,8 +19,9 @@ describe("MCP server integration", () => {
 
     expect(capabilities.success).toBe(true);
     // 35 pre-existing tools + component.register, page.create, page.delete, page.rename, and
-    // asset.remove (Block H1/H2/H3).
-    expect((capabilities.data as { enabledTools: string[] }).enabledTools).toHaveLength(40);
+    // asset.remove (Block H1/H2/H3) + reference.register, timeline.create, timeline.update, and
+    // timeline.delete (Block H9).
+    expect((capabilities.data as { enabledTools: string[] }).enabledTools).toHaveLength(44);
     expect(project.data).toMatchObject({ projectId: fixture.projectId, currentDocumentVersion: 1 });
     expect(document.data).toMatchObject({ id: fixture.document.metadata.id, documentVersion: 1 });
     expect((hierarchy.data as { nodes: unknown[] }).nodes.length).toBe(Object.keys(fixture.document.nodes).length);

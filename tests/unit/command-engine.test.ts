@@ -551,7 +551,8 @@ describe("Command Engine", () => {
       layer: 0,
       keyframes: [],
     } as const;
-    const otherTrack = { ...track, id: "track_20000000-0000-4000-8000-000000000002", targetId: text.parentId! };
+    if (!text.parentId) throw new Error("Landing fixture's text node must have a parent.");
+    const otherTrack = { ...track, id: "track_20000000-0000-4000-8000-000000000002", targetId: text.parentId };
     const timeline = {
       id: "timeline_20000000-0000-4000-8000-000000000001",
       version: "1.0.0",

@@ -5558,7 +5558,134 @@ Closes H6 and H7 of the governing Block H batched-execution instruction.
 
 ---
 
-## 93. Final Roadmap Statement
+## 94. Block H Batch 3: Honesty Audit + Capability/Command Consistency + Security Forensic Pass (2026-08-16)
+
+Closes H8, H9, and H10 of the governing Block H batched-execution instruction. Executed via three
+independent, parallel, read-only research passes (matching Block G's forensic-audit pattern), then
+synthesized and fixed here.
+
+- **H8 — repo-wide honesty/fabrication audit: 2 new findings beyond Blocks D10/G, both fixed.**
+  A fresh sweep (not the narrower 4-directory scope Block G covered) across all of `packages/*/src`,
+  `apps/*/src`, and `exporters/*/src` for TODO/FIXME/HACK, mock/fake/stub/placeholder, silent
+  catches, dead config, and fake feature flags.
+  - **Dead configuration removed**: `AEVUM_FEATURE_FLAGS` (`packages/shared/src/env.ts`) was parsed
+    into `environment.featureFlags` and asserted in `tests/unit/env.test.ts`, but grepping the entire
+    repo found zero consumers — nothing ever read `environment.featureFlags` to gate any behavior.
+    Removed the env var, the schema field, the computed value, and the stale test assertion rather
+    than leave inert plumbing implying a feature that does nothing.
+  - **Unmeasured fidelity domains previously defaulted to a fabricated "perfect" score — investigated
+    in depth, found to be a pervasive, deliberate design convention across the whole validation
+    package, and left as a documented limitation rather than a narrow, half-correct patch.** When a
+    document has no applicable content for a metric category (e.g. no TEXT nodes at all, so
+    typography has zero applicable checks), `metricAverage` (`packages/validation/src/report.ts`)
+    returns `1` (perfect) for that domain, which then counts at its full fixed weight (typography
+    20%, asset 15%, etc.) toward the `overall` fidelity score in `scores()` — a domain that was never
+    measured masquerades as a domain that passed. Investigating the blast radius found this same
+    "not applicable/not requested → default 1" convention used consistently across **six** further
+    sub-scores inside `compareStructuralRegions` (`packages/validation/src/compare.ts`:
+    `hierarchyScore`, `constraintScore`, `renderGraphScore`, `componentScore`, `tokenScore`,
+    `paintOrderScore`), all deliberately defaulting to "pass" when a caller's `requestedMetrics`
+    opts a category out — a legitimate, intentional semantic for explicit opt-out, but
+    indistinguishable in the schema from "there was nothing to check." Fixing only the 3 domains
+    `metricAverage` touches would have been a half-fix leaving the other 6 with the identical
+    behavior; fixing all 9 consistently is a genuine product decision (does "never measured" mean
+    "excluded from the aggregate," "counts as failed," or something else?) with real blast radius —
+    every existing document that lacks some content category would see its `overall` score change,
+    and the existing validation/fidelity test suite has tests that assert the current "defaults to
+    1" behavior directly. Documented in full in `docs/STABILIZATION_KNOWN_LIMITATIONS.md` rather than
+    unilaterally reinterpreting what the aggregate fidelity score means.
+  - Everything else traced (26 explicitly self-labeled `PHASE_0_SHELL` packages, the dev-only
+    in-process MCP fixture gated behind `import.meta.env.DEV`, capped heuristic confidence values on
+    inference methods, an intentionally-unimplemented `beginNested()` that throws rather than
+    silently no-ops, disclosed AABB-only part-overlap diagnostics, a disclosed rig/skin scope
+    boundary, an honestly-labeled "not implemented" comparison UI backed by real scores, and 3
+    narrowly-justified `biome-ignore` hits) was confirmed to be honestly disclosed already, not a new
+    finding.
+- **H9 — MCP/command/capability consistency matrix: 3 real gaps closed, 3 real capability-registry
+  mislabelings corrected.** Built the full command-engine → MCP-tool → Studio-capability-registry →
+  Studio-UI → test matrix.
+  - **`timeline.create`/`timeline.update`/`timeline.delete` had zero external exposure** despite real,
+    tested Command Engine logic (`packages/command-engine/src/commands/timeline.ts`) — only the
+    read-only `timeline.get` existed. Added all three as real MCP tools (`packages/mcp-protocol/src`,
+    `apps/mcp-server/src/tools.ts`), all `WRITE`-classified, `["document.write"]`-gated, with real
+    dry-run support (same `executeWrite` pattern as every other write tool). Real integration test:
+    `tests/integration/mcp-timeline-reference-lifecycle.test.ts` (create → update → delete, stale
+    version rejection, dry-run).
+  - **`reference.register` asymmetrically lacked a standalone MCP tool** even though its siblings
+    `page.create`/`component.register`/`asset.register` (also reconstruction-internal-only commands)
+    all got one in Blocks H1–H3. Added the matching tool for consistency; same integration test file
+    covers create + dry-run + duplicate rejection.
+  - **A real gateway-bypass bug**: `apps/studio/src/main.tsx`'s References panel `replaceReference`
+    called `client.invoke("reference.update", ...)` directly on a raw MCP client — even though
+    `reference.update` is documented in `capabilities.ts` as `AVAILABLE` and gateway-routable
+    (`isGatewayRoutable` returns true for it), meaning it should have gone through
+    `StudioSession`'s command gateway like every other routable write. The direct call skipped the
+    client-side dry-run pre-flight and the `capabilityState.enabledTools` permission short-circuit
+    that routing through the gateway provides (server-side authorization was never actually
+    bypassed — Block H10 independently confirmed every write is re-checked server-side regardless of
+    how Studio calls it — but the capability registry's claim to be the single client-side
+    enforcement point was false for this one path). Fixed by adding a real `updateReference` method
+    to `StudioSession` (`apps/studio/src/core/session.ts`, mirroring the existing `registerToken`
+    pattern exactly: local `execute` in LOCAL mode, `executeRemote` through the real command gateway
+    in REMOTE mode) and switching `replaceReference` to call it. Since `asset.register` still can't
+    route through the gateway (its payload shape doesn't match), `replaceReference` now resyncs the
+    local document via `document.get` before calling `session.updateReference`, so the local
+    optimistic apply can find the newly-registered asset. Real regression test added:
+    `tests/unit/studio-components.test.tsx` (a REMOTE-mode session with a fake `StudioCommandGateway`
+    proves `reference.update` now reaches `commandGateway.execute`, not a direct client call, and
+    that the local document ends up with the new `assetId`).
+  - **Two capability-registry entries were mislabeled `AVAILABLE` with no real Studio call site**:
+    `node.create` (the toolbar only ever sets an `activeTool` UI state; nothing consumes it to issue
+    a command) and `document.rename` (`StudioSession` has no `renameDocument` method; no UI calls
+    it). This directly violated the module's own documented rule ("only capabilities Studio's actual
+    UI exercises today are listed"). Corrected both to `NOT_YET_AVAILABLE` with an honest
+    `unavailableReason`, matching the existing `node.reparent`/`page.create` pattern, rather than
+    building speculative node-creation/rename UI just to make the label true. `tests/unit/studio-production.test.ts`
+    updated accordingly (2 tests reworked to use `node.delete` instead of `node.create` as their
+    permission/refresh example; 2 new tests assert the corrected `NOT_YET_AVAILABLE` status and the 6
+    new/reclassified entries).
+  - **One further finding investigated and deliberately left as a disclosed limitation, not
+    unilaterally fixed**: `node.delete`/`page.delete`/`asset.remove` require only `["document.write"]`
+    (asset.remove additionally `asset.write`) — the same permission tier as non-destructive writes
+    like `node.update`/`token.register` — whereas the functionally-equivalent
+    `blender.delete_object` requires an elevated `blender.destructive` permission deliberately
+    withheld from `EDITOR`. H10 independently confirmed this is not an exploitable gap (`EDITOR` is
+    already trusted with `document.write`), but it is a real, previously-undisclosed inconsistency in
+    how "this needs extra scrutiny" is modeled between the Blender surface and the canonical-document
+    surface. Adding an equivalent elevated permission for canonical deletes would be a genuine,
+    breaking product decision (every existing `EDITOR` currently can delete nodes/pages/assets; this
+    would revoke that) requiring a call the user, not this pass, should make — documented in
+    `docs/STABILIZATION_KNOWN_LIMITATIONS.md` rather than silently changing who can delete what.
+  - Tool counts updated: `tests/unit/mcp-protocol.test.ts` (83 → 87 registered tools),
+    `tests/integration/mcp-server.test.ts` (40 → 44 enabled tools for the fixture actor).
+- **H10 — security/authorization forensic pass: fresh, independent audit; no CRITICAL/HIGH found; 1
+  LOW fixed.** Covered ground Block G's earlier security pass didn't: the new Redis rate limiter's
+  key construction (confirmed not exploitable — Redis keys have no SQL/shell-style injection class,
+  and the values that matter, `actorId`/post-membership-check `workspaceId`/resolved `tool`, are not
+  attacker-forgeable), workspace/project/document scoping at the Supabase query layer (confirmed
+  enforced via parameterized `.eq()` chaining and an atomic commit RPC matching on the full
+  `workspace_id/project_id/document_id` triple, not just app-level `if` checks), the newer WRITE
+  tools' permission gating (`component.register`, `page.*`, `asset.remove` — all correctly gated,
+  roles map sensibly), the client-vs-server enforcement boundary (Studio's capability checks
+  confirmed honestly UX-only, every write independently re-authorized server-side), and
+  auth/idempotency edge cases (missing/malformed headers correctly rejected, not silently treated as
+  authenticated; idempotency replay correctly validates `inputHash`/`tool` match). **Fixed**: Redis
+  connection/rate-limit error messages were logged via `String(error)` without passing through the
+  existing `redactSecrets` utility, inconsistent with the one call site that does — low practical
+  exposure (server-side logs only; ioredis error text rarely carries a full credentialed URL) but a
+  real inconsistency. Fixed in `apps/mcp-server/src/runtime.ts`.
+- Tests: 2 new files (`tests/integration/mcp-timeline-reference-lifecycle.test.ts` ×2,
+  `tests/unit/studio-components.test.tsx` +1 regression test), 4 files updated for corrected
+  tool/capability counts and reworked examples.
+- Full `pnpm validate` — see the final acceptance gate (H16) for exact counts; targeted test files
+  covering every change in this batch passed clean (44 tests across mcp-protocol, mcp-server,
+  studio-production, env; 3 tests in studio-components; 2 in the new timeline/reference lifecycle
+  file).
+- **H11–H16 not started as of this entry.**
+
+---
+
+## 95. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.
 

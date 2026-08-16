@@ -228,7 +228,7 @@ describe("Real approval flow through the Agent Planner engine (Block D5)", () =>
   });
 
   it("populates real rich approval context (nodeId/operation/before/after/summary) derived from actual plan data, not fabricated", async () => {
-    const { session, agentContext } = realTurnScenario("REQUIRE_ALL_WRITE_APPROVAL");
+    const { agentContext } = realTurnScenario("REQUIRE_ALL_WRITE_APPROVAL");
     const controller = createInteractiveApprovalAdapter();
     const goal = createAgentGoal({
       category: "EDIT",

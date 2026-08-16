@@ -44,7 +44,6 @@ export const aevumEnvironmentVariablesSchema = z
     LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
     AEVUM_RUNTIME_MODE: z.enum(["foundation", "full"]).default("full"),
     AEVUM_SERVICE: z.enum(["platform", "api", "mcp-server", "agent-worker"]).default("platform"),
-    AEVUM_FEATURE_FLAGS: z.string().default(""),
     PORT: positiveIntegerFromString.optional(),
 
     API_ALLOWED_ORIGINS: z.string().default(""),
@@ -326,7 +325,6 @@ export interface AevumEnvironment {
     readonly rateLimitPerMinute: number;
     readonly deploymentVersion: string;
   };
-  readonly featureFlags: readonly string[];
   readonly supabase: {
     readonly url?: string;
     readonly anonKey?: string;
@@ -494,9 +492,6 @@ export interface AevumEnvironment {
 }
 
 function toEnvironment(variables: AevumEnvironmentVariables): AevumEnvironment {
-  const featureFlags = variables.AEVUM_FEATURE_FLAGS.split(",")
-    .map((flag) => flag.trim())
-    .filter(Boolean);
   const blenderExecutable = variables.BLENDER_EXECUTABLE_PATH ?? variables.BLENDER_EXECUTABLE;
 
   return {
@@ -513,7 +508,6 @@ function toEnvironment(variables: AevumEnvironmentVariables): AevumEnvironment {
       rateLimitPerMinute: variables.API_RATE_LIMIT_PER_MINUTE,
       deploymentVersion: variables.API_DEPLOYMENT_VERSION,
     },
-    featureFlags,
     supabase: {
       ...(variables.SUPABASE_URL ? { url: variables.SUPABASE_URL } : {}),
       ...(variables.SUPABASE_ANON_KEY ? { anonKey: variables.SUPABASE_ANON_KEY } : {}),

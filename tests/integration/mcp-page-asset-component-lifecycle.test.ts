@@ -1,4 +1,4 @@
-import { createAsset, createEntityId, createFrame, createPage, ComponentSchema } from "@aevum/document-model";
+import { createEntityId, createFrame, createPage, ComponentSchema } from "@aevum/document-model";
 import { describe, expect, it } from "vitest";
 import { createInMemoryAssetStorage, createMcpTestFixture } from "../helpers/mcp-fixture.js";
 
@@ -66,13 +66,6 @@ describe("MCP page/asset/component lifecycle (Block H2/H3)", () => {
   it("removes a real unreferenced asset through MCP and rejects removal of a referenced one, with no partial write on rejection", async () => {
     const storage = createInMemoryAssetStorage();
     const fixture = createMcpTestFixture({ assetStorageAdapter: storage });
-    const asset = createAsset({
-      type: "IMAGE",
-      name: "MCP lifecycle asset",
-      hash: `sha256:${"e".repeat(64)}`,
-      uri: "assets/mcp-lifecycle.png",
-      mimeType: "image/png",
-    });
     const registered = await fixture.execute(
       "asset.register",
       {
@@ -112,13 +105,6 @@ describe("MCP page/asset/component lifecycle (Block H2/H3)", () => {
 
     // Register a second asset and attach a real Reference to it, then prove removal is rejected with
     // no partial write (the asset must still exist afterward, same document version).
-    const secondAsset = createAsset({
-      type: "IMAGE",
-      name: "Referenced asset",
-      hash: `sha256:${"f".repeat(64)}`,
-      uri: "assets/referenced.png",
-      mimeType: "image/png",
-    });
     const secondRegistered = await fixture.execute(
       "asset.register",
       {
