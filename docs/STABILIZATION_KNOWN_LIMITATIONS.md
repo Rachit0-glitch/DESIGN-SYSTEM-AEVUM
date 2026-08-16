@@ -754,9 +754,9 @@ per this doc's own convention; each entry below carries its own specific update 
 
 Governing instruction: "BLOCK H + FINAL — COMPLETE THE SYSTEM + FINAL FORENSIC ACCEPTANCE," 16
 sub-items (H1–H16), executed in batches per explicit user instruction. **H1 (CRITICAL), H2/H3
-(HIGH), Batch 1 (H4/H5), Batch 2 (H6/H7), Batch 3 (H8/H9/H10), and Batch 4 (H11/H12/H13) are closed
-to the extent honestly possible. H14–H16 have not been started — listed honestly below, not silently
-dropped.**
+(HIGH), Batch 1 (H4/H5), Batch 2 (H6/H7), Batch 3 (H8/H9/H10), Batch 4 (H11/H12/H13), and Batch 5
+(H14/H15) are closed to the extent honestly possible. H16 (the final acceptance gate) is in
+progress — listed honestly below, not silently dropped.**
 
 **H1 — Component materialization: CLOSED.** See `docs/11_ROADMAP_AND_STATUS.md`'s new "Block H"
 entry for full detail. Summary: reconstruction's component candidates now really materialize into
@@ -972,18 +972,35 @@ new architecture, not a same-file patch; full writeups are the standalone entrie
   so a caller that immediately selects it briefly renders an empty-selection state, and a failed
   write leaves selection pointing at a node that will never exist (MEDIUM, minor UX polish).
 
-**H15/H16 — NOT STARTED THIS PASS.**
-- 🔴 **H15 (missing phase/block detection)** — not performed as its own dedicated comparison pass
-  this time.
-- 🔴 **H16 (final acceptance gate)** — `pnpm validate` has passed clean after every batch through
-  Batch 5 (exact current test/file/package counts are stale the moment a new batch adds tests; H16
-  will report the final real count), but the live-Studio 19–20-point checklist H16 specifies
-  (component materialization, gradient/stroke/image/text rendering, correction/autocorrect, approval
-  flow, repeated operations, etc.) was not run against the current dev server this pass.
+**H15 — Missing phase/block detection: CLOSED (Batch 5). Verdict: NO ADDITIONAL ENGINEERING BLOCK
+REQUIRED.** Compared `docs/11_ROADMAP_AND_STATUS.md`'s full Phase 0–31 structure, this doc's own
+accumulated "documented, not fixed" catalog (now well over a dozen real, specific entries spanning
+Blocks G through H14), and the "Proposed future phases" section against the real current
+implementation. Every real gap found across the entire Block H effort — asset quarantine real
+scanning, token value/type cross-validation, the older validation engine's incomplete correction-plan
+coverage, component slot/override cross-validation, the `PAINT_ORDER` comparator, asset-storage
+orphaning on version conflict, the Blender reconciliation URI-ordering bug, Studio's remaining
+undo/redo inverse-command coverage (deleteNode/duplicateNode/registerToken/updateReference), the six
+still-untested Studio panels, page/asset lifecycle Studio UI, distributed-rate-limiter production
+verification, and internationalization — is already captured as a real, specific, honestly-reasoned
+entry either in this document's standalone limitation write-ups or its "Proposed future phases"
+section. None of it was silently missing or undiscovered; all of it has a concrete reason it wasn't
+fixed in-place (external infrastructure needed, a genuine product/schema design decision required, or
+a real feature-scoping question only the user can resolve) rather than being deferred by omission. No
+gap found during this whole Block H effort rose to "an entire phase of architecture is missing from
+the roadmap" — every one fits as a bounded, already-tracked backlog item under an existing phase
+(mostly Phase 6/22 reconstruction-fidelity, Phase 23 Studio, and Phase 24 production hardening). One
+real, narrower documentation-accuracy note: `docs/11_ROADMAP_AND_STATUS.md` §5.1
+("Architecture Implemented vs. Production Capability Implemented") is dated to a "Phase 17 Claude
+onboarding audit, 2026-08-09" snapshot and has not been revisited since — its claim that the
+reconstruction pipeline is merely "a deterministic, manifest-driven adapter (Phase 6 MVP), not a
+production computer-vision... model" undersells what Blocks B through H1 actually built (real local
+OCR, real color-cluster segmentation, real shape/gradient/stroke detection — genuine, if non-paid-API,
+computer vision) — this is a real drift worth a future pass fixing, but it's a stale status paragraph,
+not a missing engineering block, so it's noted here rather than escalated into one.
 
-None of H15–H16 were silently skipped or claimed done — they are unstarted, and this section exists
-so a future pass (or this same session, continued) has an accurate, non-overlapping starting point
-rather than re-deriving what Blocks G/H Batches 1–5 already covered.
+**H16 — Final acceptance gate: IN PROGRESS.** See the roadmap doc's Batch 5/final entries for the
+real `pnpm validate` counts and the live-Studio verification results as they're completed.
 
 ### Token value is never cross-validated against its declared type (H14 finding, documented not fixed)
 

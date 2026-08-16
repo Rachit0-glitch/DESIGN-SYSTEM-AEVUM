@@ -5774,7 +5774,54 @@ turned out to be correct).
 
 ---
 
-## 97. Final Roadmap Statement
+## 97. Block H Batch 5: Final Parallel Forensic Audit + Missing-Phase Detection (2026-08-16)
+
+Closes H14 and H15 of the governing Block H batched-execution instruction.
+
+- **H14 — Final parallel forensic audit: CLOSED.** Four independent, parallel, read-only audits
+  covered the whole repo (protocol/command-engine/security; Studio/vision/reconstruction/renderer;
+  tokens/assets/components/fidelity/correction; transactions/performance/testing/deployment/
+  documentation), each briefed on every finding Blocks G and H1–H13 already closed so they wouldn't
+  re-report it. Found and fixed 6 real issues: a real `locked`-invariant bypass in `node.reparent`
+  and `page.delete`/`page.rename` (live today via registered MCP tools and Studio's own lock toggle —
+  a genuine violation of the guarantee the MCP server's own `initialize` handshake advertises), the
+  same gap in `Track.locked` (dormant), a Studio REMOTE-mode undo/redo gap where five of six real
+  mutation types never pushed a real inverse entry (so Undo could silently revert an unrelated, stale
+  edit while a real delete became permanently unrecoverable through the UI — fixed by invalidating the
+  stacks on every untracked mutation), a missing dimension guard in the local vision adapter (matching
+  an identical pre-existing sibling guard), a dead `MCP_REQUIRE_AUTH` env var, a missing `CACHE_URL`
+  entry in the account-migration doc's required-variable list, several stale factual claims across
+  three docs, and zero test coverage for `clientIp()`'s `MCP_TRUST_PROXY` branch (the exact
+  configuration the live production deployment runs). See `docs/STABILIZATION_KNOWN_LIMITATIONS.md`'s
+  "H14" entry and its five new standalone finding write-ups for full detail on the 6 real findings
+  investigated and documented rather than fixed (token value/type cross-validation, the asset
+  quarantine system, the older validation engine's correction-plan gaps, component slot/override
+  cross-validation, and the dead `PAINT_ORDER` comparator) — each needs a genuine design decision or
+  new infrastructure this pass couldn't responsibly invent under time pressure.
+- **H15 — Missing phase/block detection: CLOSED. Verdict: NO ADDITIONAL ENGINEERING BLOCK REQUIRED.**
+  Compared the roadmap's full Phase 0–31 structure against the real current implementation and this
+  document's own accumulated backlog (now well over a dozen specific, honestly-reasoned "documented,
+  not fixed" entries spanning Blocks G–H14). Every real gap found across the whole Block H effort
+  already has a concrete, tracked reason it wasn't fixed in place — external infrastructure needed, a
+  genuine schema/product design decision required, or a feature-scoping question only the user can
+  resolve — none were silently missing or undiscovered, and none rose to "an entire phase of
+  architecture is missing," only bounded backlog items under existing phases. One real, narrower
+  documentation-accuracy note: `docs/11_ROADMAP_AND_STATUS.md` §5.1 is a "Phase 17 Claude onboarding
+  audit, 2026-08-09" snapshot never revisited since, and its "not a production computer-vision...
+  model" characterization of the reconstruction pipeline undersells what Blocks B–H1 actually built
+  (real local OCR, color-cluster segmentation, shape/gradient/stroke detection) — a real drift worth a
+  future pass fixing, disclosed rather than escalated into a new block.
+- Tests: 9 new (`tests/unit/command-engine.test.ts` ×3 real `locked`-enforcement regression tests,
+  `tests/unit/studio.test.ts` ×1 undo/redo-invalidation regression test,
+  `tests/integration/mcp-http.test.ts` ×5 `clientIp()`/`MCP_TRUST_PROXY` tests).
+- Full `pnpm validate` (docs validation, dependency-boundary validation, format check, lint,
+  typecheck, full test suite — **546/547 tests**, 1 dynamically skipped for the disclosed live-Redis
+  reason, across 83 files, build across all 65 packages) passed clean.
+- **H16 not started as of this entry — see the final acceptance report for its results.**
+
+---
+
+## 99. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.
 
