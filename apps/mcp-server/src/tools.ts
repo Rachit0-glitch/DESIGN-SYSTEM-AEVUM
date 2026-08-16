@@ -409,6 +409,21 @@ function buildStructuralExpectations(document: CanonicalDesignDocument): Structu
     const region = document.references[link.referenceId]?.regions.find((entry) => entry.id === link.regionId);
     if (!region) continue;
     expectations.push({ nodeId: node.id, property: "BOUNDS", expected: region.bounds, confidence: link.confidence });
+    // Block H7: a real originally-detected gradient/crop, when reconstruction actually captured one
+    // for this region, becomes its own attributed structural expectation — compareStructuralFidelity
+    // already has real, tested comparison logic for both (packages/fidelity/src/structure.ts); it
+    // was simply never supplied one before this pass, the same gap Block F closed for BOUNDS.
+    if (region.gradient && node.type === "SHAPE") {
+      expectations.push({
+        nodeId: node.id,
+        property: "GRADIENT",
+        expected: [region.gradient],
+        confidence: link.confidence,
+      });
+    }
+    if (region.crop && node.type === "IMAGE") {
+      expectations.push({ nodeId: node.id, property: "CROP", expected: region.crop, confidence: link.confidence });
+    }
   }
   return expectations;
 }

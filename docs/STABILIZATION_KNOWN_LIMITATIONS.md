@@ -737,14 +737,35 @@ this sandbox — see `docs/11_ROADMAP_AND_STATUS.md`'s "Block H Batch 1" entry.
 tests, empty/success/failure states) — the two highest-value, previously-untested panels. The MCP
 capability/gateway layer was already covered by `studio-production.test.ts`.
 
-**H6–H16 — NOT STARTED THIS PASS. Honest scope of what remains:**
-- 🔴 **H6 (typography/line-wrap fidelity)** — investigate whether real captured text-layout data
-  (line breaks, baseline, wrap width) exists anywhere in the reconstruction pipeline to compare
-  against; if not, document the exact missing data rather than fake an expected line-break structure
-  (Block F already left this open for the same reason).
-- 🔴 **H7 (crop/stroke/gradient fidelity attribution)** — domain-specific fidelity attribution for
-  gradient type/direction/stops, stroke width/color/style, and crop bounds, beyond the generic
-  region-pixel-mismatch detection Block F already provides.
+**H6 — Typography/line-wrap fidelity: investigated, genuinely not closable this pass without real
+OCR-pipeline surgery — not faked.** `compareStructuralFidelity`'s `LINE_BREAKS` comparator is real
+and complete; what's missing is real "expected" (per-line reference bboxes) and "actual" (live
+shaped-text) data. Traced the exact reason the "expected" side doesn't exist: OCR's
+`recognizeLines()` genuinely returns real per-line bboxes, but `detectTextRegions`
+(`packages/reconstruction-vision/src/manifest-builder.ts`) only uses them to localize candidate text
+blocks before a second whole-block re-OCR pass collapses each block back into one merged region —
+the real per-line breakdown is discarded, not merely unexposed. See
+`docs/11_ROADMAP_AND_STATUS.md`'s "Block H Batch 2" entry for full detail.
+
+**H7 — Gradient/crop/stroke fidelity attribution: gradient CLOSED (real test); crop wired but
+untested; stroke left as an honest gap.** `ReferenceRecordSchema.regions[]` gained optional real
+`gradient`/`crop` fields (populated from data reconstruction already computes), and
+`buildStructuralExpectations` now emits real `GRADIENT`/`CROP` expectations reaching
+`compareStructuralFidelity`'s pre-existing, already-tested comparators for both — the same class of
+gap Block F closed for `BOUNDS`. Gradient has a real acceptance test proving a genuine
+`GRADIENT_STRUCTURE_MISMATCH` when a reconstructed gradient shape's fill is swapped to solid. Crop's
+wiring is real but not independently test-proven this pass. Stroke has no structural comparator to
+wire at all (would be new comparison-logic architecture, not existing-logic wiring) — left as the
+same honest gap Block F already documented.
+
+**A correction to Batch 1's own claim**: the `tesseract.js` OCR-cache-directory fix
+(`DEFAULT_OCR_CACHE_DIR`) was described as resolving the network-flake issue; re-testing during
+Batch 2 found the cache directory is never actually populated, so that fix's real effect on the
+flake is unconfirmed — the flake itself is real, pre-existing, and unrelated to Block H's functional
+changes (every affected test passes reliably in isolation), but it remains a genuinely open,
+disclosed external-dependency reliability issue, not a solved one.
+
+**H8–H16 — NOT STARTED THIS PASS. Honest scope of what remains:**
 - 🔴 **H8 (repo-wide honesty/fabrication audit)** — a fresh, broad sweep beyond Block G's scoped
   sweep (which covered `apps/mcp-server/src`, `apps/studio/src`, `packages/fidelity/src`,
   `packages/reconstruction/src` for `TODO`/`FIXME`/`placeholder` and found nothing beyond two already

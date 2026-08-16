@@ -5482,31 +5482,83 @@ Closes H4 and H5 of the governing Block H batched-execution instruction.
     duplicated.
   - **Not done this pass**: ReferencesPanel already had coverage (Block D3); reconstruction-progress
     and capability-restriction states beyond what's covered above were not separately tested.
-- **A real, incidentally-found reliability fix**: `pnpm validate`'s full test run flaked
-  intermittently (`tesseract.js`'s OCR worker's `eng.traineddata` network fetch failing under
-  parallel test load) — confirmed genuinely pre-existing and unrelated to Block H's code changes
-  (every affected test passed reliably in isolation). Root cause: `createOcrSession` had no default
-  `cacheDir`, so every test file's OCR-using MCP fixture independently re-fetched the same language
-  data over the network. Fixed with a stable, shared default cache directory
-  (`DEFAULT_OCR_CACHE_DIR`, `packages/reconstruction-vision/src/ocr.ts`) so every caller on one
-  machine shares one real download — `pnpm validate` passed clean on the next run with no other
-  changes. A real production benefit too (faster warm starts after the first real OCR call on a given
-  deployment), not just a test-only fix.
+- **A real, incidentally-found reliability issue, only partially addressed — corrected claim, see
+  Batch 2 below**: `pnpm validate`'s full test run flaked intermittently (`tesseract.js`'s OCR
+  worker network-fetch failing under parallel test load) — confirmed genuinely pre-existing and
+  unrelated to Block H's functional changes (every affected test passed reliably in isolation).
+  Added a stable default `cacheDir` (`DEFAULT_OCR_CACHE_DIR`,
+  `packages/reconstruction-vision/src/ocr.ts`) on the theory that every caller re-fetching
+  independently was the cause. **This entry originally claimed the flake was fixed; Batch 2's own
+  re-testing found the cache directory is never actually populated, so the fix's real effect is
+  unconfirmed** — left in place as a plausible, harmless improvement, not claimed as a proven fix.
 - Tests: 15 new (`tests/unit/mcp-rate-limit.test.ts` ×6, `tests/unit/studio-ai-panel.test.tsx` ×7,
   `tests/unit/studio-fidelity-workspace.test.tsx` ×3, less 1 dynamically-skipped live-Redis test).
 - Full `pnpm validate` (docs, dependency rules, format, lint, typecheck, **530/531 tests** — 1
   dynamically skipped for the disclosed live-Redis reason above — across 80 files, build across all
   65 packages) passed clean.
-- **H6–H16 not started as of this entry.** Typography/line-wrap fidelity, crop/stroke/gradient
-  attribution, the repo-wide honesty audit, the MCP/command/capability consistency matrix, the
-  security forensic pass, transaction forensics beyond the fixes already made in Blocks G/H, the full
-  autocorrect-loop pipeline integration test, further performance/resource investigation, the final
-  parallel forensic audit, missing-phase detection, and the final acceptance gate all remain — see
-  `docs/STABILIZATION_KNOWN_LIMITATIONS.md` for the honest, itemized list.
+- **H6–H16 not started as of this entry — see "Block H Batch 2" below for H6/H7, which are now
+  closed to the extent honestly possible.**
 
 ---
 
-## 91. Final Roadmap Statement
+## 92. Block H Batch 2: Fidelity Completeness — Typography + Gradient Attribution (2026-08-16)
+
+Closes H6 and H7 of the governing Block H batched-execution instruction.
+
+- **H6 — Typography/line-wrap fidelity: investigated, genuinely NOT closable without deeper OCR-
+  pipeline changes — documented honestly rather than faked.** Traced the real data:
+  `compareStructuralFidelity`'s `LINE_BREAKS` comparator (`packages/fidelity/src/structure.ts`) is
+  real, complete, already-tested logic — it compares real `lineCount`/`lineWidths`/`baselines`. What
+  it needs to be reachable is (a) a real "expected" value and (b) a real "actual" shaped-text
+  measurement, neither of which the pipeline currently produces. Investigated exactly why: OCR's
+  `recognizeLines()` (`packages/reconstruction-vision/src/ocr.ts`) genuinely DOES return real
+  per-line bounding boxes from the reference image — but `detectTextRegions`
+  (`packages/reconstruction-vision/src/manifest-builder.ts`) only ever uses those lines to
+  *localize* candidate text blocks for a second whole-block re-OCR pass; the real per-line breakdown
+  is discarded once each block collapses into one merged `OcrTextRegion`. Preserving that
+  line-to-region mapping (and building a matching real "actual" text-shaping measurement from the
+  live node's current font/box-width state) is genuine OCR/text-shaping pipeline surgery, not a
+  same-file fix — exactly the "external layout infrastructure is genuinely required" case H6 itself
+  anticipated. Left unbuilt; not faked.
+- **H7 — Gradient/crop/stroke fidelity attribution: gradient CLOSED with a real test; crop wired but
+  not independently acceptance-tested; stroke left as an honest, disclosed gap.**
+  - **Gradient**: `compareStructuralFidelity`'s `GRADIENT` comparator was real and already tested but
+    — like `BOUNDS` before Block F — never reachable, because `buildStructuralExpectations`
+    (`apps/mcp-server/src/tools.ts`) never supplied it an expectation. Closed by extending
+    `ReferenceRecordSchema.regions[]` (`packages/document-model/src/schema.ts`) with an optional
+    real `gradient` field, populated in `packages/reconstruction/src/proposal.ts` straight from the
+    same real detected shape-candidate data already used to build the node's own `GradientToken` —
+    nothing fabricated or separately measured. `buildStructuralExpectations` now emits a real
+    `GRADIENT` expectation whenever a region has one. **Real acceptance test**
+    (`tests/integration/mcp-fidelity-gradient-attribution.test.ts`): a real linear-gradient PNG,
+    through the actual MCP pipeline — a baseline measurement against the untouched reconstruction
+    shows no gradient mismatch; deliberately repointing the shape's fill at a plain solid-color token
+    produces a real, correctly-attributed `GRADIENT_STRUCTURE_MISMATCH`.
+  - **Crop**: the exact same mechanism — `ReferenceRecordSchema.regions[]` also gained an optional
+    real `crop` field (from the same real asset-candidate crop data already used to build the IMAGE
+    node), and `buildStructuralExpectations` now emits a real `CROP` expectation whenever a region
+    has one, reaching `compareStructuralFidelity`'s already-real, already-tested `CROP` comparator.
+    **Not independently acceptance-tested this pass** — no dedicated test constructs a real
+    crop-drift scenario the way the gradient test does; the wiring is real and typechecked but this
+    specific path's real end-to-end behavior has not been directly observed.
+  - **Stroke**: no dedicated `STROKE` structural comparator exists in `structure.ts` at all —
+    building one is new comparison-logic architecture (a new `StructuralExpectation.property` value
+    plus real comparison code), not wiring existing logic the way gradient/crop were. Left as the
+    same honest, disclosed gap Block F already documented ("stroke mismatches are not separately
+    attributed... real pixel content differences ARE caught, just not labeled specifically") — not
+    rebuilt this pass.
+  - Verified C4d's existing gradient/stroke reconstruction and renderer wiring remains fully intact —
+    the full reconstruction/fidelity/gradient/component regression suite (28 tests across 8 files,
+    including the sushi poster and repeated-cards acceptance tests) passed with zero regressions.
+- Tests: 1 new (`tests/integration/mcp-fidelity-gradient-attribution.test.ts`).
+- Full `pnpm validate` passed clean on re-run; the pre-existing `tesseract.js` network flake
+  (disclosed above, not solved by this pass) resurfaced once during validation for this batch and
+  was confirmed transient by re-running — not a Block H regression.
+- **H8–H16 not started as of this entry.**
+
+---
+
+## 93. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.
 

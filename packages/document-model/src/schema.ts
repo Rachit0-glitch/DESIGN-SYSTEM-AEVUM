@@ -1124,6 +1124,12 @@ export const ReferenceRecordSchema = z.strictObject({
         width: NonNegativeSchema,
         height: NonNegativeSchema,
       }),
+      // Real, originally-detected paint/crop data (Block H7) — populated only when reconstruction
+      // actually detected it for this region (a real gradient fill, a real independent image crop),
+      // never fabricated. Lets fidelity structural comparison attribute a mismatch specifically to
+      // "the gradient/crop changed" instead of only a generic region-pixel difference.
+      gradient: GradientSchema.optional(),
+      crop: AssetCropSchema.optional(),
     }),
   ),
   metadata: JsonObjectSchema,

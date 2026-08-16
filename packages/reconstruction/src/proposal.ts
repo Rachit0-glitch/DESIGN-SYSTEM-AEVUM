@@ -1,26 +1,26 @@
 import {
+  type CanonicalDesignDocument,
   ComponentSchema,
+  createTransform,
+  type DesignNode,
   DesignNodeSchema,
   TokenSchema,
-  createTransform,
-  type CanonicalDesignDocument,
-  type DesignNode,
 } from "@aevum/document-model";
 import type { ReconstructionAssetResolver } from "./adapters.js";
 import { buildCommandPlan } from "./commands.js";
-import { diagnostic, hasBlockingDiagnostics, sortDiagnostics } from "./diagnostics.js";
 import { deterministicEntityId, deterministicScopedId, fingerprint } from "./deterministic.js";
+import { diagnostic, hasBlockingDiagnostics, sortDiagnostics } from "./diagnostics.js";
 import { deepFreeze } from "./immutable.js";
 import {
-  RECONSTRUCTION_METADATA_KEY,
-  RECONSTRUCTION_PROPOSAL_VERSION,
-  ProposedNodeSchema,
-  ReconstructionProposalSchema,
   type DetectedRegion,
   type ProposedNode,
+  ProposedNodeSchema,
+  RECONSTRUCTION_METADATA_KEY,
+  RECONSTRUCTION_PROPOSAL_VERSION,
   type ReconstructionConfiguration,
   type ReconstructionDiagnostic,
   type ReconstructionProposal,
+  ReconstructionProposalSchema,
   type ReconstructionTask,
   type ReferenceAnalysis,
 } from "./schemas.js";
@@ -484,11 +484,39 @@ export function createReconstructionProposal(
     type: "SCREENSHOT" as const,
     role: "PRIMARY" as const,
     ...(!existing ? { viewportId } : {}),
-    regions: analysis.regions.map((region) => ({
-      id: region.id,
-      label: regionName(region),
-      bounds: { x: region.bounds.x, y: region.bounds.y, width: region.bounds.width, height: region.bounds.height },
-    })),
+    // Block H7: preserve the real originally-detected gradient/crop for regions that have one, so
+    // fidelity's structural comparison can attribute a mismatch specifically to "the gradient
+    // changed" / "the crop changed" instead of only a generic region-pixel difference. Populated
+    // straight from the same real shape/asset candidates already used to build each region's real
+    // node above — nothing here is a separate or fabricated measurement.
+    regions: analysis.regions.map((region) => {
+      const shapeGradient = analysis.shapeCandidates.find((candidate) => candidate.regionId === region.id)?.gradient;
+      const assetCrop = analysis.assetCandidates.find((candidate) => candidate.regionId === region.id)?.crop;
+      return {
+        id: region.id,
+        label: regionName(region),
+        bounds: { x: region.bounds.x, y: region.bounds.y, width: region.bounds.width, height: region.bounds.height },
+        ...(isGradientValue(shapeGradient)
+          ? {
+              gradient: {
+                type: shapeGradient.type,
+                stops: shapeGradient.stops.map((stop, index) => ({
+                  offset: shapeGradient.stops.length > 1 ? index / (shapeGradient.stops.length - 1) : 0,
+                  color: {
+                    r: Math.max(0, Math.min(255, Math.round(stop.r))) / 255,
+                    g: Math.max(0, Math.min(255, Math.round(stop.g))) / 255,
+                    b: Math.max(0, Math.min(255, Math.round(stop.b))) / 255,
+                    a: 1,
+                    colorSpace: "SRGB" as const,
+                  },
+                })),
+                ...(shapeGradient.angle !== undefined ? { angle: shapeGradient.angle } : {}),
+              },
+            }
+          : {}),
+        ...(assetCrop ? { crop: assetCrop } : {}),
+      };
+    }),
     metadata: {
       reconstructionTaskId: task.id,
       analysisFingerprint: analysis.analysisFingerprint,
