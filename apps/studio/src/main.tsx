@@ -1181,7 +1181,17 @@ function NumericField({ label, value, onCommit }: { label: string; value: number
         onChange={(event) => setDraft(event.target.value)}
         onBlur={() => {
           const parsed = Number(draft);
-          if (Number.isFinite(parsed) && parsed !== value) onCommit(parsed);
+          if (!Number.isFinite(parsed) || parsed === value) return;
+          try {
+            onCommit(parsed);
+          } catch {
+            // A rejected commit (e.g. LOCKED_ENTITY) never changes `value`, so the resync
+            // effect above never re-fires. Revert the draft here instead of leaving the
+            // field stuck showing the rejected input. session.updateNode already records
+            // the failure on snapshot.lastError and surfaces the error toast; this only
+            // stops the exception from also going uncaught out of the blur handler.
+            setDraft(String(Math.round(value * 100) / 100));
+          }
         }}
         onKeyDown={(event) => {
           if (event.key === "Enter") event.currentTarget.blur();
@@ -1191,7 +1201,13 @@ function NumericField({ label, value, onCommit }: { label: string; value: number
   );
 }
 
-function PropertiesPanel({ snapshot, selected }: { snapshot: StudioSessionSnapshot; selected: readonly string[] }) {
+export function PropertiesPanel({
+  snapshot,
+  selected,
+}: {
+  snapshot: StudioSessionSnapshot;
+  selected: readonly string[];
+}) {
   const node = selected.length === 1 ? snapshot.document.nodes[selected[0] ?? ""] : undefined;
   if (!node)
     return (

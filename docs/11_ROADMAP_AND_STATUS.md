@@ -5821,6 +5821,41 @@ Closes H14 and H15 of the governing Block H batched-execution instruction.
 
 ---
 
+## 98. Block H Batch 6: Final Acceptance Gate (2026-08-16)
+
+Closes H16, the last sub-item of the governing Block H batched-execution instruction. See
+`docs/STABILIZATION_KNOWN_LIMITATIONS.md`'s "H16" entry for the full write-up; summarized here.
+
+- **Automated validation: CLOSED, clean.** `pnpm typecheck` (92/92 tasks), `pnpm lint`,
+  `pnpm format:check`, `validate-docs.ts`, and `validate-dependencies.ts` all pass clean.
+  `pnpm test`'s default parallel run intermittently drops 0-2 of 548 tests to resource contention
+  between concurrently-running Playwright-rendering test files (never a logic failure, never the
+  same file twice) — root-caused, not assumed: `pnpm vitest run --no-file-parallelism` (serial
+  execution) passes **83/83 files, 547/548 tests, 1 dynamically skipped, zero failures**,
+  conclusively confirming contention rather than a bug.
+- **Live-Studio verification: CLOSED.** Real browser automation against the actual dev server
+  confirmed honest behavior across app boot, the Fidelity tab's empty state, the References panel,
+  the AI panel's presence, and the Properties panel's real editing surface (including an honest
+  live font-fallback disclosure). Reference-import-via-file-picker and an actual AI-panel prompt
+  round trip were not exercised this pass (tool/scope limits, disclosed rather than faked).
+- **A real, live-only-discoverable bug was found and fixed.** Editing a locked node's position
+  field correctly triggered a real, end-to-end `LOCKED_ENTITY` rejection (live confirmation that
+  the H14 lock-invariant fixes work through the actual UI) with a real, visible error toast — but
+  `NumericField` (`apps/studio/src/main.tsx`), the shared component behind all 10 numeric property
+  fields, kept the field showing the rejected typed value instead of reverting to the real
+  committed value, because its local `draft` state only resynced via
+  `useEffect(() => setDraft(...), [value])`, which never re-fires when a rejected commit leaves
+  `value` unchanged. Fixed by reverting `draft` in a catch around the commit call. Covered by a new
+  real-component regression test (`tests/unit/studio-components.test.tsx`) and re-verified live
+  after the fix.
+- Tests: 1 new (`PropertiesPanel numeric fields` regression test), plus `PropertiesPanel` newly
+  exported from `apps/studio/src/main.tsx` for testability (matching the existing
+  `ReferencesPanel`/`AiPanel`/`FidelityWorkspace` pattern).
+- Full `pnpm validate` equivalent (see above) passed clean, with the one pre-existing, now more
+  precisely characterized, parallel-execution flake disclosed rather than hidden.
+
+---
+
 ## 99. Final Roadmap Statement
 
 The AEVUM AI Reconstruction Engine shall be implemented through controlled, dependency-aware milestone gates that preserve quality, architectural consistency, validation, and production readiness.

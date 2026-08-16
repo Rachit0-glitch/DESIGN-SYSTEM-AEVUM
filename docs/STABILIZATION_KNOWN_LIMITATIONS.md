@@ -750,13 +750,12 @@ per this doc's own convention; each entry below carries its own specific update 
 
 ---
 
-## Block H — Component Materialization + Page/Asset Lifecycle Surface (2026-08-16, IN PROGRESS)
+## Block H — Component Materialization + Page/Asset Lifecycle Surface (2026-08-16, CLOSED)
 
 Governing instruction: "BLOCK H + FINAL — COMPLETE THE SYSTEM + FINAL FORENSIC ACCEPTANCE," 16
-sub-items (H1–H16), executed in batches per explicit user instruction. **H1 (CRITICAL), H2/H3
-(HIGH), Batch 1 (H4/H5), Batch 2 (H6/H7), Batch 3 (H8/H9/H10), Batch 4 (H11/H12/H13), and Batch 5
-(H14/H15) are closed to the extent honestly possible. H16 (the final acceptance gate) is in
-progress — listed honestly below, not silently dropped.**
+sub-items (H1–H16), executed in batches per explicit user instruction. **All 16 sub-items (H1–H16,
+Batches 1–6) are closed to the extent honestly possible.** See `docs/11_ROADMAP_AND_STATUS.md`'s
+final "Block H Batch 6" entry and the `# BLOCK H FINAL REPORT` for the complete verdict.
 
 **H1 — Component materialization: CLOSED.** See `docs/11_ROADMAP_AND_STATUS.md`'s new "Block H"
 entry for full detail. Summary: reconstruction's component candidates now really materialize into
@@ -999,8 +998,62 @@ OCR, real color-cluster segmentation, real shape/gradient/stroke detection — g
 computer vision) — this is a real drift worth a future pass fixing, but it's a stale status paragraph,
 not a missing engineering block, so it's noted here rather than escalated into one.
 
-**H16 — Final acceptance gate: IN PROGRESS.** See the roadmap doc's Batch 5/final entries for the
-real `pnpm validate` counts and the live-Studio verification results as they're completed.
+**H16 — Final acceptance gate: CLOSED.**
+
+**Automated validation** (see `docs/11_ROADMAP_AND_STATUS.md`'s final "Block H Batch 6" entry for
+exact counts): `pnpm typecheck` (92/92 tasks, clean), `pnpm lint`, `pnpm format:check`,
+`node --experimental-strip-types scripts/validate-docs.ts`, and
+`node --experimental-strip-types scripts/validate-dependencies.ts` all pass clean. `pnpm test`
+under this session's default parallelism intermittently fails 0-2 of 548 tests — always a
+Playwright-rendering-heavy file (`tests/unit/fidelity.test.ts` or
+`tests/integration/mcp-full-pipeline-integration.test.ts`), never the same one twice, always
+timing/measurement-adjacent, never a logic assertion on non-rendering code. This was root-caused,
+not assumed: `pnpm vitest run --no-file-parallelism` (serial file execution, removing contention
+between concurrently-running Playwright browser instances on this dev machine) passes **83/83
+files, 547/548 tests, 1 dynamically-skipped, zero failures**, conclusively confirming this is
+test-runner resource contention under parallel load, not a logic bug — consistent with, and now
+more precisely characterized than, the flake pattern already disclosed under "Real fidelity/
+autoCorrect characteristics discovered while building Block H12" above.
+
+**Live-Studio verification** (real browser automation against the actual dev server, not code
+reading): confirmed real, honest behavior for — app boot with a real project and real layer tree;
+the Fidelity tab's honest empty state (no fabricated score, no measurement affordance without a
+reference); the References panel's real "Import reference" flow up to the point of a native OS
+file picker (the browser-automation tool used for this pass has no file-upload capability, so the
+import itself was not exercised — disclosed as an honest gap, not faked); the AI panel's real
+prompt textbox and Send button (present, not exercised with an actual instruction this pass); the
+Properties panel's real, rich per-node editing surface (position/size/rotation/opacity/typography/
+effects/responsive controls) including an honest live font-fallback disclosure ("Inter · missing"
+shown verbatim rather than silently substituted); and the Lock/Unlock toggle.
+
+**A real, live-only-discoverable bug was found and fixed during this pass.** Locking a node via the
+Properties panel, then editing its X-position field and blurring, correctly triggers a real,
+end-to-end `LOCKED_ENTITY` rejection from the command engine (confirmed live — the H14 lock-
+invariant fixes work correctly through the actual production UI path, not just in unit tests) and
+correctly surfaces a real, visible error toast (`role="alert"`, e.g. "Node text_...0010 is
+locked."). However, `NumericField` (`apps/studio/src/main.tsx`) kept the field's typed text in
+local `draft` state that only resynced from the real committed `value` prop via
+`useEffect(() => setDraft(...), [value])` — which only fires when `value` actually changes. Since
+a rejected commit never changes `value`, the field was left permanently showing the rejected input
+(e.g. "200") instead of the real, unchanged committed value (e.g. "124"), with the exception also
+escaping uncaught out of the `onBlur` handler. This is a single shared component behind all 10
+numeric property fields (position, size, rotation, opacity, and others), so one fix closes all of
+them. **Fixed**: `onBlur` now wraps the commit in try/catch and reverts `draft` to the real value
+on failure, matching the earlier discovery in this same pass that the underlying `LOCKED_ENTITY`
+rejection and error-toast plumbing were already correct — the display-desync was the only real
+defect. Covered by a new real-component regression test in
+`tests/unit/studio-components.test.tsx` (`PropertiesPanel` rendered with a real locked node,
+`fireEvent.blur` after typing a new value, asserting the field reverts, the document is unchanged,
+`lastError` is set, and no exception escapes the handler) and re-verified live in the browser after
+the fix (field correctly shows the real value; no uncaught console error).
+
+**Not exercised this pass, disclosed rather than silently skipped**: reference-import via file
+picker (tool limitation, not a product gap — `apps/studio/src/core/fixture.ts`-driven unit/
+integration tests already cover this path); an actual AI-panel prompt-to-approval round trip in
+the live browser (covered extensively by existing Block D4/D5/E automated tests, not by this
+specific live pass); and systematic capability-enforcement spot-checks (e.g. confirming no page-
+add/delete UI exists, matching the `NOT_YET_AVAILABLE` capability list) beyond what was incidentally
+observed while testing the locked-node fix.
 
 ### Token value is never cross-validated against its declared type (H14 finding, documented not fixed)
 

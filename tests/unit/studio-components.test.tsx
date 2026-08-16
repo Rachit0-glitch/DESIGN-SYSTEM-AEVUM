@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import {
   __setStudioAgentContextForTesting,
   __setStudioSessionForTesting,
+  PropertiesPanel,
   ReferencesPanel,
 } from "../../apps/studio/src/main.js";
 import { createEntityId } from "@aevum/document-model";
@@ -211,6 +212,50 @@ describe("ReferencesPanel (Block D3 — real component tests)", () => {
       // ...) directly anymore, unlike before the Block H9 fix.
       expect(calls).toEqual(["asset.register", "document.get"]);
       expect(session.getSnapshot().document.references[referenceId]?.assetId).toBe(newAssetId);
+    },
+  );
+});
+
+describe("PropertiesPanel numeric fields (Block H16 live-verification regression test)", () => {
+  afterEach(() => cleanup());
+
+  function findNumericInput(label: string): HTMLInputElement {
+    const field = Array.from(document.querySelectorAll(".numeric-field")).find(
+      (candidate) => candidate.querySelector("span")?.textContent === label,
+    );
+    const input = field?.querySelector("input");
+    if (!input) throw new Error(`Numeric field "${label}" not found in rendered PropertiesPanel.`);
+    return input;
+  }
+
+  it(
+    "reverts a numeric field to the real committed value (instead of leaving the rejected " +
+      "input on screen) when the underlying commit is rejected, e.g. by a locked node -- found " +
+      "live in Studio during the Block H16 verification pass: editing a locked node's position " +
+      'field threw a real, uncaught LOCKED_ENTITY error and left "200" showing even though the ' +
+      "document's real x stayed unchanged",
+    () => {
+      const session = buildSession();
+      const heading = Object.values(session.getSnapshot().document.nodes).find(
+        (candidate) => candidate.name === "Hero heading",
+      );
+      if (!heading) throw new Error("Fixture must contain a 'Hero heading' node.");
+      const originalX = heading.transform.position.x;
+
+      session.updateNode(heading.id, { locked: true });
+      __setStudioSessionForTesting(session);
+      render(<PropertiesPanel snapshot={session.getSnapshot()} selected={[heading.id]} />);
+
+      const xInput = findNumericInput("X");
+      expect(xInput.value).toBe(String(Math.round(originalX * 100) / 100));
+
+      fireEvent.change(xInput, { target: { value: "200" } });
+      // A rejected commit must not escape the field's blur handler as an uncaught exception.
+      expect(() => fireEvent.blur(xInput)).not.toThrow();
+
+      expect(xInput.value).toBe(String(Math.round(originalX * 100) / 100));
+      expect(session.getSnapshot().document.nodes[heading.id]?.transform.position.x).toBe(originalX);
+      expect(session.getSnapshot().lastError).toMatch(/locked/i);
     },
   );
 });
