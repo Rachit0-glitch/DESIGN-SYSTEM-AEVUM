@@ -1,7 +1,11 @@
-import { CURRENT_COMMAND_VERSION, type Command } from "@aevum/command-engine";
-import { deserialize, serialize, type CanonicalDesignDocument } from "@aevum/document-model";
+import { type Command, CURRENT_COMMAND_VERSION } from "@aevum/command-engine";
+import { type CanonicalDesignDocument, deserialize, serialize, type TokenSchema } from "@aevum/document-model";
+import type { z } from "zod";
+
+type Token = z.infer<typeof TokenSchema>;
+
 import { createProjectStore, type ProjectMetadata, type ProjectStore } from "@aevum/project-store";
-import { render, type RendererOutput } from "@aevum/renderer-2d";
+import { type RendererOutput, render } from "@aevum/renderer-2d";
 import { createSceneProjector, type RuntimeViewport, type SceneProjectionResult } from "@aevum/scene-runtime";
 
 export type StudioSaveState = "SAVED" | "SAVING" | "CONFLICT" | "ERROR";
@@ -37,6 +41,7 @@ export interface StudioSession {
   subscribe(listener: () => void): () => void;
   setViewport(viewportId: string, animationTime?: number, reducedMotion?: boolean): void;
   updateNode(nodeId: string, changes: Record<string, unknown>, options?: StudioMutationOptions): void | Promise<void>;
+  registerToken(token: Token, options?: StudioMutationOptions): void | Promise<void>;
   /**
    * Reflects a node.update that an external gateway (e.g. the AI panel's agent gateway) has
    * already committed through its own MCP round trip into the local canonical document, without
@@ -262,6 +267,13 @@ export function createStudioSession(input: {
         remoteRedo.length = 0;
         notify();
       });
+    },
+    registerToken(token: Token, options: StudioMutationOptions = {}) {
+      const document = store.getDocument();
+      const command: Command = { ...commandBase(document, options), type: "token.register", payload: { token } };
+      if (input.commandGateway) return executeRemote(command);
+      execute(command);
+      return undefined;
     },
     acknowledgeAgentNodeUpdate(nodeId: string, changes: Record<string, unknown>, options: StudioMutationOptions = {}) {
       const document = store.getDocument();

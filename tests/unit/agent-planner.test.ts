@@ -1,10 +1,10 @@
 import { assembleAgentContext } from "@aevum/agent-context";
 import { createAgentGoal, createAgentSession } from "@aevum/agent-core";
 import { createAgentCapabilities, createDeterministicReasoningProvider, validatePlan } from "@aevum/agent-planner";
-import { mcpTestConfig } from "../helpers/mcp-fixture.js";
-import { createToolRegistry, registerInitialTools } from "@aevum/mcp-server";
 import { ROLE_PERMISSIONS } from "@aevum/mcp-protocol";
+import { createToolRegistry, registerInitialTools } from "@aevum/mcp-server";
 import { describe, expect, it } from "vitest";
+import { mcpTestConfig } from "../helpers/mcp-fixture.js";
 
 const NOW = "2026-08-09T12:00:00.000Z";
 
@@ -334,5 +334,134 @@ describe("agent planner", () => {
     expect(plan.steps.filter((entry) => entry.type === "VERIFY")).toHaveLength(1);
     expect(plan.steps.at(-1)?.type).toBe("VERIFY");
     expect(validatePlan(plan).valid).toBe(true);
+  });
+});
+
+describe("compound multi-operation edit planner (Block E, E1/E3)", () => {
+  function compoundGoal(prompt: string) {
+    return createAgentGoal({
+      category: "EDIT",
+      request: prompt.trim().length > 0 ? prompt : "(empty compound edit prompt)",
+      parameters: { operation: "compound_edit", prompt },
+    });
+  }
+
+  it("builds a real, dependency-ordered plan for a two-clause prompt: one plain resize, one recolor needing a fresh token", () => {
+    const fixture = plannerFixture();
+    const goal = compoundGoal("make the headline bigger and change the background to orange");
+    const session = createAgentSession({
+      actorId: "actor",
+      workspaceId: "workspace",
+      projectId: "project",
+      documentId: "document",
+      goal,
+      createdAt: NOW,
+    });
+    const provider = createDeterministicReasoningProvider();
+    const intent = provider.analyzeIntent({ session, context: fixture.context });
+    expect(intent.ambiguities).toEqual([]);
+    const plan = provider.generatePlan({
+      session,
+      intent,
+      context: fixture.context,
+      capabilities: fixture.capabilities,
+    });
+    expect(plan.capabilityGaps).toEqual([]);
+    expect(validatePlan(plan).valid).toBe(true);
+
+    const tools = plan.steps.map((entry) => entry.tool).filter(Boolean);
+    // read -> analyze (no tool) -> resize dry/write (clause 1, no token) -> token dry/write then
+    // recolor dry/write (clause 2, needs a token) -> COMPLETE (no tool).
+    expect(tools).toEqual([
+      "document.get",
+      "node.update",
+      "node.update",
+      "token.register",
+      "token.register",
+      "node.update",
+      "node.update",
+    ]);
+    const [read, analyze, resizeDry, resizeWrite, tokenDry, tokenWrite, recolorDry, recolorWrite, verify, complete] =
+      plan.steps;
+    expect(analyze?.type).toBe("ANALYZE");
+    expect(resizeDry?.dependencies).toEqual([analyze?.id]);
+    expect(resizeWrite?.dependencies).toEqual([resizeDry?.id]);
+    // The token registration for clause 2 depends on the SHARED analyze step, not on clause 1's
+    // write — the two clauses target different real nodes and don't need to serialize on each
+    // other's resolution, only on the document version each write actually produces.
+    expect(tokenDry?.dependencies).toEqual([analyze?.id]);
+    expect(tokenWrite?.dependencies).toEqual([tokenDry?.id]);
+    // The real "create/update token -> update paint" dependency chain (E3): the recolor write
+    // cannot run before its own token is registered.
+    expect(recolorDry?.dependencies).toEqual([tokenWrite?.id]);
+    expect(recolorWrite?.dependencies).toEqual([recolorDry?.id]);
+    // Sequential optimistic-concurrency chaining: clause 2's writes bind expectedDocumentVersion
+    // from the PRECEDING write's own real result, never straight back to the original read, so a
+    // second clause's write does not fail with a stale-version conflict the moment the first
+    // clause's write actually commits.
+    const versionBinding = (entry: (typeof plan.steps)[number] | undefined) =>
+      entry?.inputBindings.find((binding) => binding.targetPath === "expectedDocumentVersion");
+    expect(versionBinding(resizeDry)).toMatchObject({ sourceStepId: read?.id, sourcePath: "data.documentVersion" });
+    expect(versionBinding(tokenDry)).toMatchObject({ sourceStepId: resizeWrite?.id, sourcePath: "data.resultVersion" });
+    expect(versionBinding(recolorDry)).toMatchObject({
+      sourceStepId: tokenWrite?.id,
+      sourcePath: "data.resultVersion",
+    });
+    expect(verify?.type).toBe("VERIFY");
+    expect(verify?.verificationRequirement.assertions).toEqual([
+      { sourceStepId: resizeWrite?.id, operator: "SUCCESS" },
+      { sourceStepId: recolorWrite?.id, operator: "SUCCESS" },
+    ]);
+    expect(complete?.type).toBe("COMPLETE");
+  });
+
+  it("blocks before planning with a real ambiguity diagnostic for an empty or fully unclassifiable prompt", () => {
+    const fixture = plannerFixture();
+    for (const prompt of ["", "juggle the flamingo"]) {
+      const goal = compoundGoal(prompt);
+      const session = createAgentSession({
+        actorId: "actor",
+        workspaceId: "workspace",
+        projectId: "project",
+        documentId: "document",
+        goal,
+        createdAt: NOW,
+      });
+      const provider = createDeterministicReasoningProvider();
+      const intent = provider.analyzeIntent({ session, context: fixture.context });
+      expect(intent.ambiguities.length, prompt).toBeGreaterThan(0);
+    }
+  });
+
+  it("reports a real, honest capability gap — never a fabricated success — when token.register is unavailable", () => {
+    const fixture = plannerFixture();
+    const goal = compoundGoal("make the headline bigger");
+    const session = createAgentSession({
+      actorId: "actor",
+      workspaceId: "workspace",
+      projectId: "project",
+      documentId: "document",
+      goal,
+      createdAt: NOW,
+    });
+    const withoutTokenRegister = createAgentCapabilities(
+      fixture.capabilities.tools.map((tool) => (tool.name === "token.register" ? { ...tool, enabled: false } : tool)),
+      fixture.capabilities.actorPermissions,
+    );
+    const provider = createDeterministicReasoningProvider();
+    const intent = provider.analyzeIntent({ session, context: fixture.context });
+    const plan = provider.generatePlan({
+      session,
+      intent,
+      context: fixture.context,
+      capabilities: withoutTokenRegister,
+    });
+    expect(plan.capabilityGaps).toEqual([
+      expect.objectContaining({ capability: "token.register", reason: "UNAVAILABLE" }),
+    ]);
+    // A capability gap replaces the real plan with an honest "report capability gap" step —
+    // never a plan that pretends to proceed anyway.
+    expect(plan.steps).toHaveLength(1);
+    expect(plan.steps[0]?.type).toBe("COMPLETE");
   });
 });

@@ -1,16 +1,17 @@
-import { createAgentMcpClient, createInProcessMcpTransport, type AgentMcpClient } from "@aevum/agent-runtime/client";
 import type { AgentApprovalPolicy } from "@aevum/agent-core";
+import { type AgentMcpClient, createAgentMcpClient, createInProcessMcpTransport } from "@aevum/agent-runtime/client";
 import { CURRENT_COMMAND_VERSION } from "@aevum/command-engine";
-import { CURRENT_SCHEMA_VERSION, type CanonicalDesignDocument, type DesignNode } from "@aevum/document-model";
+import { type CanonicalDesignDocument, CURRENT_SCHEMA_VERSION, type DesignNode } from "@aevum/document-model";
 import {
   MCP_PROTOCOL_VERSION,
   MCP_TOOL_VERSION,
+  type McpPermission,
   McpRequestEnvelopeSchema,
   McpResponseEnvelopeSchema,
+  type McpToolDescriptor,
   NodeDeleteInputSchema,
   NodeUpdateInputSchema,
-  type McpPermission,
-  type McpToolDescriptor,
+  TokenRegisterInputSchema,
 } from "@aevum/mcp-protocol";
 import type { StudioSession } from "./session.js";
 
@@ -64,7 +65,7 @@ function documentSummary(document: CanonicalDesignDocument) {
 }
 
 function toolDescriptor(
-  name: "system.get_capabilities" | "document.get" | "node.update" | "node.delete",
+  name: "system.get_capabilities" | "document.get" | "node.update" | "node.delete" | "token.register",
   permissions: readonly McpPermission[],
   classification: "READ" | "WRITE",
 ): McpToolDescriptor {
@@ -86,9 +87,9 @@ function toolDescriptor(
 
 /**
  * A local, in-process StudioAgentContext for Studio's dev fixture (no production MCP server
- * available). Supports exactly the tools the deterministic node-edit and node-delete plans need
- * (system.get_capabilities, document.get, node.update, node.delete) — anything else fails honestly
- * rather than being silently faked.
+ * available). Supports exactly the tools the deterministic node-edit, node-delete, and compound
+ * multi-operation edit plans need (system.get_capabilities, document.get, node.update, node.delete,
+ * token.register) — anything else fails honestly rather than being silently faked.
  */
 export function createDeterministicStudioAgentContext(input: {
   readonly session: StudioSession;
@@ -103,6 +104,7 @@ export function createDeterministicStudioAgentContext(input: {
     toolDescriptor("document.get", ["document.read"], "READ"),
     toolDescriptor("node.update", ["document.write"], "WRITE"),
     toolDescriptor("node.delete", ["document.write"], "WRITE"),
+    toolDescriptor("token.register", ["document.write"], "WRITE"),
   ];
   const transport = createInProcessMcpTransport(async ({ request }) => {
     const envelope = McpRequestEnvelopeSchema.parse(request);
@@ -161,6 +163,24 @@ export function createDeterministicStudioAgentContext(input: {
 
     if (envelope.tool === "document.get") {
       const document = input.session.getSnapshot().document;
+      const projection = (envelope.input as { projection?: string } | undefined)?.projection;
+      if (projection === "full") {
+        // The compound multi-operation edit plan (Block E) reads the whole document to resolve
+        // several independent targets by name/type — the same flat shape the real MCP server's
+        // document.get returns for this projection (`data` IS the document, not a subtree wrapper).
+        return McpResponseEnvelopeSchema.parse({
+          protocolVersion: MCP_PROTOCOL_VERSION,
+          success: true,
+          requestId: envelope.requestId,
+          correlationId: envelope.correlationId,
+          tool: envelope.tool,
+          data: document,
+          warnings: [],
+          errors: [],
+          documentVersion: document.documentVersion,
+          durationMs: 0,
+        });
+      }
       const nodeId = (envelope.input as { nodeId?: string } | undefined)?.nodeId;
       if (!nodeId || !document.nodes[nodeId]) return fail("MCP_INPUT_INVALID", "A valid nodeId is required.");
       return McpResponseEnvelopeSchema.parse({
@@ -177,7 +197,7 @@ export function createDeterministicStudioAgentContext(input: {
       });
     }
 
-    if (envelope.tool !== "node.update" && envelope.tool !== "node.delete") {
+    if (envelope.tool !== "node.update" && envelope.tool !== "node.delete" && envelope.tool !== "token.register") {
       return fail("MCP_TOOL_NOT_FOUND", `Deterministic Studio provider does not expose ${envelope.tool}.`);
     }
     const actor = { id: input.actorId, type: "MCP_AGENT" as const, displayName: "AEVUM AI" };
@@ -192,12 +212,22 @@ export function createDeterministicStudioAgentContext(input: {
           ...(envelope.correlationId === undefined ? {} : { correlationId: envelope.correlationId }),
         });
       }
-    } else {
+    } else if (envelope.tool === "node.delete") {
       const del = NodeDeleteInputSchema.parse(envelope.input);
       expectedDocumentVersion = del.expectedDocumentVersion;
       if (!envelope.dryRun) {
         input.session.deleteNode(del.nodeId, {
           expectedDocumentVersion: del.expectedDocumentVersion,
+          actor,
+          ...(envelope.correlationId === undefined ? {} : { correlationId: envelope.correlationId }),
+        });
+      }
+    } else {
+      const register = TokenRegisterInputSchema.parse(envelope.input);
+      expectedDocumentVersion = register.expectedDocumentVersion;
+      if (!envelope.dryRun) {
+        input.session.registerToken(register.token, {
+          expectedDocumentVersion: register.expectedDocumentVersion,
           actor,
           ...(envelope.correlationId === undefined ? {} : { correlationId: envelope.correlationId }),
         });

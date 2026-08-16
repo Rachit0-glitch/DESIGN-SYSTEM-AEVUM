@@ -1,14 +1,19 @@
 import {
-  assembleAgentContext,
-  createWorkingMemory,
-  updateWorkingMemory,
   type AgentContextBudget,
   type AgentContextRecord,
   type AgentWorkingMemory,
+  assembleAgentContext,
+  createWorkingMemory,
+  updateWorkingMemory,
 } from "@aevum/agent-context";
 import {
   AgentApprovalRequestSchema,
+  type AgentAuditRecord,
+  type AgentDiagnostic,
+  type AgentObservation,
+  type AgentRun,
   AgentRunSchema,
+  type AgentSession,
   AgentSessionSchema,
   createAgentAuditRecord,
   createAgentObservation,
@@ -17,19 +22,15 @@ import {
   deterministicAgentId,
   deterministicIdempotencyKey,
   fingerprint,
-  type AgentAuditRecord,
-  type AgentDiagnostic,
-  type AgentObservation,
-  type AgentRun,
-  type AgentSession,
 } from "@aevum/agent-core";
 import {
-  createAgentCapabilities,
-  validatePlan,
   type AgentPlan,
   type AgentPlanStep,
   type AgentReasoningProvider,
+  createAgentCapabilities,
+  validatePlan,
 } from "@aevum/agent-planner";
+import { createEntityId } from "@aevum/document-model";
 import type { McpPermission, McpResponseEnvelope } from "@aevum/mcp-protocol";
 import type { AgentApprovalAdapter } from "./approval.js";
 import type { AgentMcpClient } from "./client.js";
@@ -120,9 +121,15 @@ function findPrecedingNodeSnapshot(
     const observation = observationByStep.get(id);
     if (candidate?.type === "READ" && observation?.success) {
       // observation.data is the full McpResponseEnvelope (see the TOOL_RESULT branch above, which
-      // stores the raw `response`) — the tool's actual payload is nested one level deeper.
-      const envelope = observation.data as { data?: { nodes?: Array<Record<string, unknown>> } } | undefined;
-      const node = envelope?.data?.nodes?.find((entry) => entry.id === nodeId);
+      // stores the raw `response`) — the tool's actual payload is nested one level deeper. A
+      // node-subtree projection's `nodes` is an array; a full-document projection's `nodes` (Block
+      // E's compound edit plan reads the whole document) is a record keyed by node id instead —
+      // both are real, valid document.get shapes, so both are checked.
+      const envelope = observation.data as
+        | { data?: { nodes?: Array<Record<string, unknown>> | Record<string, Record<string, unknown>> } }
+        | undefined;
+      const nodes = envelope?.data?.nodes;
+      const node = Array.isArray(nodes) ? nodes.find((entry) => entry.id === nodeId) : nodes?.[nodeId];
       if (node) return structuredClone(node);
     }
     if (candidate) queue.push(...candidate.dependencies);
@@ -276,7 +283,190 @@ function interpretNodeEditPrompt(input: Record<string, unknown>): Record<string,
   );
 }
 
+interface CompoundEditClauseInput {
+  readonly raw: string;
+  readonly targetKeyword: string | null;
+  readonly operation: "RESIZE" | "MOVE" | "RECOLOR_FILL" | "ADD_BORDER" | "RENAME";
+  readonly params: Record<string, unknown>;
+  readonly needsToken: boolean;
+}
+
+type CompoundNode = Record<string, unknown> & { readonly id: string };
+
+function nodeArea(node: CompoundNode): number {
+  const dims = node.dimensions as { width?: { value?: number }; height?: { value?: number } } | undefined;
+  return (dims?.width?.value ?? 0) * (dims?.height?.value ?? 0);
+}
+
+function nodeMaxFontSize(node: CompoundNode): number {
+  const runs = node.runs as Array<{ style?: { size?: { value?: number } } }> | undefined;
+  if (!runs?.length) return 0;
+  return Math.max(...runs.map((run) => run.style?.size?.value ?? 0));
+}
+
+/**
+ * Real, document-aware target resolution (Block E, E2) — "the headline" resolves against the
+ * ACTUAL current document's real node names/types/content, never a blind guess. Name substring
+ * match wins first (most reliable, most literal); a small set of type-synonym fallbacks (real
+ * document data: node type + computed area/font-size, not fabricated) covers common design nouns
+ * that rarely appear literally in a node's name. Throws — honestly, listing the exact keyword that
+ * failed — rather than guessing when nothing plausible exists.
+ */
+function resolveCompoundEditTarget(
+  nodes: readonly CompoundNode[],
+  keyword: string | null,
+  previousNodeId: string | undefined,
+): CompoundNode {
+  if (!keyword) {
+    const previous = previousNodeId ? nodes.find((node) => node.id === previousNodeId) : undefined;
+    if (!previous) {
+      throw new Error("A clause has no named target and there is no earlier resolved target to continue from.");
+    }
+    return previous;
+  }
+  const lower = keyword.toLowerCase();
+  const byName = nodes.find(
+    (node) => typeof node.name === "string" && (node.name as string).toLowerCase().includes(lower),
+  );
+  if (byName) return byName;
+  const byArea = (order: 1 | -1) => (a: CompoundNode, b: CompoundNode) =>
+    order * (nodeArea(b) - nodeArea(a)) || a.id.localeCompare(b.id);
+  if (["product", "image", "photo", "picture", "logo"].includes(lower)) {
+    const [match] = nodes.filter((node) => node.type === "IMAGE").sort(byArea(1));
+    if (match) return match;
+  }
+  if (lower === "headline" || lower === "title") {
+    const [match] = nodes
+      .filter((node) => node.type === "TEXT")
+      .sort((a, b) => nodeMaxFontSize(b) - nodeMaxFontSize(a) || a.id.localeCompare(b.id));
+    if (match) return match;
+  }
+  if (["text", "body", "copy"].includes(lower)) {
+    const [match] = nodes
+      .filter((node) => node.type === "TEXT")
+      .sort((a, b) => nodeMaxFontSize(a) - nodeMaxFontSize(b) || a.id.localeCompare(b.id));
+    if (match) return match;
+  }
+  if (["background", "backdrop", "frame", "card"].includes(lower)) {
+    const [match] = nodes.filter((node) => node.type === "SHAPE" || node.type === "FRAME").sort(byArea(1));
+    if (match) return match;
+  }
+  if (lower === "button") {
+    const [match] = nodes.filter((node) => node.type === "SHAPE").sort(byArea(-1));
+    if (match) return match;
+  }
+  throw new Error(`Could not resolve target "${keyword}" to any node in the current document.`);
+}
+
+function compoundEditColorToken(color: { r: number; g: number; b: number }): {
+  readonly id: string;
+  readonly name: string;
+  readonly type: "COLOR";
+  readonly value: { r: number; g: number; b: number; a: number; colorSpace: "SRGB" };
+} {
+  const id = createEntityId("token");
+  return {
+    id,
+    name: `color.compound-edit.${id.slice(-8)}`,
+    type: "COLOR",
+    value: { r: color.r / 255, g: color.g / 255, b: color.b / 255, a: 1, colorSpace: "SRGB" },
+  };
+}
+
+/** Real, per-operation-kind changes computed from the resolved node's ACTUAL current state — the
+ * same "read the real value, then compute the new one" discipline interpretNodeEditPrompt already
+ * established, just covering more operation kinds (recolor, border) that a single-node edit never
+ * needed. Never a hardcoded/fabricated change; every branch throws honestly when the resolved
+ * node's real state can't support the requested operation (e.g. resizing a node with no
+ * dimensions, or adding a stroke to a non-SHAPE node). */
+function computeCompoundEditChanges(
+  node: CompoundNode,
+  clause: CompoundEditClauseInput,
+): { changes: Record<string, unknown>; tokenToRegister: unknown } {
+  if (clause.operation === "RENAME") {
+    return { changes: { name: clause.params.name }, tokenToRegister: null };
+  }
+  if (clause.operation === "RESIZE") {
+    const dims = node.dimensions as { width?: { value?: number }; height?: { value?: number } } | undefined;
+    if (!dims?.width || !dims.height || typeof dims.width.value !== "number" || typeof dims.height.value !== "number") {
+      throw new Error(`"${clause.raw}" targets a node with no dimensions to resize.`);
+    }
+    const factor = Number(clause.params.factor) || 1;
+    return {
+      changes: {
+        dimensions: {
+          ...dims,
+          width: { ...dims.width, value: Math.round(dims.width.value * factor) },
+          height: { ...dims.height, value: Math.round(dims.height.value * factor) },
+        },
+      },
+      tokenToRegister: null,
+    };
+  }
+  if (clause.operation === "MOVE") {
+    const transform = node.transform as { position?: { x?: number; y?: number } } | undefined;
+    if (!transform?.position || typeof transform.position.x !== "number" || typeof transform.position.y !== "number") {
+      throw new Error(`"${clause.raw}" targets a node with no transform to move.`);
+    }
+    const { x, y } = transform.position;
+    const direction = String(clause.params.direction);
+    const distance = Number(clause.params.distance) || 20;
+    const isHorizontal = direction === "left" || direction === "right";
+    const sign = direction === "left" || direction === "up" ? -1 : 1;
+    const nextPosition = isHorizontal ? { x: x + distance * sign, y } : { x, y: y + distance * sign };
+    return {
+      changes: { transform: { ...transform, position: { ...transform.position, ...nextPosition } } },
+      tokenToRegister: null,
+    };
+  }
+  if (clause.operation === "RECOLOR_FILL") {
+    if (node.type !== "SHAPE" && node.type !== "TEXT") {
+      throw new Error(`"${clause.raw}" targets a ${String(node.type)} node, which has no fill to recolor.`);
+    }
+    const token = compoundEditColorToken(clause.params.color as { r: number; g: number; b: number });
+    if (node.type === "SHAPE") {
+      return { changes: { fillTokenId: token.id }, tokenToRegister: token };
+    }
+    const runs = (node.runs as Array<{ start: number; end: number; style: Record<string, unknown> }>).map((run) => ({
+      ...run,
+      style: { ...run.style, fillTokenId: token.id },
+    }));
+    return { changes: { runs }, tokenToRegister: token };
+  }
+  if (clause.operation === "ADD_BORDER") {
+    if (node.type !== "SHAPE") {
+      throw new Error(`"${clause.raw}" targets a ${String(node.type)} node; only SHAPE nodes support a stroke.`);
+    }
+    const token = compoundEditColorToken(clause.params.color as { r: number; g: number; b: number });
+    const width = Number(clause.params.width) || 1;
+    const geometry = (node.geometry as Record<string, unknown> | undefined) ?? {};
+    const stroke = (geometry.stroke as Record<string, unknown> | undefined) ?? {};
+    return {
+      changes: { strokeTokenId: token.id, geometry: { ...geometry, stroke: { ...stroke, width } } },
+      tokenToRegister: token,
+    };
+  }
+  throw new Error(`"${clause.raw}" uses an unsupported compound edit operation.`);
+}
+
+function resolveCompoundEdit(input: Record<string, unknown>): Record<string, unknown> {
+  const source = input.source as { nodes?: Record<string, CompoundNode> } | undefined;
+  const nodes = Object.values(source?.nodes ?? {});
+  if (nodes.length === 0) throw new Error("The current document has no nodes to target.");
+  const clauses = (input.clauses ?? []) as readonly CompoundEditClauseInput[];
+  if (clauses.length === 0) throw new Error("No compound edit clauses were provided to resolve.");
+  let previousNodeId: string | undefined;
+  const resolved = clauses.map((clause) => {
+    const node = resolveCompoundEditTarget(nodes, clause.targetKeyword, previousNodeId);
+    previousNodeId = node.id;
+    const { changes, tokenToRegister } = computeCompoundEditChanges(node, clause);
+    return { nodeId: node.id, changes, tokenToRegister };
+  });
+  return { resolved };
+}
+
 function analyzeStep(input: Record<string, unknown>): Record<string, unknown> {
+  if (input.operation === "RESOLVE_COMPOUND_EDIT") return resolveCompoundEdit(input);
   if (input.operation === "INTERPRET_NODE_EDIT_PROMPT") return interpretNodeEditPrompt(input);
   if (input.operation === "NODE_OFFSET_Y") {
     const source = input.source as { nodes?: Array<Record<string, unknown>> } | undefined;

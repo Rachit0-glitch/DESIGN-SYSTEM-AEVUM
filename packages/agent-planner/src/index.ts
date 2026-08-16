@@ -1,6 +1,12 @@
 import type { PackageContract } from "@aevum/shared";
 
 export {
+  type CompoundEditClause,
+  type CompoundEditOperationKind,
+  type CompoundEditParseResult,
+  parseCompoundEditClauses,
+} from "./compound-edit.js";
+export {
   createAgentCapabilities,
   createDeterministicReasoningProvider,
   generateDeterministicPlan,

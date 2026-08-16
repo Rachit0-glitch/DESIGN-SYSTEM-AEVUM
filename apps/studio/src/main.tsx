@@ -1,7 +1,12 @@
+import { createAgentGoal, createAgentSession } from "@aevum/agent-core";
+import { createDeterministicReasoningProvider } from "@aevum/agent-planner";
+import { createAgentEngine, createInMemoryAgentPersistence } from "@aevum/agent-runtime";
+import { CanonicalDesignDocumentSchema, type DesignNode } from "@aevum/document-model";
+import type { RenderGraphNode, RenderPaint } from "@aevum/renderer-2d";
+import type { Session, SupabaseClient } from "@supabase/supabase-js";
 import {
   AlignCenter,
   AppWindow,
-  PackageOpen,
   Bot,
   Box,
   ChevronDown,
@@ -16,6 +21,7 @@ import {
   Menu,
   Monitor,
   MousePointer2,
+  PackageOpen,
   PanelBottom,
   Pause,
   Play,
@@ -47,15 +53,9 @@ import React, {
   useState,
   useSyncExternalStore,
 } from "react";
-import type { Session, SupabaseClient } from "@supabase/supabase-js";
-import { CanonicalDesignDocumentSchema, type DesignNode } from "@aevum/document-model";
-import type { RenderGraphNode, RenderPaint } from "@aevum/renderer-2d";
-import { createAgentGoal, createAgentSession } from "@aevum/agent-core";
-import { createDeterministicReasoningProvider } from "@aevum/agent-planner";
-import { createAgentEngine, createInMemoryAgentPersistence } from "@aevum/agent-runtime";
+import { createDeterministicStudioAgentContext, type StudioAgentContext } from "./core/agent.js";
 import { createInteractiveApprovalAdapter, type StudioPendingApproval } from "./core/approval.js";
 import { createStudioProjectFixture, studioFixtureIds } from "./core/fixture.js";
-import { createDeterministicStudioAgentContext, type StudioAgentContext } from "./core/agent.js";
 import {
   createStudioAuthClient,
   loadProductionStudioProject,
@@ -65,10 +65,10 @@ import {
 import { createStudioSession, type StudioSession, type StudioSessionSnapshot } from "./core/session.js";
 import {
   createStudioTransientState,
-  snapValue,
   type StudioPanel,
   type StudioTool,
   type StudioWorkspace,
+  snapValue,
 } from "./core/studio-state.js";
 import "./styles.css";
 
@@ -700,14 +700,25 @@ function AiPanel({
   const [pendingApproval, setPendingApproval] = useState<StudioPendingApproval | undefined>(undefined);
   const approvalControllerRef = useRef<ReturnType<typeof createInteractiveApprovalAdapter> | undefined>(undefined);
   const run = async () => {
-    const nodeId = selected[0] ?? snapshot.document.rootNodeIds[0] ?? "";
-    const node = snapshot.document.nodes[nodeId];
-    if (!node || node.locked || !prompt.trim()) {
+    if (!prompt.trim()) {
+      setStage("FAILED");
+      setActions(["Enter an instruction."]);
+      return;
+    }
+    // With a layer selected, edit that one node — exactly as before (Block D4). With NOTHING
+    // selected, "Document context" (the label already shown below) becomes real: the prompt is
+    // handed to the compound multi-operation planner (Block E), which resolves each of its own
+    // clauses' targets from the actual current document instead of silently falling back to the
+    // first root node, as this used to do.
+    const compoundMode = selected.length === 0;
+    const nodeId = selected[0] ?? "";
+    const node = compoundMode ? undefined : snapshot.document.nodes[nodeId];
+    if (!compoundMode && (!node || node.locked)) {
       setStage("FAILED");
       setActions([node?.locked ? "Selected node is locked." : "Select an editable layer and enter an instruction."]);
       return;
     }
-    onSelect(nodeId, false);
+    if (!compoundMode) onSelect(nodeId, false);
     const viewport = snapshot.document.settings.viewports[snapshot.viewportId];
     setStage("RUNNING");
     setActions([]);
@@ -720,14 +731,18 @@ function AiPanel({
       // A delete-shaped prompt (Block D cleanup, Issue 2) instead routes to the planner's existing
       // deletePlan — a destructive write that always requires real approval — rather than through
       // the update interpreter, which has no delete operation.
-      const deleteRequested = isDeletePrompt(prompt);
+      const deleteRequested = !compoundMode && isDeletePrompt(prompt);
       const goal = createAgentGoal({
         category: "EDIT",
         request: prompt,
         targetProjectId: agentContext.projectId,
         targetDocumentId: agentContext.documentId,
-        targetNodeIds: [nodeId],
-        parameters: deleteRequested ? { operation: "delete" } : { prompt, viewportWidth: viewport?.width ?? 1440 },
+        targetNodeIds: compoundMode ? [] : [nodeId],
+        parameters: compoundMode
+          ? { operation: "compound_edit", prompt }
+          : deleteRequested
+            ? { operation: "delete" }
+            : { prompt, viewportWidth: viewport?.width ?? 1440 },
       });
       const agentSession = createAgentSession({
         actorId: agentContext.actorId,
@@ -780,24 +795,46 @@ function AiPanel({
       // from a real document.get read — the server's actual result, not a locally re-derived
       // guess (Block D4: the interpreted changes are no longer known to Studio at all, since the
       // real planner computed them server-side). In LOCAL (dev-fixture) mode the in-process
-      // transport already applied it via session.updateNode as part of simulating the tool call.
-      let afterNode = session.getSnapshot().document.nodes[nodeId];
+      // transport already applied it via session.updateNode/registerToken as part of simulating
+      // each tool call.
+      let afterNode = compoundMode ? undefined : session.getSnapshot().document.nodes[nodeId];
       if (session.mode === "REMOTE") {
         const read = await agentContext.createMcpClient(correlationId).invoke("document.get", { projection: "full" });
         if (read.success && read.data !== undefined) {
           const document = CanonicalDesignDocumentSchema.parse(read.data);
           session.resyncDocument(document);
-          afterNode = document.nodes[nodeId];
+          afterNode = compoundMode ? undefined : document.nodes[nodeId];
         }
       }
       const toolSteps = result.audits.filter((entry) => entry.tool && entry.tool !== "system.get_capabilities");
+      if (compoundMode) {
+        // No single before/after node to diff — report the real, observed set of committed writes
+        // instead (each already tool + outcome, from the actual engine run, not guessed). Counts
+        // only COMMITTED writes, not their preceding dry-runs — both share the same tool name in
+        // this audit list, so counting by tool alone would double the real number of changes.
+        const updatedCount = toolSteps.filter(
+          (entry) => entry.tool === "node.update" && entry.writeStatus === "COMMITTED",
+        ).length;
+        const tokenCount = toolSteps.filter(
+          (entry) => entry.tool === "token.register" && entry.writeStatus === "COMMITTED",
+        ).length;
+        setActions([
+          `Applied ${updatedCount} layer change${updatedCount === 1 ? "" : "s"}` +
+            (tokenCount > 0 ? ` (registered ${tokenCount} new color token${tokenCount === 1 ? "" : "s"})` : ""),
+          ...toolSteps.map((entry) => `${entry.tool} — ${entry.toolResult.toLowerCase()}`),
+          `Canonical document advanced to v${result.run.outcome?.finalDocumentVersion ?? snapshot.document.documentVersion + 1}`,
+        ]);
+        setStage("COMPLETE");
+        setPrompt("");
+        return;
+      }
       // A delete is reported from the real, observed tool call (never inferred from afterNode being
       // undefined, which could also mean a resync race) — and clears selection, since the selected
       // node genuinely no longer exists.
       const wasDelete = toolSteps.some((entry) => entry.tool === "node.delete");
       if (wasDelete) onSelect("", false);
       setActions([
-        wasDelete ? `Deleted "${node.name}"` : summarizeNodeChange(node, afterNode),
+        wasDelete ? `Deleted "${node?.name}"` : summarizeNodeChange(node as DesignNode, afterNode),
         ...toolSteps.map((entry) => `${entry.tool} — ${entry.toolResult.toLowerCase()}`),
         `Canonical document advanced to v${result.run.outcome?.finalDocumentVersion ?? snapshot.document.documentVersion + 1}`,
       ]);

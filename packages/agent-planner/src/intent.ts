@@ -1,6 +1,7 @@
-import { deepFreeze, deterministicAgentId, fingerprint, type AgentSession } from "@aevum/agent-core";
 import type { AgentContextBundle } from "@aevum/agent-context";
-import { AgentIntentSchema, type AgentIntent } from "./schemas.js";
+import { type AgentSession, deepFreeze, deterministicAgentId, fingerprint } from "@aevum/agent-core";
+import { parseCompoundEditClauses } from "./compound-edit.js";
+import { type AgentIntent, AgentIntentSchema } from "./schemas.js";
 
 function initialCapabilities(session: AgentSession): string[] {
   const goal = session.goal;
@@ -25,6 +26,14 @@ function initialCapabilities(session: AgentSession): string[] {
   }
   if (goal.parameters.operation === "reconstruct_and_import") {
     return ["three.multiview_analyze", "three.reconstruction_generate_candidate", "document.get", "three.import_scene"];
+  }
+  if (goal.parameters.operation === "compound_edit") {
+    // A single free-text prompt describing several independent operations across different,
+    // not-yet-known nodes ("make the headline larger, move the product right, ..."). Unlike the
+    // single-target EDIT path below, no node is preselected — document.get (full projection) lets
+    // the planner resolve every clause's real target from the actual current document, and
+    // node.update/token.register are the only write tools a compound edit can ever need.
+    return ["document.get", "node.update", "token.register"];
   }
   const lightingCapabilities: Readonly<Record<string, readonly string[]>> = {
     lighting_analyze_reference: ["lighting.analyze_reference"],
@@ -197,6 +206,7 @@ function requiredPermissions(capabilities: readonly string[]): AgentIntent["requ
       );
     }
     if (capability.startsWith("asset.")) permissions.add(capability === "asset.get" ? "asset.read" : "asset.write");
+    if (capability.startsWith("token.")) permissions.add("document.write");
     if (capability.startsWith("timeline."))
       permissions.add(capability === "timeline.get" ? "timeline.read" : "timeline.write");
     if (capability.startsWith("three.")) {
@@ -294,8 +304,27 @@ export function analyzeIntent(session: AgentSession, context: AgentContextBundle
   const ambiguities: string[] = [];
   if (["EDIT", "CREATE"].includes(session.goal.category) && !session.projectId)
     ambiguities.push("Target project is missing.");
-  if (session.goal.category === "EDIT" && session.goal.targetNodeIds.length === 0 && !session.goal.parameters.name) {
+  if (
+    session.goal.category === "EDIT" &&
+    session.goal.targetNodeIds.length === 0 &&
+    !session.goal.parameters.name &&
+    session.goal.parameters.operation !== "compound_edit"
+  ) {
     ambiguities.push("Edit target is not explicit.");
+  }
+  if (session.goal.parameters.operation === "compound_edit") {
+    const prompt = typeof session.goal.parameters.prompt === "string" ? session.goal.parameters.prompt : "";
+    if (prompt.trim().length === 0) {
+      ambiguities.push("Compound edit requires a non-empty prompt.");
+    } else {
+      // Pure text-level problems (no clauses at all, an unclassifiable clause, or a first clause
+      // with no target and nothing to inherit from) are decidable without a document read, so they
+      // block here, before planning even starts — exactly like every other declared ambiguity.
+      // Whether a resolved target keyword actually EXISTS in the real document can only be known
+      // once the plan's READ step has run; that failure surfaces later, honestly, from inside the
+      // RESOLVE_COMPOUND_EDIT analyze step itself (packages/agent-runtime/src/engine.ts).
+      ambiguities.push(...parseCompoundEditClauses(prompt).diagnostics);
+    }
   }
   if (session.goal.category === "CREATE" && !session.goal.parameters.node) {
     ambiguities.push("Canonical node payload is required for deterministic node creation.");

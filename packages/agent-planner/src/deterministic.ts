@@ -1,23 +1,24 @@
 import type { AgentContextBundle } from "@aevum/agent-context";
 import {
+  type AgentApprovalPolicy,
+  type AgentSession,
   createVerificationResult,
   deepFreeze,
   deterministicAgentId,
   fingerprint,
-  type AgentApprovalPolicy,
-  type AgentSession,
 } from "@aevum/agent-core";
 import type { McpToolDescriptor } from "@aevum/mcp-protocol";
+import { parseCompoundEditClauses } from "./compound-edit.js";
 import { analyzeIntent } from "./intent.js";
 import type { AgentReasoningProvider } from "./provider.js";
 import { classifyTool, requiresApproval } from "./safety.js";
 import {
-  AgentCapabilitiesSchema,
-  AgentPlanSchema,
   type AgentCapabilities,
+  AgentCapabilitiesSchema,
   type AgentCapabilityGap,
   type AgentIntent,
   type AgentPlan,
+  AgentPlanSchema,
   type AgentPlanStep,
   type AgentPlanStepType,
 } from "./schemas.js";
@@ -842,6 +843,173 @@ function nodeUpdatePlan(
       approvalPolicy: policy,
     }),
   ];
+}
+
+/**
+ * A single free-text prompt describing several independent operations against different,
+ * not-yet-known nodes ("make the headline larger, move the product slightly right, change the
+ * background to orange and add a thin black border") — Block E's compound multi-operation planner.
+ *
+ * Clause splitting and operation/target-keyword classification already happened, at
+ * plan-generation time, in parseCompoundEditClauses() — pure text analysis, no document needed —
+ * which is what lets this function emit a FIXED, known step graph before any real read happens.
+ * Every clause gets its own dry-run-then-write pair (a clause needing a new color gets a
+ * token.register dry-run/write pair first, the node's write depending on it — the real
+ * "create/update token -> update paint" dependency chain, not two independent, uncoordinated
+ * writes). Resolving each clause's target KEYWORD to a real node id, and computing the exact
+ * numeric/token changes from that node's real current state, happens in ONE shared ANALYZE step —
+ * RESOLVE_COMPOUND_EDIT (packages/agent-runtime/src/engine.ts) — bound to the real document the
+ * preceding READ step fetched. If any clause's target genuinely cannot be resolved in the real
+ * document, that analyze step throws and NOTHING downstream of it runs: no partial writes, an
+ * honest AGENT_STEP_FAILED diagnostic naming exactly which clause failed and why.
+ */
+function compoundEditPlan(
+  intent: AgentIntent,
+  capabilities: AgentCapabilities,
+  policy: AgentApprovalPolicy,
+): AgentPlanStep[] {
+  const prompt = typeof intent.parameters.prompt === "string" ? intent.parameters.prompt : "";
+  const { clauses } = parseCompoundEditClauses(prompt);
+  const read = step({
+    goalId: intent.goalId,
+    index: 0,
+    type: "READ",
+    label: "Read the current document",
+    tool: "document.get",
+    descriptor: findDescriptor(capabilities, "document.get"),
+    data: { projection: "full" },
+    approvalPolicy: policy,
+  });
+  const serializedClauses = clauses.map((clause) => ({
+    raw: clause.raw,
+    targetKeyword: clause.targetKeyword ?? null,
+    operation: clause.operation,
+    params: clause.params,
+    needsToken: clause.needsToken,
+  }));
+  const analyze = step({
+    goalId: intent.goalId,
+    index: 1,
+    type: "ANALYZE",
+    label: "Resolve every clause's real target node and compute its real changes",
+    dependencies: [read.id],
+    data: { operation: "RESOLVE_COMPOUND_EDIT", clauses: serializedClauses },
+    bindings: [{ targetPath: "source", sourceStepId: read.id, sourcePath: "data" }],
+    approvalPolicy: policy,
+  });
+  const tokenDescriptor = findDescriptor(capabilities, "token.register");
+  const nodeUpdateDescriptor = findDescriptor(capabilities, "node.update");
+  const steps: AgentPlanStep[] = [read, analyze];
+  const writeStepIds: string[] = [];
+  // Every clause writes to the SAME document, sequentially — each write's real, committed result
+  // version becomes the expectedDocumentVersion for whatever writes next, exactly like a real
+  // client chaining sequential optimistic-concurrency writes. Binding every clause's
+  // expectedDocumentVersion back to the original READ (as if they could all apply to the same
+  // starting version at once) would make every write after the first fail with a real version
+  // conflict the moment an earlier clause actually commits.
+  let versionSource: { readonly sourceStepId: string; readonly sourcePath: string } = {
+    sourceStepId: read.id,
+    sourcePath: "data.documentVersion",
+  };
+  clauses.forEach((clause, index) => {
+    let dependency = analyze.id;
+    if (clause.needsToken) {
+      const tokenData = { expectedDocumentVersion: 1, token: {} };
+      const tokenBindings: AgentPlanStep["inputBindings"] = [
+        { targetPath: "expectedDocumentVersion", ...versionSource },
+        { targetPath: "token", sourceStepId: analyze.id, sourcePath: `resolved.${index}.tokenToRegister` },
+      ];
+      const tokenDry = step({
+        goalId: intent.goalId,
+        index: steps.length,
+        type: "DRY_RUN",
+        label: `Dry-run registering a token for "${clause.raw}"`,
+        tool: "token.register",
+        descriptor: tokenDescriptor,
+        dependencies: [dependency],
+        data: tokenData,
+        bindings: tokenBindings,
+        approvalPolicy: policy,
+      });
+      steps.push(tokenDry);
+      const tokenWrite = step({
+        goalId: intent.goalId,
+        index: steps.length,
+        type: "WRITE",
+        label: `Register a token for "${clause.raw}"`,
+        tool: "token.register",
+        descriptor: tokenDescriptor,
+        dependencies: [tokenDry.id],
+        data: tokenData,
+        bindings: tokenBindings,
+        failurePolicy: "REPLAN",
+        approvalPolicy: policy,
+      });
+      steps.push(tokenWrite);
+      dependency = tokenWrite.id;
+      versionSource = { sourceStepId: tokenWrite.id, sourcePath: "data.resultVersion" };
+    }
+    const nodeData = { expectedDocumentVersion: 1, nodeId: "missing-node", changes: {} };
+    const nodeBindings: AgentPlanStep["inputBindings"] = [
+      { targetPath: "expectedDocumentVersion", ...versionSource },
+      { targetPath: "nodeId", sourceStepId: analyze.id, sourcePath: `resolved.${index}.nodeId` },
+      { targetPath: "changes", sourceStepId: analyze.id, sourcePath: `resolved.${index}.changes` },
+    ];
+    const nodeDry = step({
+      goalId: intent.goalId,
+      index: steps.length,
+      type: "DRY_RUN",
+      label: `Dry-run "${clause.raw}"`,
+      tool: "node.update",
+      descriptor: nodeUpdateDescriptor,
+      dependencies: [dependency],
+      data: nodeData,
+      bindings: nodeBindings,
+      approvalPolicy: policy,
+    });
+    steps.push(nodeDry);
+    const nodeWrite = step({
+      goalId: intent.goalId,
+      index: steps.length,
+      type: "WRITE",
+      label: `Commit "${clause.raw}"`,
+      tool: "node.update",
+      descriptor: nodeUpdateDescriptor,
+      dependencies: [nodeDry.id],
+      data: nodeData,
+      bindings: nodeBindings,
+      failurePolicy: "REPLAN",
+      approvalPolicy: policy,
+    });
+    steps.push(nodeWrite);
+    writeStepIds.push(nodeWrite.id);
+    versionSource = { sourceStepId: nodeWrite.id, sourcePath: "data.resultVersion" };
+  });
+  const verify = step({
+    goalId: intent.goalId,
+    index: steps.length,
+    type: "VERIFY",
+    label: "Verify every clause committed",
+    dependencies: writeStepIds,
+    approvalPolicy: policy,
+    verification: {
+      required: true,
+      strategy: "STATE_ASSERTION",
+      assertions: writeStepIds.map((id) => ({ sourceStepId: id, operator: "SUCCESS" as const })),
+    },
+  });
+  steps.push(verify);
+  steps.push(
+    step({
+      goalId: intent.goalId,
+      index: steps.length,
+      type: "COMPLETE",
+      label: "Complete compound edit",
+      dependencies: [verify.id],
+      approvalPolicy: policy,
+    }),
+  );
+  return steps;
 }
 
 function threeTransformPlan(
@@ -1796,6 +1964,8 @@ export function generateDeterministicPlan(input: {
     steps = riggingPlan(input.intent, input.capabilities, policy);
   } else if (input.intent.category === "INSPECT" || input.intent.category === "PROJECT") {
     steps = inspectPlan(input.intent, input.capabilities, policy);
+  } else if (operation === "compound_edit") {
+    steps = compoundEditPlan(input.intent, input.capabilities, policy);
   } else if (operation === "delete" || input.intent.requiredCapabilities.includes("node.delete")) {
     steps = deletePlan(input.intent, input.capabilities, policy);
   } else if (input.intent.category === "EDIT" && input.intent.targetNodeIds.length > 0) {
