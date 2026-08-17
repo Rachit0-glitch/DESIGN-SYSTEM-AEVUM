@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { CanonicalDesignDocumentSchema, type AssetRecord } from "@aevum/document-model";
+import { migrate, type AssetRecord } from "@aevum/document-model";
 import type { AssetStorageAdapter, StoreAssetRequest, StoredAssetObject } from "@aevum/assets";
 import {
   PersistedIdempotencyRecordSchema,
@@ -157,7 +157,13 @@ export function createSupabaseProjectRepository(options: SupabaseProjectReposito
         .eq("project_id", projectId)
         .maybeSingle();
       if (error) persistenceError("Current document lookup failed", error);
-      return data ? CanonicalDesignDocumentSchema.parse(data.content) : null;
+      // Real historical documents can be persisted at an older schema/migration version than
+      // CURRENT_SCHEMA_VERSION -- a plain schema parse tolerates that (extra/missing optional
+      // fields), but every consumer (project-store's own createProjectStore, the command engine,
+      // Studio) requires an exact version match. Without this, any document created before the
+      // most recent schema bump permanently fails to load with no upgrade path (found live in
+      // production: Block H16).
+      return data ? migrate(data.content as Record<string, unknown>) : null;
     },
     async getDocumentVersion(workspaceId, projectId, documentId, version) {
       const { data, error } = await client
@@ -169,7 +175,13 @@ export function createSupabaseProjectRepository(options: SupabaseProjectReposito
         .eq("version", version)
         .maybeSingle();
       if (error) persistenceError("Document version lookup failed", error);
-      return data ? CanonicalDesignDocumentSchema.parse(data.content) : null;
+      // Real historical documents can be persisted at an older schema/migration version than
+      // CURRENT_SCHEMA_VERSION -- a plain schema parse tolerates that (extra/missing optional
+      // fields), but every consumer (project-store's own createProjectStore, the command engine,
+      // Studio) requires an exact version match. Without this, any document created before the
+      // most recent schema bump permanently fails to load with no upgrade path (found live in
+      // production: Block H16).
+      return data ? migrate(data.content as Record<string, unknown>) : null;
     },
     async listDocumentVersions(workspaceId, projectId, documentId, options) {
       let query = client

@@ -91,9 +91,20 @@ describe("MCP HTTP transport", () => {
     expect(initializeBody).toMatchObject({ result: { capabilities: { tools: {} } } });
 
     const listed = await call({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
-    const listBody = (await listed.json()) as { result: { tools: Array<{ name: string; inputSchema: unknown }> } };
+    const listBody = (await listed.json()) as {
+      result: { tools: Array<{ name: string; inputSchema: unknown; outputSchema?: { type?: unknown } }> };
+    };
     expect(listBody.result.tools.some((tool) => tool.name === "document.get")).toBe(true);
     expect(listBody.result.tools.find((tool) => tool.name === "document.rename")?.inputSchema).toBeDefined();
+
+    // Real MCP clients (Claude Code's CLI, found live -- Block H16) reject the ENTIRE tools/list
+    // response if any single tool's outputSchema isn't an object-rooted JSON Schema. document.get's
+    // real output is a genuine union of three shapes (summary/full/subtree, by `projection`), so its
+    // rendered JSON Schema is a bare `anyOf` with no top-level `type: "object"` -- outputSchema must
+    // be omitted for it rather than advertised broken, since it's optional per spec.
+    for (const tool of listBody.result.tools) {
+      if (tool.outputSchema !== undefined) expect(tool.outputSchema.type, tool.name).toBe("object");
+    }
 
     const read = await call({
       jsonrpc: "2.0",

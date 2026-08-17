@@ -170,7 +170,16 @@ async function executeStreamableMcp(input: {
                 : {}),
             },
           },
-          ...(schema ? { outputSchema: z.toJSONSchema(schema.output) } : {}),
+          // MCP requires outputSchema, when present, to be an object-rooted JSON Schema. A handful
+          // of real tool outputs (e.g. document.get's projection-dependent union of summary/full/
+          // subtree shapes) are legitimately not a single object at the top level; z.toJSONSchema
+          // renders those as a bare `anyOf` with no `type: "object"`, which a strict MCP client
+          // (found live: Claude Code's own CLI) rejects outright for the whole tools/list response,
+          // not just that tool. outputSchema is optional per spec, so omit it rather than advertise
+          // a non-compliant one -- the tool's actual response is unaffected either way.
+          ...(schema && (z.toJSONSchema(schema.output) as { type?: unknown }).type === "object"
+            ? { outputSchema: z.toJSONSchema(schema.output) }
+            : {}),
           annotations: {
             readOnlyHint: tool.classification === "READ",
             destructiveHint: tool.name.includes("delete"),
